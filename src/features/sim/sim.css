@@ -1,0 +1,12 @@
+.sim { display: flex; flex-direction: column; gap: 12px; }
+.sim .card { display: flex; flex-direction: column; gap: 8px; }
+.sim-head { justify-content: space-between; flex-wrap: wrap; }
+.sim-layers { display: flex; gap: 10px; font-size: 12px; }
+.sim-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.sim-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sim-chips .chip { cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--text); }
+.sim-note { font-size: 12px; margin: 0; }
+.sim-list li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sim-ok { color: var(--ok); margin: 0; }
+.sim-bad { color: var(--bad); margin: 0; }
+.sim-stats { display: grid; gap: 4px; }
