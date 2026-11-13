@@ -1,0 +1,12 @@
+.export { display: grid; gap: 10px; }
+.export-card { display: grid; gap: 8px; }
+.export-card p { margin: 0; }
+.export-head { display: flex; align-items: center; gap: 8px; }
+.export-head b { margin-right: auto; }
+.export-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; max-height: 260px; overflow: hidden; }
+.export-preview svg { width: 100%; height: auto; max-height: 260px; display: block; }
+.export-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.export-table td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.export-table td:not(:first-child) { text-align: right; }
+.export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.export-rates input { width: 100%; }
