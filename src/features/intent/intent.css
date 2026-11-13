@@ -1,0 +1,18 @@
+.intent { display: flex; flex-direction: column; gap: 10px; }
+.intent-text { width: 100%; resize: vertical; min-height: 84px; font: inherit; }
+.intent-examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.intent-examples .chip { cursor: pointer; text-align: left; white-space: normal; }
+.intent-form { display: flex; flex-direction: column; gap: 8px; }
+.intent-head { justify-content: space-between; align-items: center; }
+.intent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.intent-grid input { width: 100%; }
+.intent-wide { grid-column: 1 / -1; }
+.intent-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.intent-item { gap: 6px; align-items: center; }
+.intent-item select, .intent-kept { flex: 1; min-width: 0; }
+.intent-qty { width: 56px; }
+.intent-check { gap: 6px; align-items: center; cursor: pointer; }
+.intent-questions { margin: 0; padding: 8px 8px 8px 24px; border: 1px solid var(--warn); border-radius: 6px; color: var(--warn); }
+.intent-notes { margin: 0; padding-left: 18px; font-size: 12px; }
+.intent-infeasible { border: 1px solid var(--bad); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.intent-infeasible ul { margin: 0; padding-left: 18px; }
