@@ -59,7 +59,15 @@ function save(key: string, value: unknown) {
 const emptyAnalysis = (version: number): Analysis => ({ version, routes: [], passage: null, heat: null, sightlines: [], highlights: [] });
 
 const initialModel = load<SpaceModel>(LS_MODEL) ?? sampleRoom();
-const initialSettings: Settings = { geminiKey: '', geminiModel: 'gemini-2.5-flash', theme: 'system', ...(load<Settings>(LS_SETTINGS) ?? {}) };
+// VITE_GEMINI_KEY is only read from a local, gitignored .env.local during development.
+const devKey = import.meta.env.DEV ? ((import.meta.env.VITE_GEMINI_KEY as string | undefined) ?? '') : '';
+const storedSettings = load<Settings>(LS_SETTINGS);
+const initialSettings: Settings = {
+  geminiModel: 'gemini-flash-latest',
+  theme: 'system',
+  ...(storedSettings ?? {}),
+  geminiKey: storedSettings?.geminiKey || devKey,
+};
 
 let toastSeq = 1;
 
