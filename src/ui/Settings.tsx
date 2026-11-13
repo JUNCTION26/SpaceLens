@@ -43,7 +43,7 @@ export function Settings() {
         </label>
         <label className="field">
           <span>Model</span>
-          <input value={settings.geminiModel} onChange={(e) => setSettings({ geminiModel: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) setSettings({ geminiModel: 'gemini-2.5-flash' }); }} />
+          <input value={settings.geminiModel} onChange={(e) => setSettings({ geminiModel: e.target.value })} onBlur={(e) => { if (!e.target.value.trim()) setSettings({ geminiModel: 'gemini-3.5-flash-lite' }); }} />
         </label>
         <div className="field">
           <span>Theme</span>

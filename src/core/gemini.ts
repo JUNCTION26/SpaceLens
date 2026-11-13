@@ -13,7 +13,7 @@ export async function gemini<T = string>(parts: GeminiPart[], opts: { json?: boo
   const { geminiKey, geminiModel } = getState().settings;
   if (!geminiKey) throw new Error('No Gemini key set');
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30000);
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 60000);
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,

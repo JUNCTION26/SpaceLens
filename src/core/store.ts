@@ -63,11 +63,13 @@ const initialModel = load<SpaceModel>(LS_MODEL) ?? sampleRoom();
 const devKey = import.meta.env.DEV ? ((import.meta.env.VITE_GEMINI_KEY as string | undefined) ?? '') : '';
 const storedSettings = load<Settings>(LS_SETTINGS);
 const initialSettings: Settings = {
-  geminiModel: 'gemini-flash-latest',
+  geminiModel: 'gemini-3.5-flash-lite',
   theme: 'system',
   ...(storedSettings ?? {}),
   geminiKey: storedSettings?.geminiKey || devKey,
 };
+// Older defaults were retired or too slow for interactive use.
+if (['gemini-2.5-flash', 'gemini-flash-latest'].includes(initialSettings.geminiModel)) initialSettings.geminiModel = 'gemini-3.5-flash-lite';
 
 let toastSeq = 1;
 
