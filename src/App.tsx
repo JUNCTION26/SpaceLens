@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useStore } from './core/store';
 import type { Mode } from './core/types';
 import { PlanView } from './features/plan2d/PlanView';
@@ -16,6 +16,8 @@ import { Home } from './ui/Home';
 import { TopBar } from './ui/TopBar';
 import { Toasts } from './ui/Toasts';
 import { useTheme } from './ui/theme';
+import { Settings } from './ui/Settings';
+import { useUi } from './ui/uiStore';
 
 const SIDE: Record<Exclude<Mode, 'home'>, Array<{ key: string; label: string; el: () => JSX.Element }>> = {
   capture: [
@@ -37,7 +39,11 @@ export function App() {
   const view = useStore((s) => s.view);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
-  const [tab, setTab] = useState<Record<string, string>>({});
+  const tab = useUi((s) => s.tabByMode);
+  const setTab = useUi((s) => s.setTab);
+  const inspectorOpen = useUi((s) => s.inspectorOpen);
+  const mobilePane = useUi((s) => s.mobilePane);
+  const setMobilePane = useUi((s) => s.setMobilePane);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,12 +65,12 @@ export function App() {
   return (
     <div className="app">
       <TopBar />
-      <div className="workspace">
+      <div className={`workspace${inspectorOpen ? '' : ' no-inspector'} show-${mobilePane}`}>
         <aside className="side">
           {tabs.length > 1 && (
             <div className="tabs" role="tablist">
               {tabs.map((t) => (
-                <button key={t.key} role="tab" aria-selected={t === active} className={t === active ? 'tab on' : 'tab'} onClick={() => setTab({ ...tab, [mode]: t.key })}>
+                <button key={t.key} role="tab" aria-selected={t === active} className={t === active ? 'tab on' : 'tab'} onClick={() => setTab(mode, t.key)}>
                   {t.label}
                 </button>
               ))}
@@ -81,6 +87,11 @@ export function App() {
           <ChecksPanel />
         </aside>
       </div>
+      <nav className="mobile-tabs" aria-label="Panels">
+        <button className={mobilePane === 'side' ? 'on' : ''} onClick={() => setMobilePane('side')}>{active.label}</button>
+        <button className={mobilePane === 'inspector' ? 'on' : ''} onClick={() => setMobilePane('inspector')}>Inspector</button>
+      </nav>
+      <Settings />
       <Toasts />
     </div>
   );
