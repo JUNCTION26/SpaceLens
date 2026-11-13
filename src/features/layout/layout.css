@@ -1,0 +1,13 @@
+.layout-panel { display: flex; flex-direction: column; gap: 10px; }
+.layout-stale { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: 8px; }
+.layout-compare { display: flex; flex-wrap: wrap; gap: 8px; }
+.layout-compare figure { margin: 0; padding: 4px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.layout-compare figure.on { border-color: var(--accent); }
+.layout-compare figcaption { font-size: 12px; color: var(--muted); text-align: center; }
+.layout-cards { display: flex; flex-direction: column; gap: 8px; }
+.layout-cards .card { cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.layout-card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.layout-card-head strong { flex: 1; }
+.layout-stats { display: flex; gap: 12px; font-size: 13px; }
+.layout-pinned { border-color: var(--accent); color: var(--accent); }
+.layout-infeasible { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
