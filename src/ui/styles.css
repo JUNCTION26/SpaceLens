@@ -1,0 +1,12 @@
+:root { --bg:#0b0d10; --panel:#12161b; --line:#232a33; --text:#e8edf2; --muted:#8a96a3; --accent:#5ec8ff; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+.app { display:flex; flex-direction:column; height:100dvh; }
+.topbar { display:flex; gap:12px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); }
+.workspace { flex:1; display:grid; grid-template-columns: 320px 1fr 300px; min-height:0; }
+.side, .inspector { overflow:auto; border-right:1px solid var(--line); }
+.stage { display:grid; grid-template-columns: 1fr 1fr; min-height:0; }
+.stage-2d, .stage-3d { grid-template-columns: 1fr; }
+.pane { position:relative; min-height:0; overflow:hidden; }
+.panel-stub { padding:16px; color: var(--muted); }
+.toasts { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; }

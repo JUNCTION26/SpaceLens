@@ -1,0 +1,238 @@
+// Shared spatial model. All lengths are metres, all angles radians.
+// Plan coordinates: x to the right, y "down" on the plan (towards the viewer), origin at the
+// top-left of the space. 3D maps plan (x, y) to world (x, 0, y) with height on +Y.
+
+export type Metres = number;
+export interface Vec2 { x: number; y: number }
+
+export type SourceKind =
+  | 'user-measured' | 'ar-depth' | 'photo-inferred' | 'pdf-annotation'
+  | 'manual' | 'catalog' | 'generated' | 'sample';
+
+export type Status = 'verified' | 'estimated' | 'conflicting' | 'unknown';
+
+export interface Evidence {
+  id: string;
+  kind: 'photo' | 'pdf' | 'image' | 'manual' | 'sample';
+  label: string;
+  /** Data URL or object URL for the source image / rendered page. */
+  imageUrl?: string;
+  page?: number;
+  /** Normalised 0..1 region within the image or page: [x, y, w, h]. */
+  bbox?: [number, number, number, number];
+  note?: string;
+  createdAt: number;
+}
+
+export interface Measurement {
+  id: string;
+  label: string;
+  valueM: Metres;
+  sourceKind: SourceKind;
+  status: Status;
+  /** Half-width of the plausible range, e.g. 0.05 means ±5 cm. */
+  toleranceM?: number;
+  evidenceIds: string[];
+  /** Wall id (`${spaceId}:${wallIndex}`), opening id, or furniture id this measures. */
+  targetId?: string;
+}
+
+export interface WallMeta {
+  thicknessM: Metres;
+  sourceKind: SourceKind;
+  status: Status;
+  measurementId?: string;
+}
+
+export interface Space {
+  id: string;
+  name: string;
+  purpose?: string;
+  /** Closed polygon, clockwise on screen. Wall i runs from polygon[i] to polygon[i+1]. */
+  polygon: Vec2[];
+  /** One entry per wall (same length as polygon). */
+  walls: WallMeta[];
+}
+
+export type OpeningKind = 'door' | 'window' | 'opening';
+
+export interface Opening {
+  id: string;
+  kind: OpeningKind;
+  spaceId: string;
+  wallIndex: number;
+  /** Distance from polygon[wallIndex] along the wall to the opening's centre. */
+  offsetM: Metres;
+  widthM: Metres;
+  heightM: Metres;
+  sillM: Metres;
+  swing: 'in' | 'out' | 'none';
+  hinge: 'start' | 'end';
+  sourceKind: SourceKind;
+  status: Status;
+  measurementId?: string;
+}
+
+export type PriceStatus = 'catalog' | 'estimated' | 'user' | 'owned';
+
+export interface Clearance { front: Metres; back: Metres; left: Metres; right: Metres }
+
+export interface FurnitureItem {
+  id: string;
+  catalogId: string;
+  name: string;
+  category: string;
+  /** Centre of the footprint. */
+  x: Metres;
+  y: Metres;
+  /** Rotation in radians; 0 means the item's front faces +y (down on the plan). */
+  rotation: number;
+  w: Metres;
+  d: Metres;
+  h: Metres;
+  /** Use envelope around the footprint (chair pull-out, drawer, door access...). */
+  clearance: Clearance;
+  /** Depth when unfolded (sofa bed, extendable table). */
+  unfoldedD?: Metres;
+  locked: boolean;
+  owned: boolean;
+  priceSek: number;
+  priceStatus: PriceStatus;
+  color: string;
+  material?: string;
+  sourceKind: SourceKind;
+}
+
+export interface SpaceModel {
+  id: string;
+  name: string;
+  version: number;
+  units: 'm';
+  ceilingM: Metres;
+  sourceLabel: string;
+  spaces: Space[];
+  openings: Opening[];
+  furniture: FurnitureItem[];
+  measurements: Measurement[];
+  evidence: Evidence[];
+}
+
+export interface RequirementItem { catalogId: string; qty: number; keepExistingId?: string }
+
+export interface Requirements {
+  purpose: string;
+  people: number;
+  budgetSek: number | null;
+  items: RequirementItem[];
+  /** Keep a clear route from every door to these targets. */
+  routeTargets: Array<{ kind: 'window' | 'door' | 'opening'; id?: string }>;
+  minRouteWidthM: Metres;
+  style: string;
+  lockedIds: string[];
+  notes: string[];
+  /** Questions the compiler could not resolve on its own. */
+  questions: string[];
+  compiledBy: 'gemini' | 'rules';
+}
+
+export type CheckResult = 'pass' | 'fail' | 'unknown';
+
+export interface ValidationResult {
+  id: string;
+  rule: string;
+  result: CheckResult;
+  measured?: number;
+  threshold?: number;
+  subjectIds: string[];
+  details: string;
+}
+
+export interface LayoutCandidate {
+  id: string;
+  name: string;
+  summary: string;
+  parentVersion: number;
+  furniture: FurnitureItem[];
+  metrics: { openAreaM2: number; costSek: number; minClearanceM: number | null; routeLenM: number | null; score: number };
+  checks: ValidationResult[];
+  assumptions: string[];
+  generator: string;
+}
+
+export interface Infeasibility {
+  reasons: string[];
+  relaxations: Array<{ label: string; patch: Partial<Requirements> }>;
+}
+
+export type BodyProfileId = 'adult' | 'child' | 'wheelchair' | 'stroller' | 'cart';
+
+export interface RouteResult {
+  id: string;
+  profile: BodyProfileId;
+  points: Vec2[];
+  ok: boolean;
+  lengthM: number | null;
+  narrowestM: number | null;
+  narrowestAt?: Vec2;
+  label: string;
+}
+
+export interface PassagePose { x: number; y: number; rotation: number }
+
+export interface PassageResult {
+  itemId: string;
+  ok: boolean;
+  poses: PassagePose[];
+  blockedAt?: Vec2;
+  details: string;
+}
+
+export interface HeatGrid { origin: Vec2; cellM: number; cols: number; rows: number; values: number[] }
+
+export interface Highlight { ids: string[]; color: string; label: string }
+
+export interface Analysis {
+  version: number;
+  routes: RouteResult[];
+  passage: PassageResult | null;
+  heat: HeatGrid | null;
+  sightlines: Array<{ a: Vec2; b: Vec2; visible: boolean }>;
+  highlights: Highlight[];
+}
+
+export type Op =
+  | { type: 'REPLACE_MODEL'; model: SpaceModel }
+  | { type: 'SET_WALL_LENGTH'; spaceId: string; wallIndex: number; lengthM: number; sourceKind?: SourceKind }
+  | { type: 'MOVE_VERTEX'; spaceId: string; index: number; to: Vec2 }
+  | { type: 'INSERT_VERTEX'; spaceId: string; afterIndex: number; at: Vec2 }
+  | { type: 'REMOVE_VERTEX'; spaceId: string; index: number }
+  | { type: 'SET_CEILING'; heightM: number }
+  | { type: 'ADD_OPENING'; opening: Opening }
+  | { type: 'UPDATE_OPENING'; id: string; patch: Partial<Opening> }
+  | { type: 'REMOVE_OPENING'; id: string }
+  | { type: 'PLACE_OBJECT'; item: FurnitureItem }
+  | { type: 'UPDATE_OBJECT'; id: string; patch: Partial<FurnitureItem> }
+  | { type: 'REMOVE_OBJECT'; id: string }
+  | { type: 'SET_FURNITURE'; items: FurnitureItem[]; label?: string }
+  | { type: 'ADD_EVIDENCE'; evidence: Evidence }
+  | { type: 'SET_MEASUREMENT'; measurement: Measurement }
+  | { type: 'RENAME'; name: string };
+
+export interface Selection { kind: 'wall' | 'opening' | 'furniture' | 'space' | 'vertex' | 'measurement'; id: string }
+
+export type Mode = 'home' | 'capture' | 'design' | 'experience' | 'deliver';
+
+export interface Settings {
+  geminiKey: string;
+  geminiModel: string;
+  theme: 'dark' | 'light' | 'system';
+}
+
+export interface Layers {
+  dimensions: boolean;
+  clearance: boolean;
+  routes: boolean;
+  provenance: boolean;
+  heat: boolean;
+  sightlines: boolean;
+}
