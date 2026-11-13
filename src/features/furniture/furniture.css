@@ -1,0 +1,19 @@
+.furniture-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.furniture-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.furniture-chips .chip { cursor: pointer; text-transform: capitalize; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.furniture-chips .furniture-on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.furniture-grid { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.furniture-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; }
+.furniture-swatch { width: 22px; height: 22px; border-radius: 6px; flex: none; border: 1px solid var(--line); }
+.furniture-info { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 13px; }
+.furniture-info strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.furniture-note { font-size: 12px; margin: 0; }
+.furniture-own { display: flex; flex-direction: column; gap: 6px; }
+.furniture-own .row input { min-width: 0; flex: 1; }
+.furniture-sel { display: flex; flex-direction: column; gap: 6px; }
+.furniture-head, .furniture-total { justify-content: space-between; }
+.furniture-actions { flex-wrap: wrap; gap: 6px; }
+.furniture-bill h3 { margin: 4px 0 6px; font-size: 14px; }
+.furniture-line { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; padding: 4px 0; }
+.furniture-price { font-family: var(--mono); text-align: right; min-width: 70px; }
+.furniture-total { margin: 8px 0; }
