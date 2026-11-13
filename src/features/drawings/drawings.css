@@ -38,3 +38,4 @@
 .drawings-crops img { max-height: 70px; max-width: 140px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
 .drawings-wrow { flex-wrap: wrap; gap: 4px; font-size: 13px; }
 @media (max-width: 900px) { .drawings-main { grid-template-columns: 1fr; } .drawings-thumbs { flex-direction: row; width: auto; } .drawings-thumb { width: 60px; } }
+.drawings-bench h4 { margin: 0 0 6px; } .drawings-empty .drawings-bench { margin-top: 12px; text-align: left; }

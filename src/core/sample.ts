@@ -35,7 +35,7 @@ export function sampleRoom(): SpaceModel {
     ],
     furniture: [
       {
-        id: 'f_desk', catalogId: 'desk-140', name: 'Desk', category: 'desk', x: 0.4, y: 1.4, rotation: Math.PI / 2,
+        id: 'f_desk', catalogId: 'desk-140', name: 'Desk', category: 'desk', x: 0.4, y: 1.4, rotation: -Math.PI / 2,
         w: 1.4, d: 0.7, h: 0.74, clearance: { front: 0.9, back: 0, left: 0, right: 0 }, locked: false, owned: true,
         priceSek: 0, priceStatus: 'owned', color: '#b08a5a', material: 'oak', sourceKind: 'sample',
       },

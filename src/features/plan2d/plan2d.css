@@ -59,3 +59,7 @@
 .plan2d-edit .field { width: 80px; font-family: var(--mono); }
 .plan2d-edit-label { font-size: 12px; }
 .plan2d-edit-hint { font-size: 11px; }
+
+/* The shared .panel class stacks children vertically; the floating toolbar is a row. */
+.plan2d-toolbar.panel { flex-direction: row; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); padding: 4px 6px; z-index: 3; }
+.plan2d-legend.panel { gap: 4px; }

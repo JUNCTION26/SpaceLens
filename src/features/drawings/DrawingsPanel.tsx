@@ -48,6 +48,7 @@ export function DrawingsPanel() {
   const [mPerPx, setMPerPx] = useState<Record<number, number>>({});
   const [trace, setTrace] = useState<Pt[]>([]);
   const [roomName, setRoomName] = useState('Traced room');
+  const [bench, setBench] = useState<{ accuracyOnAnswered: number; coverage: number; questions: number; files: number; dataset: string } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
@@ -67,6 +68,23 @@ export function DrawingsPanel() {
       }).filter((s: { url: string }) => s.url));
     }).catch(() => { /* no samples yet */ });
   }, []);
+
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}samples/stoa/eval-results.json`).then((r) => (r.ok ? r.json() : null)).then((j) => setBench(j?.summary ?? null)).catch(() => { /* not generated yet */ });
+  }, []);
+
+  const benchCard = bench && (
+    <section className="card drawings-bench">
+      <h4>Benchmark</h4>
+      <div className="row drawings-stats">
+        <div className="stat"><b>{bench.accuracyOnAnswered}%</b><span className="muted">accuracy when answered</span></div>
+        <div className="stat"><b>{bench.coverage}%</b><span className="muted">answered</span></div>
+        <div className="stat"><b>{bench.questions}</b><span className="muted">questions</span></div>
+        <div className="stat"><b>0</b><span className="muted">model calls</span></div>
+      </div>
+      <p className="muted">{bench.dataset} · {bench.files} plans</p>
+    </section>
+  );
 
   function openDoc(d: DrawingDoc) {
     docCache.set(d.name, d); lastDoc = d; saveSummary(d);
@@ -257,6 +275,7 @@ export function DrawingsPanel() {
         <div className="drawings-empty card">
           <h3>Ask a drawing</h3>
           <p className="muted">Open a floor plan or technical drawing. Text is indexed once, so most questions are answered free, with the exact spot shown on the sheet.</p>
+          {benchCard}
         </div>
       ) : (
         <div className="drawings-main">
@@ -287,6 +306,7 @@ export function DrawingsPanel() {
           </div>
 
           <aside className="drawings-side">
+            {benchCard}
             <section className="card">
               <div className="row drawings-stats">
                 <div className="stat"><b>{st!.text}</b><span className="muted">text items</span></div>

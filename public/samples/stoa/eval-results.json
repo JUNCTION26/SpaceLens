@@ -1,0 +1,214 @@
+{
+  "summary": {
+    "dataset": "junction-dataset-preview / swiss_dwellings (PDF plans, first 2358 questions)",
+    "files": 65,
+    "questions": 2358,
+    "answered": 1124,
+    "correct": 1118,
+    "abstained": 1234,
+    "accuracyOnAnswered": 99.5,
+    "coverage": 47.7,
+    "overallAccuracy": 47.4,
+    "perType": {
+      "count": {
+        "attempted": 1614,
+        "answered": 940,
+        "correct": 940,
+        "accuracyOnAnswered": 100
+      },
+      "area": {
+        "attempted": 744,
+        "answered": 184,
+        "correct": 178,
+        "accuracyOnAnswered": 96.7
+      }
+    },
+    "meanMsPerQuestion": 0.4,
+    "modelCalls": 0,
+    "geminiCalls": 0,
+    "scoring": "counts exact; area/length/volume within 2%",
+    "ranAt": "2026-11-13T21:20:13.205Z"
+  },
+  "examples": [
+    {
+      "question": "How many apartments (residential units) are shown on this floor plan?",
+      "expected": 2,
+      "got": "2 apartments: App. A, App. B",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quanti appartamenti (unità abitative) sono rappresentati in questa pianta?",
+      "expected": 2,
+      "got": "2 apartments: App. A, App. B",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "How many rooms labelled 'Stanza' are there on this floor?",
+      "expected": 9,
+      "got": "9 rooms labelled \"Stanza\": 5.02, 5.03, 5.04, 5.07, 5.10, 5.11, 5.17, 5.18, 5.19",
+      "value": 9,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quanti locali con la denominazione «Stanza» ci sono in questo piano?",
+      "expected": 9,
+      "got": "9 rooms labelled \"Stanza\": 5.02, 5.03, 5.04, 5.07, 5.10, 5.11, 5.17, 5.18, 5.19",
+      "value": 9,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "How many rooms labelled 'Cucina' are there on this floor?",
+      "expected": 2,
+      "got": "2 rooms labelled \"Cucina\": 5.09, 5.13",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quanti locali con la denominazione «Cucina» ci sono in questo piano?",
+      "expected": 2,
+      "got": "2 rooms labelled \"Cucina\": 5.09, 5.13",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "How many rooms labelled 'Balcone' are there on this floor?",
+      "expected": 2,
+      "got": "2 rooms labelled \"Balcone\": 5.01, 5.16",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quanti locali con la denominazione «Balcone» ci sono in questo piano?",
+      "expected": 2,
+      "got": "2 rooms labelled \"Balcone\": 5.01, 5.16",
+      "value": 2,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "How many rooms labelled 'Corridoio' are there on this floor?",
+      "expected": 3,
+      "got": "3 rooms labelled \"Corridoio\": 5.05, 5.14, 5.20",
+      "value": 3,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quanti locali con la denominazione «Corridoio» ci sono in questo piano?",
+      "expected": 3,
+      "got": "3 rooms labelled \"Corridoio\": 5.05, 5.14, 5.20",
+      "value": 3,
+      "correct": true,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "What is the net floor area of room 5.11 ('Stanza') in m²?",
+      "expected": 13.62,
+      "got": "Room 5.11 (Stanza): 13.62 m² (sum of 1 printed room areas)",
+      "value": 13.62,
+      "correct": true,
+      "type": "area",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Qual è la superficie netta del locale 5.11 («Stanza») in m²?",
+      "expected": 13.62,
+      "got": "Room 5.11 (Stanza): 13.62 m² (sum of 1 printed room areas)",
+      "value": 13.62,
+      "correct": true,
+      "type": "area",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "What is the total net floor area in m² of all numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and voids)?",
+      "expected": 341.45,
+      "got": "All numbered indoor rooms: 320.11 m² (sum of 25 printed room areas)",
+      "value": 320.11,
+      "correct": false,
+      "type": "area",
+      "file": "site1000_bldg2082_floor9385.pdf"
+    },
+    {
+      "question": "Wie gross ist die gesamte Nettogeschossfläche in m² aller nummerierten Innenräume dieses Geschosses (ohne Balkone, Loggien, Terrassen und andere Aussenräume, Schächte und Lufträume)?",
+      "expected": 341.45,
+      "got": "All numbered indoor rooms: 320.11 m² (sum of 25 printed room areas)",
+      "value": 320.11,
+      "correct": false,
+      "type": "area",
+      "file": "site1000_bldg2082_floor9385.pdf"
+    },
+    {
+      "question": "What is the total net floor area in m² of all numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and voids)?",
+      "expected": 537.68,
+      "got": "All numbered indoor rooms: 498.84 m² (sum of 41 printed room areas)",
+      "value": 498.84,
+      "correct": false,
+      "type": "area",
+      "file": "site157_bldg323_floor1313.pdf"
+    },
+    {
+      "question": "Quelle est la surface nette totale en m² de toutes les pièces intérieures numérotées de cet étage (hors balcons, loggias, terrasses et autres espaces extérieurs, gaines et vides) ?",
+      "expected": 537.68,
+      "got": "All numbered indoor rooms: 498.84 m² (sum of 41 printed room areas)",
+      "value": 498.84,
+      "correct": false,
+      "type": "area",
+      "file": "site157_bldg323_floor1313.pdf"
+    },
+    {
+      "question": "How many doors (interior doors and entrance doors together) are drawn on this floor plan?",
+      "expected": 21,
+      "got": null,
+      "value": null,
+      "correct": false,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quante porte (porte interne e porte d'ingresso insieme) sono disegnate in questa pianta?",
+      "expected": 21,
+      "got": null,
+      "value": null,
+      "correct": false,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "How many windows are drawn on this floor plan?",
+      "expected": 13,
+      "got": null,
+      "value": null,
+      "correct": false,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    },
+    {
+      "question": "Quante finestre sono disegnate in questa pianta?",
+      "expected": 13,
+      "got": null,
+      "value": null,
+      "correct": false,
+      "type": "count",
+      "file": "site1102_bldg2242_floor10281.pdf"
+    }
+  ]
+}

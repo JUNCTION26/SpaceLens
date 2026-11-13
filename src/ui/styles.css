@@ -43,7 +43,8 @@ body {
 }
 h1, h2, h3, h4 { margin: 0; letter-spacing: -0.01em; }
 a { color: var(--accent); }
-svg { stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* Line-icon defaults apply only to 24-unit icons; plans and overlays draw in metres or 0..1 units. */
+svg[viewBox="0 0 24 24"] { stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
