@@ -1,0 +1,8 @@
+.referee-head { gap: 6px; align-items: center; flex-wrap: wrap; }
+.referee-sub { font-size: 12px; margin: 2px 0 6px; }
+.referee-list { margin: 0 0 6px; padding: 0; list-style: none; }
+.referee-item { padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--text); }
+.referee-btn { all: unset; cursor: pointer; display: block; width: 100%; }
+.referee-btn:hover .referee-details, .referee-btn:focus-visible .referee-details { text-decoration: underline; }
+.referee-btn:focus-visible { outline: 2px solid var(--bad); outline-offset: 2px; }
+.referee-details { color: var(--muted); }
