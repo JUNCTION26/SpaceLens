@@ -1,0 +1,12 @@
+.provenance-section { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.provenance-section h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.provenance-thumb { width: 100%; max-height: 120px; border-radius: 6px; cursor: zoom-in; background: var(--panel-2); }
+.provenance-modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; z-index: 100; }
+.provenance-modal canvas { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
+.provenance-diff { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; margin-top: 6px; font-size: 12px; }
+.provenance-diff .bad { color: var(--bad); } .provenance-diff .ok { color: var(--ok); }
+.provenance-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.provenance-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.provenance-num { width: 70px; }
+.provenance-hist { font-size: 12px; }
+.provenance-hist li { margin-bottom: 4px; }
