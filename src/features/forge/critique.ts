@@ -28,7 +28,8 @@ export function strayRods(parts: readonly ObjectPart[]): number[] {
   const core = unionBounds(coreIdx.map((i) => bs[i]));
   const out: number[] = [];
   parts.forEach((p, i) => {
-    if (!isThin(p)) return;
+    // Props and stays legitimately reach out alone (a piano lid prop).
+    if (!isThin(p) || /prop|stay|strut/i.test(p.name)) return;
     for (let a = 0; a < 3; a++) {
       const dim = core.max[a] - core.min[a];
       for (const side of [1, -1]) {

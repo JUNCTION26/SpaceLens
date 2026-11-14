@@ -236,6 +236,13 @@ export function repairItems(raw: unknown, parsed: ParsedRequest): string[] {
       const [w, h, d] = body.size as number[];
       body.shape = 'extrude'; body.style = 'arcade'; delete body.profile; body.rot = [0, Math.PI / 2, 0]; body.size = [d, h, w];
       if (!body.color && !String(body.material).includes('black')) body.material = 'black-laminate';
+      // Full-height side art slabs follow the same silhouette, standing just proud of the body.
+      for (const it of items) {
+        if (it === body || !Array.isArray(it.size) || !/side|art|stripe/.test(String(it.name ?? '').toLowerCase())) continue;
+        const [sw, sh, sd] = it.size as number[];
+        if (sh < h * 0.7 || sw > 0.08) continue;
+        it.shape = 'extrude'; it.style = 'arcade'; delete it.profile; it.rot = [0, Math.PI / 2, 0]; it.size = [sd * 0.92, sh * 0.92, sw];
+      }
       fixes.push('arcade side profile');
     }
   }
@@ -341,8 +348,8 @@ function streamer(parsed: ParsedRequest, want: Want, st: StreamState, onPartial?
       if (!spec.parts.length) return;
       lastCount = n;
       if (st.firstPartsMs === null) st.firstPartsMs = Math.round(now() - st.t0);
-      // Keep the ghost until the real object has some body.
-      if (silhouette && spec.parts.length < 10) spec.silhouette = silhouette;
+      // The ghost bridges the wait for the first real parts only.
+      if (silhouette && spec.parts.length < 3) spec.silhouette = silhouette;
       onPartial(spec);
     } catch { /* incomplete item: wait for more text */ }
   };
