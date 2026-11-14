@@ -23,6 +23,7 @@ No environment variables are required. For model features, copy `.env.example` t
 | `npm run typecheck` | Strict TypeScript check of the whole project |
 | `npm run check:boundaries` | Fails if `core` imports features or the referee imports anything but core types |
 | `npm test` | Unit and scenario tests (hermetic: no network, no key) |
+| `npm run server`, `npm run test:server` | Run the optional API server in `server/`, and its tests (Node's built-in test runner) |
 | `npm run build` | Type check and production build into `dist/` |
 | `npm run preview` | Serve the production build |
 | `npm run docs:rules`, `npm run docs:safety` | Print the rule and safety tables used in `docs/` from the code |

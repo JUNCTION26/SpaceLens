@@ -142,9 +142,15 @@ node scripts/stoa-eval.mjs <path-to>/junction-dataset-preview --source swiss_dwe
 
 The run rewrites `public/samples/stoa/eval-results.json`.
 
+## Security and privacy
+
+- A Content-Security-Policy ships with production builds. The deployed bundle contains no API key; a key you add stays in your browser and goes only to Gemini.
+- An optional API server in `server/` can hold the key instead, with origin checks, per-client and daily limits and a strict request schema.
+- What is protected, how, and what is not yet: [SECURITY.md](SECURITY.md) and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). What leaves your device and what is stored: [docs/PRIVACY.md](docs/PRIVACY.md).
+
 ## Tech stack
 
-Vite, React 18, TypeScript (strict), three.js with react-three-fiber and drei, zustand, pdf.js, Vitest. Gemini over the browser `fetch` API for the optional model features. No backend.
+Vite, React 18, TypeScript (strict), three.js with react-three-fiber and drei, zustand, pdf.js, Vitest. Gemini over the browser `fetch` API for the optional model features, directly from the page or through the optional zero-dependency API server in `server/`.
 
 ## Getting started
 
@@ -237,6 +243,8 @@ flowchart LR
 
 All inputs write into one spatial model that every view reads. Edits go through a single store with undo, so manual tools and the agent behave the same way.
 
+The full reference (system and container diagrams, module map and dependency rule, data model, the independent checker, AI routing, state and undo, testing) is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The reasons behind the main decisions are short records in [docs/adr/](docs/adr/README.md). `npm run check:boundaries` enforces the layering rules that hold today.
+
 ### Design pipeline
 
 ```mermaid
@@ -286,7 +294,7 @@ Tests cover geometry, the store, the design solver and rules (including room sce
 
 ## Known limitations
 
-- A prototype with no backend: models live in your browser and are not synced.
+- No accounts or database: models live in your browser and are not synced. Share links carry the whole model.
 - Single-photo scale needs a reference object, such as an A4 sheet.
 - Door and window counts from the plan-to-building step are weak (49% and 12% exact); room areas depend on outlines drawn in the PDF.
 - The Render section is unverified for lack of image-model quota.
@@ -315,7 +323,7 @@ Tests cover geometry, the store, the design solver and rules (including room sce
 
 ## Contributing
 
-Issues and pull requests are welcome. Run `npm run typecheck`, `npm test` and `npm run build` first; CI runs the same checks.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md); in short, run `npm run typecheck`, `npm run check:boundaries`, `npm test` and `npm run build` first, as CI does. Security reports go through [SECURITY.md](SECURITY.md).
 
 ## License
 
