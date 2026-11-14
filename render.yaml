@@ -1,0 +1,25 @@
+# Render Blueprint for the SpaceLens API server (server/). The static app stays on GitHub Pages.
+services:
+  - type: web
+    name: spacelens-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    # Node built-ins only: nothing to install or build.
+    buildCommand: node --version
+    startCommand: node server/index.mjs
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Secret: set in the dashboard when the Blueprint is created.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://junction26.github.io
+      # Render's proxy adds the caller's address to X-Forwarded-For.
+      - key: CLIENT_IP_HEADER
+        value: x-forwarded-for
+      # Optional, defaults shown in .env.example: MODEL_ALLOWLIST, RATE_LIMIT_BURST,
+      # RATE_LIMIT_PER_MINUTE, RATE_LIMIT_DAILY, MAX_BODY_BYTES, TRUSTED_PROXY_HOPS, LOG_LEVEL.
