@@ -104,9 +104,20 @@ console.log(`edit: ${edlScenes.map((s) => `${s.id} ${s.dur.toFixed(1)}s${s.clip 
 mkdirSync(OUT, { recursive: true });
 mkdirSync(CHECK, { recursive: true });
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.wav': 'audio/wav', '.webm': 'video/webm', '.mp4': 'video/mp4' };
-const serveFile = (res, file) => {
+const serveFile = (req, res, file) => {
   if (!existsSync(file)) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Content-Length': statSync(file).size, 'Cache-Control': 'no-store' });
+  const size = statSync(file).size;
+  const head = { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
+  // Byte ranges are required: without them a video element cannot seek and every check frame shows the start.
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  if (m && (m[1] || m[2])) {
+    const a = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+    const b = m[1] && m[2] ? Math.min(size - 1, Number(m[2])) : size - 1;
+    res.writeHead(206, { ...head, 'Content-Range': `bytes ${a}-${b}/${size}`, 'Content-Length': b - a + 1 });
+    createReadStream(file, { start: a, end: b }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { ...head, 'Content-Length': size });
   createReadStream(file).pipe(res);
 };
 const safe = (s) => s.replace(/[^\w.-]/g, '');
@@ -127,11 +138,11 @@ const server = createServer((req, res) => {
     return;
   }
   if (p === '/edl.json') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(edl)); return; }
-  if (p === '/' || p === '/compose.html') return serveFile(res, join(HERE, 'compose.html'));
-  if (p === '/webm-mux.js' || p === '/mp4-mux.js') return serveFile(res, join(HERE, p.slice(1)));
-  if (p.startsWith('/f/')) { const [, , scene, file] = p.split('/'); return serveFile(res, join(FRAMES, safe(scene), safe(file))); }
-  if (p.startsWith('/a/')) return serveFile(res, join(AUDIO, safe(p.slice(3))));
-  if (p.startsWith('/out/')) return serveFile(res, join(OUT, safe(p.slice(5))));
+  if (p === '/' || p === '/compose.html') return serveFile(req, res, join(HERE, 'compose.html'));
+  if (p === '/webm-mux.js' || p === '/mp4-mux.js') return serveFile(req, res, join(HERE, p.slice(1)));
+  if (p.startsWith('/f/')) { const [, , scene, file] = p.split('/'); return serveFile(req, res, join(FRAMES, safe(scene), safe(file))); }
+  if (p.startsWith('/a/')) return serveFile(req, res, join(AUDIO, safe(p.slice(3))));
+  if (p.startsWith('/out/')) return serveFile(req, res, join(OUT, safe(p.slice(5))));
   res.writeHead(404); res.end();
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -174,7 +185,12 @@ for (const o of outputs) {
       const p = once('seeked', 20000);
       v.currentTime = d * marks[i];
       await p;
-      await new Promise((r) => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(() => r()) : r(), setTimeout(r, 1500)));
+      // A paused seek can leave the element showing its first frame in headless mode: play briefly so the new picture is decoded and presented.
+      const shown = new Promise((r) => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(() => r()) : r(), setTimeout(r, 4000)));
+      await v.play().catch(() => {});
+      await shown;
+      await new Promise((r) => setTimeout(r, 300));
+      v.pause();
       g.drawImage(v, 0, 0, 960, 540);
       const b = await new Promise((r) => c.toBlob(r, 'image/png'));
       await fetch('/check?name=${o.name.replace(/\W+/g, '-')}-' + i + '.png', { method: 'POST', body: b });
