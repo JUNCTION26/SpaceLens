@@ -246,23 +246,23 @@ const BRIEF_SCHEMA = {
     realProducts: { type: 'BOOLEAN' },
     note: { type: 'STRING', nullable: true, description: 'When a brand or character was named: say the room uses a generic look in that spirit, without characters or logos.' },
     objects: {
-      type: 'ARRAY', minItems: 6, maxItems: 14,
+      type: 'ARRAY', description: '6 to 14 objects.',
       items: {
         type: 'OBJECT',
         properties: {
           source: { type: 'STRING', enum: ['catalogue', 'custom', 'store'] },
           name: { type: 'STRING' },
           catalogId: { type: 'STRING', nullable: true, description: 'catalogue: the id. custom/store: closest catalogue stand-in id.' },
-          recipe: { type: 'STRING', enum: [...RECIPES], nullable: true, description: 'custom only, when one fits.' },
+          recipe: { type: 'STRING', nullable: true, description: `custom only, when one fits: ${RECIPES.join(', ')}.` },
           prompt: { type: 'STRING', nullable: true, description: 'custom: full object description with exact size in cm, exact hex colours, theme details.' },
           query: { type: 'STRING', nullable: true, description: 'store: search phrase for a real product.' },
-          sizeCm: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 3, maxItems: 3, nullable: true, description: '[width, depth, height] cm.' },
+          sizeCm: { type: 'ARRAY', items: { type: 'NUMBER' }, nullable: true, description: '[width, depth, height] cm.' },
           mount: { type: 'STRING', enum: ['floor', 'wall'] },
           text: { type: 'STRING', nullable: true, description: 'Exact words to print (a name on a poster or sign).' },
           style: { type: 'STRING', nullable: true, description: 'Motif or statue theme: paw, heart, star, crown, bat, flower, moon, controller, book, leaf, cat, dog, hero, princess, abstract.' },
           color: { type: 'STRING', nullable: true }, accent: { type: 'STRING', nullable: true },
           place: { type: 'STRING', enum: ['corner', 'window', 'wall', 'free'], nullable: true },
-          qty: { type: 'INTEGER', nullable: true },
+          qty: { type: 'NUMBER', nullable: true },
         },
         required: ['source', 'name', 'mount'],
       },
@@ -341,12 +341,23 @@ export function cleanBrief(raw: unknown, text: string, ms: number, model?: strin
 /** One fast model call for the brief; the rules brief without a key or when the call fails. */
 export async function themeBrief(text: string, signal?: AbortSignal): Promise<ThemeBrief> {
   if (!aiReady()) return rulesBrief(text);
+  // The brief gates everything after it: past the time limit the rules brief takes over.
+  const ctrl = new AbortController();
+  const stop = () => ctrl.abort();
+  signal?.addEventListener('abort', stop);
+  const timer = setTimeout(stop, BRIEF_LIMIT_MS);
   try {
-    const res = await ai<unknown>({ task: 'fast', system: system(), parts: [{ text: `Room idea: """${text}"""` }], schema: BRIEF_SCHEMA, signal, temperature: 0.5, budgetMs: 2500 });
+    const res = await ai<unknown>({ task: 'fast', system: system(), parts: [{ text: `Room idea: """${text}"""` }], schema: BRIEF_SCHEMA, signal: ctrl.signal, temperature: 0.5, budgetMs: 2000 });
     return cleanBrief(res.data, text, res.ms, res.model);
   } catch (e) {
     if (signal?.aborted) throw e;
+    console.warn('Theme brief fell back to rules:', (e as Error).message);
     const b = rulesBrief(text);
     return { ...b, notes: [...b.notes, 'The model was unavailable, so the brief came from rules.'] };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', stop);
   }
 }
+
+const BRIEF_LIMIT_MS = 4500;

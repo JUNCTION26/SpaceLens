@@ -16,7 +16,7 @@ import { describeLayout, solveProgram } from '../design/solve';
 import type { DesignResult, FullReport, Stage } from '../design/pipeline';
 import { designScore } from '../design/score';
 import { wallElevation } from '../layout/wallItems';
-import { DECOR_RECIPES, themeBrief, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
+import { themeBrief, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
 import { recipeSpec } from './recipes';
 
 export interface ThemedOpts {
@@ -145,7 +145,8 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
       entries.push({ f, o, key, idx: i });
       firstObjectMs ??= Math.round(now() - t0);
       opts.onObject?.(quick, o, i);
-      if (reused || !online || (o.recipe && DECOR_RECIPES.has(o.recipe))) continue;
+      // Pieces with a recipe are finished in code (exact words, instant); the model makes the rest.
+      if (reused || !online || o.recipe) continue;
       // One model call per distinct object; copies (two gaming chairs) share it.
       const job = shared.get(o.name) ?? generateObject(o.prompt ?? o.name, { signal: opts.signal });
       shared.set(o.name, job);
