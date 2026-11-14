@@ -5,7 +5,7 @@
 
 import { getState } from '../../core/store';
 import type { StoreListing } from '../../core/types';
-import { extractJsonBlock, isLikelyProductUrl, parseDdgResults, parseQueryLimits, storeFromUrl, type QueryLimits } from './parse';
+import { extractJsonBlock, isCategoryUrl, isListTitle, isLikelyProductUrl, parseDdgResults, parseQueryLimits, searchTerms, storeFromUrl, type QueryLimits } from './parse';
 import { readerFetch, readListing, type ReadListing } from './read';
 
 export interface ShopListing extends ReadListing {
@@ -67,14 +67,20 @@ Reply ONLY with:
     });
 }
 
-/** Keyless web search: DuckDuckGo's HTML results read through the reader. */
-async function webSearch(query: string, limit: number, signal?: AbortSignal): Promise<ShopListing[]> {
-  const md = await readerFetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, signal, 30000);
-  const hits = parseDdgResults(md);
-  const products = hits.filter((h) => isLikelyProductUrl(h.url));
+const REGION: Record<string, string> = { SEK: 'se-sv', NOK: 'no-no', DKK: 'dk-da', GBP: 'uk-en', USD: 'us-en' };
+
+/** Keyless web search: DuckDuckGo's HTML results read through the reader. Limits are stripped
+ *  from the words (they are checked after each page is read) and the region follows the currency. */
+async function webSearch(query: string, limit: number, lim: QueryLimits, signal?: AbortSignal): Promise<ShopListing[]> {
+  const words = searchTerms(query) || query;
+  const region = REGION[lim.currency ?? (/\bkr\b|:-/i.test(query) ? 'SEK' : '')];
+  const md = await readerFetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(words)}${region ? `&kl=${region}` : ''}`, signal, 30000);
+  const hits = parseDdgResults(md).filter((h) => !isCategoryUrl(h.url));
+  // Clear product pages first, then other pages that might be one.
+  const ranked = [...hits.filter((h) => isLikelyProductUrl(h.url)), ...hits.filter((h) => !isLikelyProductUrl(h.url))];
   const now = Date.now();
-  return products.slice(0, limit).map((h) => ({
-    title: h.title.replace(/\s+[|–-]\s+[^|–-]+$/, ''), store: storeFromUrl(h.url), url: h.url, price: null, currency: 'SEK',
+  return ranked.slice(0, limit).map((h) => ({
+    title: h.title.replace(/\s+[|–-]\s+[^|–-]+$/, ''), store: storeFromUrl(h.url), url: h.url, price: null, currency: lim.currency ?? 'SEK',
     images: [], fetchedAt: now, via: 'search' as const, issues: [],
   }));
 }
@@ -108,7 +114,7 @@ export async function searchProducts(query: string, opts: SearchOptions = {}): P
   }
   if (!grounded) {
     opts.onStatus?.('Searching the web…');
-    results = await webSearch(query, limit, opts.signal);
+    results = await webSearch(query, limit, lim, opts.signal);
   }
   if (!results.length) { opts.onStatus?.('No product pages found. Try other words or paste a link.'); return []; }
 
@@ -128,7 +134,9 @@ export async function searchProducts(query: string, opts: SearchOptions = {}): P
     }
     emit();
   }));
-  const done = results.map((r) => ({ ...r, issues: issuesFor(r, lim) }));
+  // A page that shows neither a price nor a size is not a usable product page.
+  const done = results.filter((r) => (r.price !== null || r.stated) && (isLikelyProductUrl(r.url) || !isListTitle(r.title))).map((r) => ({ ...r, issues: issuesFor(r, lim) }));
+  opts.onUpdate?.(done);
   opts.onStatus?.(grounded ? 'Found with Google Search, then read from each store.' : 'Found by web search, then read from each store.');
   return done;
 }
