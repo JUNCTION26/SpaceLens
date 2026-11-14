@@ -68,6 +68,13 @@ const ROWS: Row[] = [
   ['desk-accessible', 'Wheelchair-friendly desk', 'desk', 1.6, 0.8, 0.76, c(1.5, 0, 0.3, 0.3), 4990, '#d8c7a8', 'birch', ['work', 'accessible']],
   ['shoe-bench', 'Shoe cabinet with seat', 'storage-cabinet', 0.9, 0.35, 0.5, c(0.6), 1490, '#c4a27c', 'oak veneer', ['storage']],
   ['room-divider', 'Room divider', 'room-divider', 1.6, 0.05, 1.7, c(0.3, 0.3), 2490, '#d9cdb8', 'linen', ['living', 'work', 'clinic']],
+  // Bathroom and utility fixtures, true sizes. They share the storage-cabinet category so the layout rules
+  // treat them as wall-backed pieces that need room in front.
+  ['toilet', 'Toilet', 'storage-cabinet', 0.4, 0.7, 0.8, c(0.6, 0, 0.2, 0.2), 2490, '#f4f4f2', 'porcelain', ['bath', 'wet']],
+  ['washbasin', 'Washbasin with cabinet', 'storage-cabinet', 0.6, 0.48, 0.85, c(0.7), 2990, '#f4f4f2', 'porcelain and laminate', ['bath', 'wet']],
+  ['shower', 'Shower 90x90', 'storage-cabinet', 0.9, 0.9, 2.0, c(0.7), 5990, '#dfe7ea', 'glass and acrylic', ['bath', 'wet']],
+  ['bathtub', 'Bathtub 170x75', 'storage-cabinet', 1.7, 0.75, 0.57, c(0.7), 5490, '#f4f4f2', 'acrylic', ['bath', 'wet']],
+  ['washing-machine', 'Washing machine', 'storage-cabinet', 0.6, 0.6, 0.85, c(0.8), 5990, '#e8eaec', 'white steel', ['utility', 'wet']],
   ['bar-stool-wood', 'Bar stool, wood', 'stool', 0.42, 0.42, 0.76, c(0.45), 990, '#a07a52', 'oak', ['cafe', 'kitchen']],
 ];
 
@@ -91,7 +98,7 @@ const KEYWORDS: Array<[string, string]> = [
   ['bedside', 'nightstand'], ['storage', 'storage-cabinet'], ['cabinet', 'storage-cabinet'], ['sideboard', 'sideboard'],
   ['armchair', 'armchair'], ['sofa', 'sofa-3'], ['couch', 'sofa-3'], ['desk', 'desk-140'], ['bed', 'bed-double'],
   ['table', 'dining-4'], ['stool', 'bar-stool'], ['chair', 'chair'], ['bench', 'bench'], ['counter', 'counter'],
-  ['rug', 'rug-160'], ['carpet', 'rug-160'], ['plant', 'plant'], ['lamp', 'floor-lamp'],
+  ['toilet', 'toilet'], ['wc', 'toilet'], ['washbasin', 'washbasin'], ['sink', 'washbasin'], ['basin', 'washbasin'], ['shower', 'shower'], ['bathtub', 'bathtub'], ['bath tub', 'bathtub'], ['washing machine', 'washing-machine'], ['rug', 'rug-160'], ['carpet', 'rug-160'], ['plant', 'plant'], ['lamp', 'floor-lamp'],
 ];
 
 export function findByKeyword(text: string): CatalogEntry | undefined {

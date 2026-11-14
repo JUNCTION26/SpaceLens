@@ -172,12 +172,21 @@ describe('furnishing a floor', () => {
     expect(briefed.map((s) => s.purpose)).toEqual(expect.arrayContaining(['bedroom', 'living', 'kitchen']));
     expect(seen.sort()).toEqual(briefed.map((s) => s.id).sort());
     for (const f of res.furniture) expect(model.spaces.some((s) => pointInPolygon(f, s.polygon))).toBe(true);
-    expect(res.rooms.find((r) => r.spaceId === 'room-bath')?.status ?? 'skipped').toBe('skipped');
+    expect(res.rooms.find((r) => r.spaceId === 'room-bath')?.status ?? 'skipped').toBe('done');
     const bill = buildingBill(model, res.furniture);
     expect(bill.items).toBe(res.furniture.length);
     expect(bill.lines[0].qty).toBe(res.furniture.length);
     expect(bill.byRoom.length).toBe(briefed.length);
   });
+
+  it('bathroom and WC get true-size fixtures that fit inside the room', async () => {
+    const wet = { ...model, spaces: model.spaces.filter((s) => s.purpose === 'bathroom' || s.purpose === 'wc') };
+    expect(wet.spaces.length).toBeGreaterThan(0);
+    const res = await furnishBuilding(wet, {}, { timeBudgetMs: 600 });
+    for (const r of res.rooms) expect(r.status, r.name).toBe('done');
+    expect(res.furniture.some((f) => f.catalogId === 'toilet')).toBe(true);
+    for (const f of res.furniture) expect(wet.spaces.some((s) => pointInPolygon(f, s.polygon))).toBe(true);
+  }, 60000);
 });
 
 describe('room purposes from printed names', () => {
@@ -199,7 +208,8 @@ describe('room purposes from printed names', () => {
     expect(defaultBrief(room('Cucina 5.09'))).toMatch(/dining table/);
     expect(defaultBrief(room('Room 5.21', 1))).toBeNull();
     expect(skipReason(room('Room 5.21', 1))).toBe('Too small');
-    expect(skipReason(room('Bagno 5.08', 2))).toBe('No bathroom fixtures yet');
+    expect(skipReason(room('Bagno 5.08', 1.5))).toBe('Too small');
+    expect(defaultBrief(room('Bagno 5.08', 5))).toMatch(/toilet/);
     expect(defaultBrief(room('Balcone 5.01', 2.3))).toMatch(/table/);
   });
 });

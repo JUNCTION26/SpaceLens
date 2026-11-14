@@ -33,11 +33,30 @@ export function roomPurpose(space: Pick<Space, 'name' | 'purpose'>): string {
 export function skipReason(space: Space): string | null {
   if (defaultBrief(space)) return null;
   const p = roomPurpose(space);
-  if (p === 'bathroom' || p === 'wc') return 'No bathroom fixtures yet';
   if (p === 'stair') return 'Stairs';
   if (area(space.polygon) < 4) return 'Too small';
   return 'Nothing to furnish';
 }
+
+const bathBrief = (a: number) => (a >= 6 ? 'toilet, washbasin, shower and bathtub' : a >= 4.5 ? 'toilet, washbasin, shower and washing machine' : 'toilet, washbasin and shower');
+
+/** Wet and utility rooms are furnished from fixed catalogue pieces: a brief in words cannot name them reliably. */
+function fixtureSets(space: Space): string[][] {
+  const p = roomPurpose(space);
+  const a = area(space.polygon);
+  if (a < 1.2) return [];
+  if (p === 'wc') return [['toilet', 'washbasin'], ['toilet']];
+  if (p === 'utility') return [['washing-machine', 'storage-cabinet'], ['washing-machine']];
+  if (p !== 'bathroom') return [];
+  // Largest set first; a narrow bathroom falls back to fewer pieces rather than being left empty.
+  return [
+    ...(a >= 6 ? [['toilet', 'washbasin', 'shower', 'bathtub']] : []),
+    ...(a >= 4.5 ? [['toilet', 'washbasin', 'shower', 'washing-machine']] : []),
+    ['toilet', 'washbasin', 'shower'], ['toilet', 'washbasin'],
+  ];
+}
+const requirementsFor = (purpose: string, ids: string[]): Requirements =>
+  ({ purpose, people: 1, budgetSek: null, items: ids.map((catalogId) => ({ catalogId, qty: 1 })), routeTargets: [], minRouteWidthM: 0.7, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' });
 
 /** A furnishing brief from a room's purpose and size; null for rooms left empty. */
 export function defaultBrief(space: Space): string | null {
@@ -64,7 +83,10 @@ export function defaultBrief(space: Space): string | null {
     case 'study': return 'office with a desk, an office chair and a bookshelf';
     case 'phone': return 'small desk and a desk chair';
     case 'counter': return 'counter and two bar stools';
-    case 'storage': case 'utility': return a >= 3 ? 'storage cabinet' : null;
+    case 'bathroom': return a >= 3 ? bathBrief(a) : null;
+    case 'wc': return a >= 1.2 ? 'toilet and washbasin' : null;
+    case 'utility': return a >= 2.5 ? 'washing machine and a storage cabinet' : null;
+    case 'storage': return a >= 3 ? 'storage cabinet' : null;
     default: return null;
   }
 }
@@ -116,8 +138,18 @@ export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<str
     if (!sub) { emit(i, { status: 'failed', message: 'Room not found' }); return; }
     emit(i, { status: 'running', message: brief });
     try {
-      const req = await compile(brief, sub.model);
-      const items = await solve(sub.model, req, brief);
+      const sets = briefByRoom[s.id] ? [] : fixtureSets(s);
+      let items: FurnitureItem[] | null = null;
+      if (sets.length) {
+        for (const ids of sets) {
+          const req = requirementsFor(roomPurpose(s), ids);
+          items = opts.solve ? await opts.solve(sub.model, req, brief) : await solveRoomAsync({ kind: 'layout', sub: sub.model, req, seed, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
+          if (items?.length) break;
+        }
+      } else {
+        const req = await compile(brief, sub.model);
+        items = await solve(sub.model, req, brief);
+      }
       if (!items?.length) { emit(i, { status: 'failed', message: 'No layout fits this room' }); return; }
       results.set(s.id, { items, offset: sub.offset });
       emit(i, { status: 'done', items: items.length });
