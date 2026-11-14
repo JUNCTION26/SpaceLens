@@ -11,6 +11,8 @@ import { useSketch } from '../agent/sketchStore';
 import { SketchLayer } from '../agent/SketchLayer';
 import { Icon } from '../../ui/icons';
 import { notify } from '../../ui/notify';
+import { useUi } from '../../ui/uiStore';
+import { SPEC_DND, specDrag } from './dnd';
 import { counts, useProblems } from '../problems/store';
 import { ProblemCard } from '../problems/ProblemCard';
 import { SEVERITY_ORDER, type GhostPose, type Problem, type ProblemSeverity } from '../problems/types';
@@ -137,7 +139,7 @@ export function PlanView() {
   const setMulti = (ids: string[]) => { multiRef.current = ids; setMultiState(ids); };
   const [hover, setHover] = useState<{ id: string; sx: number; sy: number } | null>(null);
   const [menu, setMenu] = useState<{ id: string; sx: number; sy: number } | null>(null);
-  const [ghost, setGhost] = useState<{ id: string | null; p: Vec2 } | null>(null);
+  const [ghost, setGhost] = useState<{ id: string | null; p: Vec2; spec?: { name: string; w: number; d: number } | null } | null>(null);
   const anim = useRef<number>(0);
   const [layersOpen, setLayersOpen] = useState(false);
   const sketching = useSketch((s) => s.drawing);
@@ -658,20 +660,29 @@ export function PlanView() {
   return (
     <div className={`plan2d${sketching ? ' plan2d-drawing' : ''}`}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes(CATALOG_DND)) return;
+        const isSpec = e.dataTransfer.types.includes(SPEC_DND);
+        if (!e.dataTransfer.types.includes(CATALOG_DND) && !isSpec) return;
         e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-        setGhost({ id: dndCatalogId, p: toPlan(e.clientX, e.clientY) });
+        setGhost({ id: isSpec ? null : dndCatalogId, p: toPlan(e.clientX, e.clientY), spec: isSpec ? specDrag.current : null });
       }}
       onDragLeave={(e) => { if (!(e.currentTarget as Node).contains(e.relatedTarget as Node)) setGhost(null); }}
       onDrop={(e) => {
-        const id = e.dataTransfer.getData(CATALOG_DND); setGhost(null);
-        if (!id) return;
+        const id = e.dataTransfer.getData(CATALOG_DND), specId = e.dataTransfer.getData(SPEC_DND); setGhost(null);
+        if (!id && !specId) return;
         e.preventDefault();
         const q = toPlan(e.clientX, e.clientY);
-        ensureEditable();
-        const item = makeItem(id, { x: snap(q.x, 0.01), y: snap(q.y, 0.01) });
-        useStore.getState().dispatch({ type: 'PLACE_OBJECT', item });
-        setMulti([item.id]); select({ kind: 'furniture', id: item.id });
+        const at = { x: snap(q.x, 0.01), y: snap(q.y, 0.01) };
+        const place = (item: FurnitureItem) => {
+          ensureEditable();
+          useStore.getState().dispatch({ type: 'PLACE_OBJECT', item });
+          setMulti([item.id]); select({ kind: 'furniture', id: item.id });
+        };
+        if (id) { place(makeItem(id, at)); return; }
+        void import('../forge/library').then((m) => {
+          const spec = m.useForgeLibrary.getState().items.find((s) => s.id === specId);
+          if (spec) { ensureEditable(); setMulti([m.placeSpec(spec, at).id]); }
+          else notify('That object is no longer in My objects.', { tone: 'warn', actions: [{ label: 'Open Create object', run: () => useUi.getState().openSection('create') }] });
+        }).catch(() => notify('Could not place that object. Try once more.', { tone: 'warn' }));
       }}>
       <svg
         ref={svgRef}
@@ -888,7 +899,7 @@ export function PlanView() {
 
         {/* Drop ghost */}
         {ghost && (() => {
-          const e = ghost.id ? catalogEntry(ghost.id) : undefined; const w = e?.w ?? 0.6, d = e?.d ?? 0.6;
+          const e = ghost.id ? catalogEntry(ghost.id) : ghost.spec ?? undefined; const w = e?.w ?? 0.6, d = e?.d ?? 0.6;
           return (
             <g pointerEvents="none" transform={`translate(${ghost.p.x} ${ghost.p.y})`}>
               <rect x={-w / 2} y={-d / 2} width={w} height={d} className="plan2d-ghost" strokeWidth={1.5 * px} strokeDasharray={`${5 * px} ${3 * px}`} />

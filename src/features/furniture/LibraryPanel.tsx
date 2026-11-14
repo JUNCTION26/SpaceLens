@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../core/store';
 import { centroid, fmtSek } from '../../core/geometry';
-import type { FurnitureItem, PriceStatus } from '../../core/types';
+import type { FurnitureItem, ObjectSpec, PriceStatus } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, makeOwnItem, variantsFor } from './catalog';
 import type { CatalogEntry } from './catalog';
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { Icon } from '../../ui/icons';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
+import { SPEC_DND, specDrag } from '../plan2d/dnd';
+
+type ForgeLib = typeof import('../forge/library');
 import './furniture.css';
 
 const cm = (m: number) => Math.round(m * 100);
@@ -48,6 +51,14 @@ export function LibraryPanel() {
   const [cat, setCat] = useState<string | null>(null);
   const [fits, setFits] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
+  // "My objects" from Create object, loaded lazily so the object maker stays out of the first load.
+  const [lib, setLib] = useState<ForgeLib | null>(null);
+  const [mine, setMine] = useState<ObjectSpec[]>([]);
+  useEffect(() => {
+    let off = () => {};
+    import('../forge/library').then((m) => { setLib(m); setMine(m.useForgeLibrary.getState().items); off = m.useForgeLibrary.subscribe((st) => setMine(st.items)); }).catch(() => {});
+    return () => off();
+  }, []);
   const [own, setOwn] = useState({ open: false, name: '', w: '', d: '', h: '', category: 'storage-cabinet' });
 
   const center = () => {
@@ -150,6 +161,28 @@ export function LibraryPanel() {
           </div>
         </section>
       )}
+
+      {mine.length > 0 && lib && (() => {
+        const t = q.trim().toLowerCase();
+        const shownMine = mine.filter((m) => !t || m.name.toLowerCase().includes(t) || m.semantics.category.includes(t)).slice(0, 8);
+        if (!shownMine.length || cat) return null;
+        return (
+          <section className="furniture-mine" aria-label="My objects">
+            <div className="furniture-mine-head"><span>My objects</span><button className="furniture-link" onClick={() => useUi.getState().openSection('create')}>Make another</button></div>
+            <div className="furniture-grid">
+              {shownMine.map((m) => (
+                <button key={m.id} className="furniture-card" draggable title="Drag onto the plan, or click to add"
+                  onClick={() => lib.placeSpec(m)}
+                  onDragStart={(ev) => { ev.dataTransfer.setData(SPEC_DND, m.id); ev.dataTransfer.setData('text/plain', m.name); ev.dataTransfer.effectAllowed = 'copy'; specDrag.current = { id: m.id, name: m.name, w: m.size.w, d: m.size.d }; }}>
+                  <span className="furniture-swatch" style={{ background: lib.dominantColor(m) }} aria-hidden="true" />
+                  <span className="furniture-name">{m.name}</span>
+                  <span className="furniture-meta">{cm(m.size.w)}×{cm(m.size.d)} cm</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       <div className="furniture-grid">
         {list.map((e) => (

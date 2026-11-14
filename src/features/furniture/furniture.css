@@ -42,3 +42,10 @@
 
 .furniture-empty { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px 0; }
 .furniture-empty p { margin: 0; }
+
+.furniture-mine { display: grid; gap: 8px; }
+.furniture-mine-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); font-weight: var(--fw-strong); }
+.furniture-mine-head .furniture-link { margin: 0; }
+.furniture-swatch { width: 28px; height: 20px; border-radius: 4px; border: 1px solid var(--line); }
+.furniture-card { cursor: grab; }
+.furniture-card:active { cursor: grabbing; }
