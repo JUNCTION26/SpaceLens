@@ -1,29 +1,28 @@
-.sim { display: flex; flex-direction: column; gap: 12px; }
-.sim .card { display: flex; flex-direction: column; gap: 8px; }
-.sim-head { justify-content: space-between; flex-wrap: wrap; }
+.sim { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.sim-walk { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+.sim-seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.sim-seg button { flex: 1; min-width: 0; padding: 4px 2px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sim-seg button:first-child { border-left: 0; }
+.sim-seg button.on { background: var(--panel-2); color: var(--text); }
+.sim-line { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.sim-line > span:nth-child(2) { flex: 1; }
+.sim-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; display: inline-block; }
+.sim-dot.ok { background: var(--ok); }
+.sim-dot.bad { background: var(--bad); }
+.sim-row, .sim-more { border-top: 1px solid var(--line); padding-top: 8px; }
+.sim-row-head { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; }
+.sim-row-head:focus-visible { outline: 1px solid var(--accent); border-radius: 4px; }
+.sim-tag { margin-left: auto; font-size: 12px; }
+.sim-tag.ok { color: var(--ok); }
+.sim-tag.bad { color: var(--bad); }
+.sim-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.sim-more summary { cursor: pointer; color: var(--muted); }
 .sim-layers { display: flex; gap: 10px; font-size: 12px; }
 .sim-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.sim-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.sim-chips .chip { cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--text); }
 .sim-note { font-size: 12px; margin: 0; }
 .sim-list li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.sim-ok { color: var(--ok); margin: 0; }
-.sim-bad { color: var(--bad); margin: 0; }
-.sim-stats { display: grid; gap: 4px; }
-.sim-profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
-.sim-profile, .sim-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font-size: 12px; }
-.sim-profile.on, .sim-item.on { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
-.sim-icon { font-size: 28px; line-height: 1; }
-.sim-verdict { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; border-radius: 8px; border-left: 4px solid; animation: sim-in .3s ease-out; }
-.sim-verdict.ok { border-color: var(--ok); }
-.sim-verdict.bad { border-color: var(--bad); }
-.sim-verdict.ok strong { color: var(--ok); }
-.sim-verdict.bad strong { color: var(--bad); }
-.sim-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; }
-.sim-shape { display: block; border: 1.5px solid currentColor; border-radius: 2px; margin: 4px 0; }
-.sim-item-name { text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.sim-more summary { cursor: pointer; }
-.sim-spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: sim-rot .8s linear infinite; vertical-align: -2px; }
+.sim-sub { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.sim-sub-head { justify-content: space-between; }
+.sim-spin { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: sim-rot .8s linear infinite; vertical-align: -1px; }
 @keyframes sim-rot { to { transform: rotate(360deg); } }
-@keyframes sim-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .sim-verdict, .sim-spin { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sim-spin { animation: none; } }

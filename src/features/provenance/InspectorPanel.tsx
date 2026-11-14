@@ -7,6 +7,7 @@ import {
   type Diff, type Snap,
 } from './logic';
 import { ObjectActions } from '../objects/ObjectActions';
+import { Icon } from '../../ui/icons';
 import './provenance.css';
 
 function Num({ value, onCommit, step = 1, suffix = 'cm', min = 0, max = 100000, label }: {
@@ -42,9 +43,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <div className="field provenance-field"><span>{label}</span>{children}</div>;
 }
 
-const OPEN_KEY = 'spacelens.inspector.open';
+const OPEN_KEY = 'spacelens.inspector.open.v2';
 function readOpen(): Record<string, boolean> { try { return JSON.parse(localStorage.getItem(OPEN_KEY) || '{}'); } catch { return {}; } }
-function Section({ id, title, count, defaultOpen = true, children }: {
+function Section({ id, title, count, defaultOpen = false, children }: {
   id: string; title: string; count?: number; defaultOpen?: boolean; children: ReactNode;
 }) {
   const [open, setOpen] = useState<boolean>(() => readOpen()[id] ?? defaultOpen);
@@ -55,14 +56,14 @@ function Section({ id, title, count, defaultOpen = true, children }: {
   return (
     <section className="provenance-section">
       <button className="provenance-head" onClick={toggle} aria-expanded={open}>
-        <span className="provenance-caret" aria-hidden>{open ? '▾' : '▸'}</span>{title}
+        <Icon className="provenance-caret" name={open ? 'chevronDown' : 'chevronRight'} size={12} aria-hidden />{title}
         {count != null && <span className="provenance-count">{count}</span>}
       </button>
       {open && <div className="provenance-body">{children}</div>}
     </section>
   );
 }
-const EV_ICON: Record<Evidence['kind'], string> = { photo: '📷', pdf: '📄', image: '🖼', manual: '✍', sample: '🧪' };
+const EV_ICON: Record<Evidence['kind'], string> = { photo: 'camera', pdf: 'file', image: 'image', manual: 'ruler', sample: 'sparkles' };
 const cm = (m: number) => Math.round(m * 100);
 
 function DiffCard({ d, title, before, after, onUndo }: { d: Diff; title: string; before?: Snap; after?: Snap; onUndo?: () => void }) {
@@ -151,7 +152,7 @@ function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
       </div>
       {evs.length > 0 && <ol className="provenance-timeline">{[...evs].sort((a, b) => b.createdAt - a.createdAt).map((e) => (
         <li key={e.id}>
-          <span className="provenance-ico" aria-hidden>{EV_ICON[e.kind] ?? '•'}</span>
+          <span className="provenance-ico" aria-hidden><Icon name={EV_ICON[e.kind] ?? 'file'} size={12} /></span>
           <div>
             <div>{e.label}{e.page ? `, page ${e.page}` : ''}</div>
             {e.imageUrl && <EvidenceThumb ev={e} />}
@@ -261,7 +262,7 @@ function History() {
   const changes = useStore((s) => s.changes);
   if (!changes.length) return null;
   return (
-    <Section id="history" title="History" count={changes.length} defaultOpen={false}>
+    <Section id="history" title="History" count={changes.length}>
       {<ul className="list provenance-hist">{[...changes].reverse().map((c) => {
         const d = changeDiffs.get(c.version);
         return <li key={`${c.version}-${c.at}`}>v{c.version} {c.label}{d && <DiffCard d={d} title="What changed" />}</li>;
@@ -280,10 +281,10 @@ function Selected() {
       const L = wallLength(sp, p.wallIndex);
       return (<>
         <h3>{wallName(sp, p.wallIndex)}</h3>
-        <Section id="props" title="Properties">
+        <div className="provenance-sheet">
         <Field label="Length"><Num label="Length" value={cm(L)} onCommit={(v) => dispatch({ type: 'SET_WALL_LENGTH', spaceId: sp.id, wallIndex: p.wallIndex, lengthM: v / 100, sourceKind: 'user-measured' })} /></Field>
-        <div className="muted">Thickness {fmtCm(w.thicknessM)}</div>
-        </Section>
+        <Field label="Thickness"><span>{fmtCm(w.thicknessM)}</span></Field>
+        </div>
         <Provenance targetId={sel.id} measurementId={w.measurementId} sourceKind={w.sourceKind} status={w.status} valueM={L} />
       </>);
     }
@@ -293,20 +294,20 @@ function Selected() {
     if (o) {
       const up = (patch: Partial<typeof o>) => dispatch({ type: 'UPDATE_OPENING', id: o.id, patch });
       return (<>
-        <h3>{o.kind[0].toUpperCase() + o.kind.slice(1)}</h3>
-        <Section id="props" title="Properties">
-        <div className="grid2">
+        <div className="provenance-title"><h3>{o.kind[0].toUpperCase() + o.kind.slice(1)}</h3>
+          <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => { dispatch({ type: 'REMOVE_OPENING', id: o.id }); select(null); }}><Icon name="trash" size={14} /></button></div>
+        <div className="provenance-sheet">
+        <div>
           <Field label="Width"><Num label="Width" value={cm(o.widthM)} onCommit={(v) => up({ widthM: v / 100 })} /></Field>
           <Field label="Height"><Num label="Height" value={cm(o.heightM)} onCommit={(v) => up({ heightM: v / 100 })} /></Field>
           <Field label="Sill"><Num label="Sill" value={cm(o.sillM)} onCommit={(v) => up({ sillM: v / 100 })} /></Field>
           <Field label="Offset"><Num label="Offset" value={cm(o.offsetM)} onCommit={(v) => up({ offsetM: v / 100 })} /></Field>
-          <label className="field">Swing <select value={o.swing} onChange={(e) => up({ swing: e.target.value as typeof o.swing })}>
+          <label className="field provenance-field">Swing <select value={o.swing} onChange={(e) => up({ swing: e.target.value as typeof o.swing })}>
             <option value="in">In</option><option value="out">Out</option><option value="none">None</option></select></label>
-          <label className="field">Hinge <select value={o.hinge} onChange={(e) => up({ hinge: e.target.value as typeof o.hinge })}>
+          <label className="field provenance-field">Hinge <select value={o.hinge} onChange={(e) => up({ hinge: e.target.value as typeof o.hinge })}>
             <option value="start">Start</option><option value="end">End</option></select></label>
         </div>
-        <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OPENING', id: o.id }); select(null); }}>Delete</button>
-        </Section>
+        </div>
         <Provenance targetId={o.id} measurementId={o.measurementId} sourceKind={o.sourceKind} status={o.status} valueM={o.widthM} />
       </>);
     }
@@ -316,22 +317,22 @@ function Selected() {
     if (f) {
       const up = (patch: Partial<typeof f>) => dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch });
       return (<>
-        <h3>{f.name}</h3>
-        <Section id="props" title="Properties">
-        <div className="grid2">
+        <div className="provenance-title"><h3>{f.name}</h3>
+          <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}><Icon name="trash" size={14} /></button></div>
+        <ObjectActions itemId={f.id} />
+        <div className="provenance-sheet">
+        <div>
           <Field label="Width"><Num label="Width" value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} /></Field>
           <Field label="Depth"><Num label="Depth" value={cm(f.d)} onCommit={(v) => up({ d: v / 100 })} /></Field>
           <Field label="Height"><Num label="Height" value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} /></Field>
           <Field label="Rotation"><Num label="Rotation" value={Math.round((f.rotation * 180) / Math.PI)} suffix="°" min={-360} max={360} step={15} onCommit={(v) => up({ rotation: (v * Math.PI) / 180 })} /></Field>
         </div>
-        <div className="row">
+        <div className="provenance-checks">
           <label><input type="checkbox" checked={f.locked} onChange={(e) => up({ locked: e.target.checked })} /> Locked</label>
           <label><input type="checkbox" checked={f.owned} onChange={(e) => up({ owned: e.target.checked })} /> Owned</label>
         </div>
-        <div className="row">{fmtSek(f.priceSek)} <span className="chip">{f.priceStatus}</span></div>
-        <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}>Delete</button>
-        </Section>
-        <ObjectActions itemId={f.id} />
+        <Field label="Price"><span>{fmtSek(f.priceSek)} <span className="muted">{f.priceStatus}</span></span></Field>
+        </div>
         <Provenance targetId={f.id} sourceKind={f.sourceKind} status={f.sourceKind === 'catalog' ? 'estimated' : 'verified'} valueM={f.w} />
       </>);
     }
@@ -339,27 +340,24 @@ function Selected() {
   const counts = { verified: 0, estimated: 0, unknown: 0, conflicting: 0 };
   model.spaces.forEach((s) => s.walls.forEach((w) => { counts[w.status]++; }));
   return (<>
-    <div className="provenance-empty">
-      <b>Select a wall, door or item</b>
-    </div>
     <h3>{model.name}</h3>
-    <div className="grid2">
-      <div className="stat">Area {fmtM2(roomArea(model))}</div>
-      <div className="stat">Perimeter {model.spaces.reduce((a, s) => a + perimeter(s.polygon), 0).toFixed(2)} m</div>
-    </div>
+    <div className="provenance-sheet">
+    <Field label="Area"><span>{fmtM2(roomArea(model))}</span></Field>
+    <Field label="Perimeter"><span>{model.spaces.reduce((a, s) => a + perimeter(s.polygon), 0).toFixed(2)} m</span></Field>
     <Field label="Ceiling"><Num label="Ceiling" value={cm(model.ceilingM)} onCommit={(v) => dispatch({ type: 'SET_CEILING', heightM: v / 100 })} /></Field>
     <div className="provenance-chips">
       {(Object.keys(counts) as (keyof typeof counts)[]).filter((k) => counts[k]).map((k) => (
         <span key={k} className={`chip ${STATUS_CHIP[k]}`}>{counts[k]} {k}</span>
       ))}
     </div>
-    <div className="muted">Source: {model.sourceLabel}</div>
+    <Field label="Source"><span>{model.sourceLabel}</span></Field>
+    </div>
   </>);
 }
 
 export function InspectorPanel() {
   return (
-    <div className="panel">
+    <div className="provenance">
       <Selected />
       <Uncertainty />
       <WhatIf />

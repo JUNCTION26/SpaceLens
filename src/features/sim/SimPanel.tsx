@@ -10,6 +10,7 @@ import { castSightlines, EYE_M } from './sightlines';
 import { CROWD_ASSUMPTIONS, runCrowd } from './crowd';
 import type { CrowdStats } from './crowd';
 import { roomCentroid } from './grid';
+import { Icon } from '../../ui/icons';
 import './sim.css';
 
 const EXTRA: PassageItem[] = [
@@ -18,7 +19,6 @@ const EXTRA: PassageItem[] = [
   { id: 'cat:bed', name: 'Bed 1.6 x 2.0', w: 1.6, d: 2.0, h: 0.5 },
   { id: 'cat:wardrobe', name: 'Wardrobe 1.0 x 0.6', w: 1.0, d: 0.6, h: 2.0 },
 ];
-const ICONS: Record<BodyProfileId, string> = { adult: '\u{1F9CD}', child: '\u{1F9D2}', wheelchair: '\u{1F9BD}', stroller: '\u{1F6BC}', cart: '\u{1F6D2}' };
 const LAYERS: Array<[keyof Layers, string]> = [['routes', 'Routes'], ['heat', 'Heat'], ['sightlines', 'Sightlines']];
 
 export function SimPanel() {
@@ -28,6 +28,7 @@ export function SimPanel() {
   const selection = useStore((s) => s.selection);
   const setAnalysis = useStore((s) => s.setAnalysis);
   const toggleLayer = useStore((s) => s.toggleLayer);
+  const [fitOpen, setFitOpen] = useState(false);
   const furniture = useShownFurniture();
 
   const [profile, setProfile] = useState<BodyProfileId>('adult');
@@ -104,108 +105,97 @@ export function SimPanel() {
   const openings = model.openings.filter((o) => o.kind === 'door' || o.kind === 'opening' || o.kind === 'window');
   const seen = analysis.sightlines.slice(0, openings.length);
 
+  const rs = analysis.routes.filter((r) => r.profile === profile);
+  const bad = rs.filter((r) => !r.ok);
+  const worst = [...(bad.length ? bad : rs)].filter((r) => r.narrowestM != null).sort((x, y) => x.narrowestM! - y.narrowestM!)[0];
+
   return (
     <div className="sim">
-      <section className="card">
-        <div className="row sim-head"><strong>Can I get everywhere?</strong>
+      <button className="btn btn-primary sim-walk" onClick={() => window.dispatchEvent(new Event('spacelens:walk'))}>
+        <Icon name="walk" size={14} /> Walk through
+      </button>
+
+      <div className="sim-seg" role="group" aria-label="Who is moving">{PROFILES.map((pr) => (
+        <button key={pr.id} className={pr.id === profile ? 'on' : ''} aria-pressed={pr.id === profile} title={pr.note} onClick={() => setProfile(pr.id)}>{pr.label}</button>
+      ))}</div>
+
+      <div className="sim-line" aria-live="polite">
+        {showSpin && routesBusy ? <span className="muted"><span className="sim-spin" aria-hidden="true" /> Checking</span>
+          : !rs.length ? <span className="muted">No doors yet</span>
+          : <>
+            <span className={`sim-dot ${bad.length ? 'bad' : 'ok'}`} aria-hidden="true" />
+            <span>{bad.length ? `${bad.length} of ${rs.length} spots blocked` : 'Every spot reachable'}
+              {worst && <span className="muted"> · narrowest {worst.narrowestM!.toFixed(2)} m{worst.narrowestM! < p.widthM ? ` (needs ${p.widthM.toFixed(2)})` : ''}</span>}
+              {turn && !turn.ok && <span className="muted"> · no 1.5 m turn</span>}
+            </span>
+            {worst?.narrowestAt && <button className="icon-btn" title="Show narrowest spot" aria-label="Show narrowest spot" aria-pressed={focusId === worst.id && layers.routes} onClick={() => showSpot(worst.id)}><Icon name="eye" size={14} /></button>}
+          </>}
+      </div>
+
+      <div className="sim-row">
+        <button className="sim-row-head" aria-expanded={fitOpen} onClick={() => setFitOpen((v) => !v)} title={`Assumes: ${PASSAGE_ASSUMPTIONS.join('. ')}.`}>
+          <Icon name={fitOpen ? 'chevronDown' : 'chevronRight'} size={14} />
+          <span>Fit through the door</span>
+          {passage && <span className={`sim-tag ${passage.ok ? 'ok' : 'bad'}`}>{passage.ok ? 'Fits' : 'Stuck'}</span>}
+        </button>
+        {fitOpen && (
+          <div className="sim-body">
+            <label className="field">Item
+              <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+                {items.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.w.toFixed(2)} x {i.d.toFixed(2)})</option>)}
+              </select>
+            </label>
+            <label className="field">Door
+              <select value={door} onChange={(e) => setDoorId(e.target.value)}>
+                {doors.map((d, i) => <option key={d.id} value={d.id}>Door {i + 1} ({d.widthM.toFixed(2)} m)</option>)}
+              </select>
+            </label>
+            <div className="row">
+              <button className="btn btn-sm" disabled={busy || !door} onClick={runPassage}>{busy ? 'Testing' : 'Test'}</button>
+              {passage?.ok && <button className="icon-btn" title="Replay" aria-label="Replay" onClick={play}><Icon name="play" size={14} /></button>}
+            </div>
+            {passage && <p className="sim-note">{passage.details}</p>}
+          </div>
+        )}
+      </div>
+
+      <details className="sim-more">
+        <summary>More</summary>
+        <div className="sim-body">
           <div className="sim-layers">{LAYERS.map(([k, l]) => (
             <label key={k} className="sim-toggle"><input type="checkbox" checked={layers[k]} onChange={() => toggleLayer(k)} /> {l}</label>
           ))}</div>
-        </div>
-        <div className="sim-profiles" role="group" aria-label="Who is moving">{PROFILES.map((pr) => (
-          <button key={pr.id} className={`sim-profile${pr.id === profile ? ' on' : ''}`} aria-pressed={pr.id === profile} onClick={() => setProfile(pr.id)}>
-            <span className="sim-icon" aria-hidden="true">{ICONS[pr.id]}</span>
-            <span>{pr.label}</span>
-            <span className="muted">{pr.widthM.toFixed(2)} m</span>
-          </button>
-        ))}</div>
-        {(() => {
-          const rs = analysis.routes.filter((r) => r.profile === profile);
-          if (showSpin && routesBusy) return <p className="muted"><span className="sim-spin" aria-hidden="true" /> Checking...</p>;
-          if (!rs.length) return <p className="muted">No doors to start from yet.</p>;
-          const bad = rs.filter((r) => !r.ok);
-          const worst = [...(bad.length ? bad : rs)].filter((r) => r.narrowestM != null).sort((x, y) => x.narrowestM! - y.narrowestM!)[0];
-          return (
-            <div className={`sim-verdict ${bad.length ? 'bad' : 'ok'}`}>
-              <strong>{bad.length ? `No, ${bad.length} of ${rs.length} spots blocked` : 'Yes, every spot is reachable'}</strong>
-              {worst && <span>Narrowest: {worst.narrowestM!.toFixed(2)} m{worst.narrowestM! < p.widthM ? `, needs ${p.widthM.toFixed(2)} m` : ''} ({worst.label})</span>}
-              {worst?.narrowestAt && <button className="btn btn-sm" onClick={() => showSpot(worst.id)}>{focusId === worst.id && layers.routes ? 'Shown' : 'Show'}</button>}
-            </div>
-          );
-        })()}
-        {turn && <p className={turn.ok ? 'sim-ok' : 'sim-bad'}>{turn.ok ? '1.5 m turning circle fits' : 'No reachable spot for a 1.5 m turning circle'}</p>}
-        <details>
-          <summary className="muted">Each route</summary>
-          <ul className="list sim-list">
-            {analysis.routes.map((r) => (
-              <li key={r.id}>
-                <span className={`chip ${r.ok ? 'chip-ok' : 'chip-bad'}`}>{r.ok ? 'Clear' : 'Blocked'}</span>
-                <span>{r.label}</span>
-                <span className="muted">{r.lengthM != null ? `${r.lengthM.toFixed(1)} m` : ''}{r.narrowestM != null ? ` · narrowest ${r.narrowestM.toFixed(2)} m` : ''}</span>
-              </li>
-            ))}
-          </ul>
-          <button className="btn btn-ghost btn-sm" onClick={checkRoutes}>Check again</button>
-        </details>
-        <p className="muted sim-note">Rugs ignored, 5 cm grid.</p>
-      </section>
-
-      <section className="card">
-        <strong title={`Assumes: ${PASSAGE_ASSUMPTIONS.join('. ')}.`}>Will it fit through the door?</strong>
-        <div className="sim-items" role="listbox" aria-label="Item">
-          {items.map((i) => {
-            const k = 28 / Math.max(i.w, i.d, 0.1);
-            return (
-              <button key={i.id} role="option" aria-selected={i.id === itemId} className={`sim-item${i.id === itemId ? ' on' : ''}`} onClick={() => setItemId(i.id)}>
-                <span className="sim-shape" style={{ width: Math.max(4, i.w * k), height: Math.max(4, i.d * k) }} aria-hidden="true" />
-                <span className="sim-item-name">{i.name}</span>
-                <span className="muted">{i.w.toFixed(2)} x {i.d.toFixed(2)}</span>
-              </button>
-            );
-          })}
-        </div>
-        <label className="field">Door
-          <select value={door} onChange={(e) => setDoorId(e.target.value)}>
-            {doors.map((d, i) => <option key={d.id} value={d.id}>Door {i + 1} ({d.widthM.toFixed(2)} m)</option>)}
-          </select>
-        </label>
-        <div className="row">
-          <button className="btn btn-primary btn-sm" disabled={busy || !door} onClick={runPassage}>{busy ? <><span className="sim-spin" aria-hidden="true" /> Testing...</> : 'Test'}</button>
-          <button className="btn btn-ghost btn-sm" disabled={!passage?.ok} onClick={play}>Replay</button>
-        </div>
-        {passage && (
-          <div className={`sim-verdict ${passage.ok ? 'ok' : 'bad'}`}>
-            <strong>{passage.ok ? 'Yes, it fits.' : 'No, it gets stuck.'}</strong>
-            <span>{passage.details}</span>
+          <details>
+            <summary className="muted">Each route</summary>
+            <ul className="list sim-list">
+              {rs.map((r) => (
+                <li key={r.id}>
+                  <span className={`sim-dot ${r.ok ? 'ok' : 'bad'}`} role="img" aria-label={r.ok ? 'Clear' : 'Blocked'} />
+                  <span>{r.label}</span>
+                  <span className="muted">{r.lengthM != null ? `${r.lengthM.toFixed(1)} m` : ''}{r.narrowestM != null ? ` · ${r.narrowestM.toFixed(2)} m` : ''}</span>
+                </li>
+              ))}
+            </ul>
+            <button className="btn btn-ghost btn-sm" onClick={checkRoutes}>Check again</button>
+          </details>
+          <div className="sim-sub">
+            <div className="row sim-sub-head"><span>Sightlines</span><button className="btn btn-sm" onClick={sight}>Cast</button></div>
+            <p className="muted sim-note">From {sel ? sel.name : 'room centre'}, eye at {EYE_M} m.{seen.length > 0 && ` ${seen.filter((s) => s.visible).length} of ${seen.length} openings visible.`}</p>
           </div>
-        )}
-      </section>
-
-      <details className="card sim-more">
-        <summary><strong>More</strong></summary>
-      <section className="card">
-        <strong>Sightlines</strong>
-        <p className="muted sim-note">From {sel ? sel.name : 'room centre'}. Items over {EYE_M} m block a seated eye at {EYE_M} m.</p>
-        <button className="btn btn-sm" onClick={sight}>Cast sightlines</button>
-        {seen.length > 0 && <p className="muted">{seen.filter((s) => s.visible).length} of {seen.length} openings visible</p>}
-      </section>
-
-      <section className="card">
-        <strong title={`Assumes: ${CROWD_ASSUMPTIONS}.`}>Crowd</strong>
-        <label className="field">Agents: {agents}
-          <input type="range" min={5} max={60} value={agents} onChange={(e) => setAgents(Number(e.target.value))} />
-        </label>
-        <label className="field">Seed
-          <input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value) || 0)} />
-        </label>
-        <button className="btn btn-sm" onClick={runCrowdSim}>Run</button>
-        {crowd.cur && (
-          <div className="sim-stats">
-            <div className="stat"><span className="muted">Mean path</span> {crowd.cur.meanPathM.toFixed(1)} m{crowd.prev && <span className="muted"> (was {crowd.prev.meanPathM.toFixed(1)})</span>}</div>
-            <div className="stat"><span className="muted">Through gaps under 0.45 m</span> {crowd.cur.tightPct.toFixed(0)}%{crowd.prev && <span className="muted"> (was {crowd.prev.tightPct.toFixed(0)}%)</span>}</div>
+          <div className="sim-sub">
+            <div className="row sim-sub-head"><span title={`Assumes: ${CROWD_ASSUMPTIONS}.`}>Crowd</span><button className="btn btn-sm" onClick={runCrowdSim}>Run</button></div>
+            <label className="field">Agents: {agents}
+              <input type="range" min={5} max={60} value={agents} onChange={(e) => setAgents(Number(e.target.value))} />
+            </label>
+            <label className="field">Seed
+              <input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value) || 0)} />
+            </label>
+            {crowd.cur && (
+              <p className="muted sim-note">Mean path {crowd.cur.meanPathM.toFixed(1)} m{crowd.prev && ` (was ${crowd.prev.meanPathM.toFixed(1)})`} · {crowd.cur.tightPct.toFixed(0)}% through gaps under 0.45 m{crowd.prev && ` (was ${crowd.prev.tightPct.toFixed(0)}%)`}</p>
+            )}
           </div>
-        )}
-      </section>
+          <p className="muted sim-note">Rugs ignored, 5 cm grid.</p>
+        </div>
       </details>
     </div>
   );

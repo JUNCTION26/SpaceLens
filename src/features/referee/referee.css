@@ -1,13 +1,18 @@
-.referee-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-.referee-counts { gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.referee-arc { transition: stroke-dasharray 300ms ease, stroke 300ms ease; }
-.referee-pop { display: inline-block; animation: referee-pop 280ms ease; }
-@keyframes referee-pop { from { transform: scale(1.35); opacity: .5; } to { transform: none; opacity: 1; } }
-.referee-list { margin: 0 0 6px; padding: 0; list-style: none; }
-.referee-group { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--text); }
-.referee-group-head { justify-content: space-between; align-items: center; gap: 6px; }
-.referee-actions { display: flex; gap: 4px; }
-.referee-sentences { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; }
-.referee-item { padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--text); }
-.referee-details { color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { .referee-pop { animation: none; } .referee-arc { transition: none; } }
+.referee { font-size: 13px; color: var(--text); }
+.referee-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.referee-meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+.referee-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.referee-dot.ok { background: var(--ok); }
+.referee-dot.bad { background: var(--bad); }
+.referee-dot.warn { background: var(--warn, var(--muted)); }
+.referee-list { margin: 0; padding: 0; list-style: none; max-height: 320px; overflow-y: auto; }
+.referee-group { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.referee-group-head { display: flex; align-items: center; gap: 6px; }
+.referee-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.referee-group-head .icon-btn { width: 24px; height: 24px; min-height: 24px; padding: 0; }
+.referee-group-head .icon-btn svg { width: 14px; height: 14px; }
+.referee-sentences { margin: 2px 0 0 14px; padding: 0; list-style: none; display: grid; gap: 2px; color: var(--muted); font-size: 12px; }
+.referee-rule { color: var(--text); }
+.referee-passes { padding-top: 6px; }
+.referee-passes summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.referee-passes .referee-sentences { margin-left: 0; padding-top: 4px; }
