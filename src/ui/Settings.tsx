@@ -3,6 +3,7 @@ import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { usage } from '../core/gemini';
 import { useUi } from './uiStore';
+import { Icon } from './icons';
 
 export function Settings() {
   const open = useUi((s) => s.settingsOpen);
@@ -33,7 +34,7 @@ export function Settings() {
         <div className="dialog-head">
           <h2 id="settings-title">Settings</h2>
           <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close">
-            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            <Icon name="x" size={16} />
           </button>
         </div>
         <label className="field">
