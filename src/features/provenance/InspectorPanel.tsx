@@ -350,7 +350,6 @@ function Selected() {
         <span key={k} className={`chip ${STATUS_CHIP[k]}`}>{counts[k]} {k}</span>
       ))}
     </div>
-    <Field label="Source"><span>{model.sourceLabel}</span></Field>
     </div>
   </>);
 }

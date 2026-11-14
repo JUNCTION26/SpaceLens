@@ -141,7 +141,7 @@ export function DesignPanel() {
         </div>
       )}
       <div className="layout-toolbar">
-        <span className="muted">{candidates.length} layout{candidates.length > 1 ? 's' : ''}</span>
+        <span />
         {(current || busy) && <span className="layout-progress" role="status" title={current?.label}><i aria-hidden="true" />Working</span>}
         <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
       </div>

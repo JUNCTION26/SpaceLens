@@ -76,7 +76,7 @@ export function SafetyPanel() {
     if (!f.fix) return;
     for (const op of f.fix.ops) dispatch(op);
     setShown(null); setAnalysis({ routes: [], highlights: [] });
-    toast(`${f.fix.label}. Undo puts it back.`, 'ok');
+    toast('Fixed', 'ok');
   };
 
   const evacuate = () => {
@@ -119,7 +119,7 @@ export function SafetyPanel() {
     <div className="safety">
       <div className="safety-head" aria-live="polite">
         <span className={`safety-dot ${blocking ? 'bad' : 'ok'}`} aria-hidden="true" />
-        <span className="safety-headline">{report.headline}</span>
+        <span className="safety-headline" title={report.headline}>{count('fire') + count('access') ? `${count('fire') + count('access')} to fix` : 'Clear'}</span>
         {slow && <span className="safety-spin" aria-label="Checking" />}
       </div>
       <p className="safety-sub muted">
@@ -144,7 +144,7 @@ export function SafetyPanel() {
               </div>
               <div className="safety-actions">
                 <button className="btn btn-sm btn-ghost" aria-pressed={shown === f.id} onClick={() => show(f)}><Icon name="eye" size={14} /><span className="sr-only">Show</span></button>
-                {f.fix && <button className="btn btn-sm" onClick={() => fix(f)} title="Re-checked against these rules"><Icon name="check" size={14} /> {f.fix.label}</button>}
+                {f.fix && <button className="btn btn-sm" onClick={() => fix(f)} title={f.fix.label}><Icon name="check" size={14} /> Fix</button>}
               </div>
             </li>
           ))}

@@ -68,7 +68,7 @@ export function BudgetPanel() {
   const apply = () => {
     if (!chosen.length || broken.length) return;
     dispatch({ type: 'SET_FURNITURE', items: after, label: `Applied budget plan (${chosen.length} ${chosen.length === 1 ? 'change' : 'changes'})` });
-    toast(`Saved ${kr(buyNow - afterTotal)}. Undo restores the earlier layout.`, 'ok');
+    toast(`Saved ${kr(buyNow - afterTotal)}`, 'ok');
   };
   const toggle = (id: string) => setOff((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -143,7 +143,8 @@ export function BudgetPanel() {
         </section>
       )}
 
-      <section className="budget-block" aria-label="Phases">
+      <details className="budget-block" aria-label="Phases">
+        <summary>Phases</summary>
         <div className="budget-row">
           <label htmlFor="budget-monthly" className="budget-label">Per month</label>
           <span className="budget-input"><input id="budget-monthly" inputMode="numeric" placeholder="0" value={saved.monthly ? String(saved.monthly) : ''} onChange={(e) => update({ ...saved, monthly: num(e.target.value) })} /><span>kr</span></span>
@@ -159,7 +160,7 @@ export function BudgetPanel() {
             </li>
           ))}
         </ol>
-      </section>
+      </details>
 
       <details className="budget-block budget-why">
         <summary>Why</summary>

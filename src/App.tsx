@@ -132,7 +132,7 @@ function InspectorSheet() {
   if (!selection) return null;
   return (
     <aside className="inspector-sheet" aria-label="Inspector">
-      <div className="sheet-head"><span>Inspector</span><button className="icon-btn" onClick={() => select(null)} aria-label="Close inspector"><Icon name="x" size={16} /></button></div>
+      <div className="sheet-head"><span className="sr-only">Inspector</span><span /><button className="icon-btn" onClick={() => select(null)} aria-label="Close inspector"><Icon name="x" size={16} /></button></div>
       <div className="sheet-body"><InspectorPanel /></div>
     </aside>
   );

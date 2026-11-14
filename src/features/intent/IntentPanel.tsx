@@ -119,7 +119,7 @@ export function IntentPanel() {
         st.toast(`${res.candidates.length} layout${res.candidates.length > 1 ? 's' : ''} ready`, 'ok');
         useUi.getState().setTab('design', 'layouts');
       } else {
-        notify('Not everything fits. The Layouts panel shows what to drop or shrink.', { tone: 'warn', actions: [{ label: 'See options', primary: true, run: () => useUi.getState().setTab('design', 'layouts') }] });
+        notify('Does not fit', { tone: 'warn', actions: [{ label: 'See options', primary: true, run: () => useUi.getState().setTab('design', 'layouts') }] });
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
