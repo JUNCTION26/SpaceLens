@@ -6,6 +6,7 @@ import { area, bounds, cross, dist, distPointSegment, dot, itemCorners, mul, add
 import type { FurnitureItem, Opening, Space, SpaceModel, Vec2 } from '../../core/types';
 import type { OccGrid } from '../sim/grid';
 import { isRug } from '../sim/grid';
+import { wallEdges } from '../sim/walls';
 
 export interface Seg { a: Vec2; b: Vec2; itemId?: string }
 
@@ -78,16 +79,20 @@ export function describeDoors(model: SpaceModel, exitOverrides: Record<string, b
   return out;
 }
 
-/** Wall pieces with every door/opening gap removed (on both rooms' walls when they share one). */
+/**
+ * Wall pieces with every door/opening gap removed (on both rooms' walls when they share one).
+ * Starts from the same wall model as routes and walking (sim/walls: shared walls, gaps from both
+ * rooms), then also opens walls that a door passage crosses from the room on the other side.
+ */
 function wallPieces(model: SpaceModel, doors: DoorInfo[]): Seg[] {
   const out: Seg[] = [];
-  for (const s of model.spaces) {
-    const P = s.polygon;
-    for (let i = 0; i < P.length; i++) {
-      const a = P[i], b = P[(i + 1) % P.length], L = dist(a, b);
-      if (L < 1e-6) continue;
-      const u = norm(sub(b, a));
-      let keep: Array<[number, number]> = [[0, L]];
+  for (const e of wallEdges(model)) {
+    {
+      const a = e.a, L = e.length, u = e.dir;
+      let keep: Array<[number, number]> = [];
+      let cur = 0;
+      for (const g of e.gaps) { if (g.kind === 'window') continue; if (g.s > cur) keep.push([cur, g.s]); cur = Math.max(cur, g.e); }
+      if (L > cur) keep.push([cur, L]);
       for (const d of doors) {
         if (Math.abs(cross(u, d.dir)) > 0.03) continue;
         const off = dot(sub(a, d.c), d.outward);
@@ -129,24 +134,30 @@ export function buildSafetyGrid(model: SpaceModel, furniture: FurnitureItem[], e
   const items = furniture.filter((f) => !isRug(f)).map((f) => ({ f, poly: itemCorners(f) }));
   const blocked = new Uint8Array(N);
   const P = (i: number): Vec2 => ({ x: ox + ((i % cols) + 0.5) * cell, y: oy + (Math.floor(i / cols) + 0.5) * cell });
-
-  for (let i = 0; i < N; i++) {
-    const p = P(i);
-    let r = polys.findIndex((poly) => poly.length >= 3 && pointInPolygon(p, poly));
-    if (r < 0) {
-      for (const d of doors) {
-        if (d.neighbour < 0 || d.depth < 0.06) continue;
-        const t = dot(sub(p, d.c), d.dir), s = dot(sub(p, d.c), d.outward);
-        if (Math.abs(t) <= d.widthM / 2 && s >= -1e-6 && s <= d.depth + 1e-6) { r = d.spaceIdx; break; }
-      }
-    }
-    room[i] = r;
-    if (r < 0) continue;
-    for (const it of items) if (pointInPolygon(p, it.poly)) { blocked[i] = 1; break; }
-    for (const d of doors) {
+  // Visit only the cells under a shape's bounding box, so plans with 100+ rooms stay fast.
+  const each = (pts: Vec2[], pad: number, fn: (i: number, p: Vec2) => void) => {
+    const bb = bounds(pts);
+    const c0 = Math.max(0, Math.floor((bb.minX - pad - ox) / cell)), c1 = Math.min(cols - 1, Math.ceil((bb.maxX + pad - ox) / cell));
+    const r0 = Math.max(0, Math.floor((bb.minY - pad - oy) / cell)), r1 = Math.min(rows - 1, Math.ceil((bb.maxY + pad - oy) / cell));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const i = r * cols + c; fn(i, P(i)); }
+  };
+  // rooms first (lowest index wins, as before), then the passages through thick walls
+  polys.forEach((poly, r) => { if (poly.length >= 3) each(poly, 0, (i, p) => { if (room[i] < 0 && pointInPolygon(p, poly)) room[i] = r; }); });
+  for (const d of doors) {
+    if (d.neighbour < 0 || d.depth < 0.06) continue;
+    each([d.a, d.b, add(d.a, mul(d.outward, d.depth)), add(d.b, mul(d.outward, d.depth))], 0, (i, p) => {
+      if (room[i] >= 0) return;
       const t = dot(sub(p, d.c), d.dir), s = dot(sub(p, d.c), d.outward);
-      if (Math.abs(t) <= d.widthM / 2 + cell && s >= -0.3 && s <= d.depth + 0.3) { door[i] = d.idx; break; }
-    }
+      if (Math.abs(t) <= d.widthM / 2 && s >= -1e-6 && s <= d.depth + 1e-6) room[i] = d.spaceIdx;
+    });
+  }
+  for (const it of items) each(it.poly, 0, (i, p) => { if (room[i] >= 0 && !blocked[i] && pointInPolygon(p, it.poly)) blocked[i] = 1; });
+  for (const d of doors) {
+    each([d.a, d.b, add(d.a, mul(d.outward, d.depth)), add(d.b, mul(d.outward, d.depth))], 0.3 + cell, (i, p) => {
+      if (room[i] < 0 || door[i] >= 0) return;
+      const t = dot(sub(p, d.c), d.dir), s = dot(sub(p, d.c), d.outward);
+      if (Math.abs(t) <= d.widthM / 2 + cell && s >= -0.3 && s <= d.depth + 0.3) door[i] = d.idx;
+    });
   }
 
   const segs = wallPieces(model, doors);
