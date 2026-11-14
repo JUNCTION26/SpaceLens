@@ -60,6 +60,7 @@ export function DrawingsPanel() {
   const [hover, setHover] = useState<Region | null>(null);
   const [anim, setAnim] = useState(false);
   const [stageSize, setStageSize] = useState({ w: 1, h: 1 });
+  const [buildBench, setBuildBench] = useState<{ plans: number; convertedPct: number; within2PctPct: number; medianMsPerPlan: number } | null>(null);
   const [bench, setBench] = useState<{ accuracyOnAnswered: number; coverage: number; questions: number; files: number; dataset: string } | null>(null);
   const [built, setBuilt] = useState<{ page: number; model: SpaceModel; report: BuildReport } | null>(null);
   const [building, setBuilding] = useState(false);
@@ -102,6 +103,7 @@ export function DrawingsPanel() {
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}samples/stoa/eval-results.json`).then((r) => (r.ok ? r.json() : null)).then((j) => setBench(j?.summary ?? null)).catch(() => { /* not generated yet */ });
+    fetch(`${import.meta.env.BASE_URL}samples/stoa/build-results.json`).then((r) => (r.ok ? r.json() : null)).then((j) => setBuildBench(j?.summary ?? null)).catch(() => { /* not generated yet */ });
   }, []);
 
   const benchCard = bench && (
@@ -114,6 +116,13 @@ export function DrawingsPanel() {
         <div className="stat"><b>0</b><span className="muted">model calls</span></div>
       </div>
       <p className="muted">{bench.dataset} · {bench.files} plans</p>
+      {buildBench && (
+        <div className="row drawings-stats">
+          <div className="stat"><b>{buildBench.convertedPct}%</b><span className="muted">plans built in 3D</span></div>
+          <div className="stat"><b>{buildBench.within2PctPct}%</b><span className="muted">areas within 2%</span></div>
+          <div className="stat"><b>{buildBench.medianMsPerPlan} ms</b><span className="muted">per plan</span></div>
+        </div>
+      )}
     </details>
   );
 
@@ -366,9 +375,9 @@ export function DrawingsPanel() {
   const named = [...new Set(roomList.filter((x) => x.area).map((x) => x.r.str))].slice(0, 2);
   const geoReady = !!built?.report.ok && built.page === page;
   const suggestions = [
-    ...(geoReady ? ['Which room is largest?', 'How many rooms have a window?', 'Distance from entrance to bathroom?'] : []),
+    ...(geoReady ? ['Which room is largest?', 'How many rooms have a window?', 'Entrance to bathroom distance?'] : []),
     ...named.slice(0, geoReady ? 1 : 2).map((n) => `Area of ${n}?`),
-    ...(roomList.length ? ['How many rooms?'] : []),
+    ...(roomList.length && !geoReady ? ['How many rooms?'] : []),
     ...(scaleItems.length ? ['What scale?'] : []),
     ...(dims.length ? ['Which dimensions are on this sheet?'] : []),
   ];
@@ -396,17 +405,15 @@ export function DrawingsPanel() {
     <section className="card drawings-build">
       {!rep && (
         <>
-          <h4>Plan to 3D</h4>
           {hasLines ? (
             <>
-              <p className="muted">Reads walls, doors, windows and rooms from the drawing lines.</p>
               <button className="btn btn-primary drawings-big" onClick={() => void buildPlan()} disabled={building}>
-                {building ? 'Reading the plan…' : 'Build 3D from this plan'}
+                {building ? 'Reading…' : 'Build 3D from this plan'}
               </button>
             </>
           ) : proposals ? (
             <>
-              <p className="muted drawings-bnote">Gemini proposed {proposals.length} rooms. Remove any outline that is wrong.</p>
+              <p className="muted drawings-bnote">{proposals.length} rooms found. Remove any that are wrong.</p>
               <div className="drawings-rooms">
                 {proposals.map((r, i) => (
                   <div key={i} className="drawings-room">
@@ -415,14 +422,14 @@ export function DrawingsPanel() {
                   </div>
                 ))}
               </div>
-              {!proposalScale && <p className="muted drawings-bnote">No printed areas to size from. Set the scale first.</p>}
+              {!proposalScale && <p className="muted drawings-bnote">No printed areas. Set the scale.</p>}
               <button className="btn btn-primary drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}>Open in 3D</button>
               {!proposalScale && <button className="btn btn-sm" onClick={() => setTool('calibrate')}>Set scale</button>}
             </>
           ) : (
             <>
-              <p className="muted">This is a picture, so there are no drawing lines to read.{hasGemini() ? ' Gemini can propose the rooms for you to check.' : ' Trace a room by hand.'}</p>
-              {hasGemini() && <button className="btn btn-primary drawings-big" disabled={building} onClick={() => void proposeRooms()}>{building ? 'Looking at the plan…' : 'Find rooms with Gemini'}</button>}
+              <p className="muted">No drawing lines in a picture.</p>
+              {hasGemini() && <button className="btn btn-primary drawings-big" disabled={building} onClick={() => void proposeRooms()}>{building ? 'Finding rooms…' : 'Find rooms with Gemini'}</button>}
               <button className="btn drawings-big" onClick={() => setTool(mpp ? 'trace' : 'calibrate')}>Trace a room</button>
             </>
           )}
@@ -432,7 +439,7 @@ export function DrawingsPanel() {
         <>
           <h4>Could not build 3D</h4>
           <p>{rep.reason}</p>
-          <button className="btn drawings-big" onClick={() => { setBuilt(null); setTool(mpp ? 'trace' : 'calibrate'); }}>Trace a room by hand</button>
+          <button className="btn drawings-big" onClick={() => { setBuilt(null); setTool(mpp ? 'trace' : 'calibrate'); }}>Trace a room</button>
         </>
       )}
       {rep && rep.ok && (
@@ -444,18 +451,18 @@ export function DrawingsPanel() {
           </div>
           {rep.withPrintedArea > 0 && (
             <p className="muted drawings-bnote">
-              {rep.verified} of {rep.withPrintedArea} room areas match the printed area within 2%. Median difference {rep.medianAreaErrorPct?.toFixed(1)}%.
+              {rep.verified} of {rep.withPrintedArea} areas within 2% of printed
             </p>
           )}
           {picked ? (
             <div className={`drawings-bpick st-${picked.printedArea == null ? 'none' : picked.status}`}>
               <b>{picked.name}</b>
               {picked.printedArea != null
-                ? <span>Printed {picked.printedArea.toFixed(2)} m² · Computed {picked.computedArea.toFixed(2)} m² · {fmtPct(picked.errorPct!)}</span>
-                : <span>Computed {picked.computedArea.toFixed(2)} m² · no area printed</span>}
+                ? <span>Printed {picked.printedArea.toFixed(2)} m² · Computed {picked.computedArea.toFixed(2)} m²</span>
+                : <span>{picked.computedArea.toFixed(2)} m² · no printed area</span>}
               <span className="muted">{picked.doors} door{picked.doors === 1 ? '' : 's'} · {picked.windows} window{picked.windows === 1 ? '' : 's'}</span>
             </div>
-          ) : <p className="muted drawings-bnote">Click a room on the sheet to compare areas.</p>}
+          ) : null}
           <div className="drawings-rooms">
             {rep.rooms.map((r) => (
               <button key={r.spaceId} className={`drawings-room${pickRoom === r.spaceId ? ' is-on' : ''}`} onClick={() => flyToRoom(r.spaceId)}>
@@ -468,7 +475,7 @@ export function DrawingsPanel() {
           </div>
           {rep.failed.length > 0 && (
             <details className="drawings-bfailed">
-              <summary>{rep.failed.length} room{rep.failed.length > 1 ? 's' : ''} not closed</summary>
+              <summary>{rep.failed.length} room{rep.failed.length > 1 ? 's' : ''} not built</summary>
               <ul>{rep.failed.map((f, i) => <li key={i}>{[f.label, f.no].filter(Boolean).join(' ') || 'Room'}: {f.reason}</li>)}</ul>
             </details>
           )}
