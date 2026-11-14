@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { ContactShadows, Edges, Environment, Lightformer, OrbitControls } from '@react-three/drei';
+import { ContactShadows, Edges, Environment, Html, Lightformer, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
@@ -18,14 +18,48 @@ const EYES = [
   { id: 'wheelchair', label: 'Wheelchair', h: 1.2 },
 ];
 
-interface Walk { pos: Vec2; yaw: number; pitch: number; joy: { x: number; y: number }; keys: Set<string> }
+interface CamReq { toP: THREE.Vector3; toT: THREE.Vector3; n: number }
 
-const wallMat = new THREE.MeshStandardMaterial({ color: '#ece8e1', roughness: 0.92 });
+function woodTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const g = c.getContext('2d'); if (!g) return null;
+  const plank = 64;
+  for (let row = 0; row < 512 / plank; row++) {
+    let x = -((row * 197) % 400);
+    while (x < 512) {
+      const len = 260 + ((row * 31 + Math.abs(x)) % 128);
+      const l = 58 + ((row * 13 + Math.abs(x)) % 9) - 4;
+      g.fillStyle = `hsl(32, 42%, ${l}%)`;
+      g.fillRect(x, row * plank, len, plank);
+      for (let k = 0; k < 14; k++) {
+        g.strokeStyle = `rgba(90,55,25,${0.04 + Math.random() * 0.06})`;
+        g.beginPath(); const yy = row * plank + Math.random() * plank;
+        g.moveTo(x, yy); g.bezierCurveTo(x + len / 3, yy + 3, x + len * 0.66, yy - 3, x + len, yy); g.stroke();
+      }
+      g.fillStyle = 'rgba(60,35,15,0.35)'; g.fillRect(x, row * plank, 2, plank);
+      x += len;
+    }
+    g.fillStyle = 'rgba(60,35,15,0.4)'; g.fillRect(0, row * plank, 512, 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  t.repeat.set(0.5, 0.5);
+  return t;
+}
+const woodTex = woodTexture();
+const floorMat = new THREE.MeshStandardMaterial({ map: woodTex ?? undefined, color: woodTex ? '#ffffff' : '#c9a882', roughness: 0.68 });
+const SNAP = 0.05;
+const snap = (v: number) => Math.round(v / SNAP) * SNAP;
+
+interface Walk { pos: Vec2; goal?: Vec2 | null; yaw: number; pitch: number; joy: { x: number; y: number }; keys: Set<string> }
+
+const wallMat = new THREE.MeshStandardMaterial({ color: '#efebe4', roughness: 0.96, metalness: 0 });
 const wallSelMat = new THREE.MeshStandardMaterial({ color: '#9fd0ff', roughness: 0.8 });
 const glassMat = new THREE.MeshPhysicalMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, depthWrite: false });
 const frameMat = new THREE.MeshStandardMaterial({ color: '#f7f7f5', roughness: 0.5 });
 const doorMat = new THREE.MeshStandardMaterial({ color: '#d9cbb5', roughness: 0.6 });
-const baseMat = new THREE.MeshStandardMaterial({ color: '#d2ccc2', roughness: 0.7 });
+const baseMat = new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: 0.55 });
 
 function useRoom() {
   const model = useStore((s) => s.model);
@@ -42,15 +76,17 @@ function useRoom() {
 
 /* ---------- Geometry ---------- */
 
-function Floor({ space }: { space: Space }) {
+function Floor({ space, onWalkTo }: { space: Space; onWalkTo?: (p: Vec2) => void }) {
   const geo = useMemo(() => {
     const shape = new THREE.Shape(space.polygon.map((p) => new THREE.Vector2(p.x, -p.y)));
     return new THREE.ShapeGeometry(shape);
   }, [space]);
   return (
-    <mesh geometry={geo} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={(e) => { e.stopPropagation(); useStore.getState().select({ kind: 'space', id: space.id }); }}>
-      <meshStandardMaterial color="#c9a882" roughness={0.75} />
-    </mesh>
+    <mesh geometry={geo} material={floorMat} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={(e) => {
+      e.stopPropagation();
+      if (onWalkTo) { if (e.delta < 6) onWalkTo({ x: e.point.x, y: e.point.z }); return; }
+      useStore.getState().select({ kind: 'space', id: space.id });
+    }} />
   );
 }
 
@@ -86,10 +122,10 @@ function wallBoxes(space: Space, i: number, openings: Opening[], ceiling: number
   let bs = 0;
   for (const o of ops.filter((q) => q.kind !== 'window')) {
     const s = o.offsetM - o.widthM / 2;
-    if (s > bs) extras.push({ pos: [(bs + s) / 2, 0.04, -0.008], size: [s - bs, 0.08, 0.016], mat: baseMat });
+    if (s > bs) extras.push({ pos: [(bs + s) / 2, 0.05, -0.009], size: [s - bs, 0.1, 0.018], mat: baseMat });
     bs = o.offsetM + o.widthM / 2;
   }
-  if (L > bs) extras.push({ pos: [(bs + L) / 2, 0.04, -0.008], size: [L - bs, 0.08, 0.016], mat: baseMat });
+  if (L > bs) extras.push({ pos: [(bs + L) / 2, 0.05, -0.009], size: [L - bs, 0.1, 0.018], mat: baseMat });
   return { boxes, extras, doors: ops.filter((o) => o.kind === 'door') };
 }
 
@@ -148,15 +184,73 @@ function DoorLeaf({ space, o }: { space: Space; o: Opening }) {
   );
 }
 
-function Furniture({ items, ghost }: { items: FurnitureItem[]; ghost?: boolean }) {
+function Furniture({ items, ghost, interactive, onFocus }: { items: FurnitureItem[]; ghost?: boolean; interactive?: boolean; onFocus?: (it: FurnitureItem) => void }) {
   const sel = useStore((s) => s.selection);
+  const spaces = useStore((s) => s.model.spaces);
+  const [hover, setHover] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  const drag = useRef<{ id: string; ox: number; oy: number; moved: boolean } | null>(null);
+  const controls = useThree((s) => s.controls) as unknown as { enabled: boolean } | null;
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const hit = (e: ThreeEvent<PointerEvent>) => e.ray.intersectPlane(plane, new THREE.Vector3());
+  const fits = (it: FurnitureItem, x: number, y: number) => {
+    const c = itemCorners({ ...it, x, y });
+    return spaces.some((sp) => c.every((p) => pointInPolygon(p, sp.polygon)));
+  };
+  const end = (e: ThreeEvent<PointerEvent>, it: FurnitureItem) => {
+    const d = drag.current; if (!d || d.id !== it.id) return;
+    drag.current = null;
+    try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch { /* already released */ }
+    if (controls) controls.enabled = true;
+    if (d.moved && dragPos) useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: it.id, patch: { x: dragPos.x, y: dragPos.y } });
+    setDragPos(null);
+  };
   return (
     <>
-      {items.map((it) => (
-        <group key={it.id} onClick={ghost ? undefined : (e) => { e.stopPropagation(); useStore.getState().select({ kind: 'furniture', id: it.id }); }}>
-          <FurnitureMesh item={it} ghost={ghost} selected={!ghost && sel?.kind === 'furniture' && sel.id === it.id} />
-        </group>
-      ))}
+      {items.map((raw) => {
+        const it = dragPos && dragPos.id === raw.id ? { ...raw, x: dragPos.x, y: dragPos.y } : raw;
+        const isSel = !ghost && sel?.kind === 'furniture' && sel.id === it.id;
+        const live = !ghost && interactive;
+        return (
+          <group key={it.id}
+            onClick={ghost ? undefined : (e) => { e.stopPropagation(); useStore.getState().select({ kind: 'furniture', id: it.id }); }}
+            onDoubleClick={live ? (e) => { e.stopPropagation(); onFocus?.(it); } : undefined}
+            onPointerOver={live ? (e) => { e.stopPropagation(); setHover(it.id); document.body.style.cursor = it.locked ? 'pointer' : 'grab'; } : undefined}
+            onPointerOut={live ? () => { setHover((h) => (h === it.id ? null : h)); document.body.style.cursor = ''; } : undefined}
+            onPointerDown={live && !it.locked ? (e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              const p = hit(e); if (!p) return;
+              (e.target as Element).setPointerCapture?.(e.pointerId);
+              drag.current = { id: it.id, ox: it.x - p.x, oy: it.y - p.z, moved: false };
+              if (controls) controls.enabled = false;
+              useStore.getState().select({ kind: 'furniture', id: it.id });
+            } : undefined}
+            onPointerMove={live ? (e) => {
+              const d = drag.current; if (!d || d.id !== it.id) return;
+              e.stopPropagation();
+              const p = hit(e); if (!p) return;
+              const x = snap(p.x + d.ox), y = snap(p.z + d.oy);
+              if (fits(raw, x, y)) { d.moved = true; setDragPos({ id: it.id, x, y }); }
+            } : undefined}
+            onPointerUp={live ? (e) => end(e, raw) : undefined}
+            onPointerCancel={live ? (e) => end(e, raw) : undefined}>
+            <FurnitureMesh item={it} ghost={ghost} selected={isSel} />
+            {live && (hover === it.id || isSel) && (
+              <mesh position={[it.x, it.h / 2, it.y]} rotation={[0, -it.rotation, 0]} raycast={() => null}>
+                <boxGeometry args={[it.w + 0.03, it.h + 0.03, it.d + 0.03]} />
+                <meshBasicMaterial visible={false} />
+                <Edges color={isSel ? '#4da3ff' : '#ffffff'} lineWidth={isSel ? 2.5 : 1.5} />
+              </mesh>
+            )}
+            {live && isSel && (
+              <Html position={[it.x, it.h + 0.18, it.y]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+                <div className="scene3d-dim">{Math.round(it.w * 100)} × {Math.round(it.d * 100)} × {Math.round(it.h * 100)} cm</div>
+              </Html>
+            )}
+          </group>
+        );
+      })}
     </>
   );
 }
@@ -266,7 +360,7 @@ function Figure({ at }: { at: Vec2 }) {
 
 /* ---------- Cameras ---------- */
 
-function CameraRig({ mode, eye, room, walk }: { mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk> }) {
+function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; req: CamReq | null }) {
   const { camera, invalidate } = useThree();
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; enabled: boolean } | null;
   const anim = useRef<{ t: number; fromP: THREE.Vector3; fromT: THREE.Vector3; toP: THREE.Vector3; toT: THREE.Vector3 } | null>(null);
@@ -289,6 +383,14 @@ function CameraRig({ mode, eye, room, walk }: { mode: CamMode; eye: number; room
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, eye, room.model.version]);
+
+  useEffect(() => {
+    if (!req || mode === 'walk') return;
+    const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
+    anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP: req.toP.clone(), toT: req.toT.clone() };
+    invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req?.n]);
 
   const blocked = (p: Vec2) => {
     if (!space) return false;
@@ -319,6 +421,16 @@ function CameraRig({ mode, eye, room, walk }: { mode: CamMode; eye: number; room
     if (k.has('d') || k.has('arrowright')) s += 1;
     if (k.has('a') || k.has('arrowleft')) s -= 1;
     const speed = 1.4 * Math.min(dt, 0.05);
+    if (f || s) w.goal = null;
+    if (w.goal) {
+      const gx = w.goal.x - w.pos.x, gy = w.goal.y - w.pos.y, gl = Math.hypot(gx, gy);
+      if (gl < 0.02) w.goal = null;
+      else {
+        const step = Math.min(gl, Math.max(0.01, gl * Math.min(1, dt * 4)));
+        const next = { x: w.pos.x + (gx / gl) * step, y: w.pos.y + (gy / gl) * step };
+        if (blocked(next)) w.goal = null; else w.pos = next;
+      }
+    }
     if (f || s) {
       const fx = -Math.sin(w.yaw), fy = -Math.cos(w.yaw);
       const dx = (fx * f + -fy * s) * speed, dy = (fy * f + fx * s) * speed;
@@ -392,6 +504,54 @@ export function SceneView() {
   const eye = EYES.find((e) => e.id === eyeId)!.h;
   const walk = useRef<Walk>({ pos: { x: room.cx, y: room.cy }, yaw: 0, pitch: 0, joy: { x: 0, y: 0 }, keys: new Set() });
   const wrap = useRef<HTMLDivElement>(null);
+  const [req, setReq] = useState<CamReq | null>(null);
+  const reqN = useRef(0);
+  const ask = (toP: THREE.Vector3, toT: THREE.Vector3) => setReq({ toP, toT, n: ++reqN.current });
+  const fit = () => {
+    if (mode === 'walk') { setMode('dollhouse'); return; }
+    const { cx, cy, size } = room;
+    if (mode === 'top') ask(new THREE.Vector3(cx, size * 1.9 + 3, cy + 0.001), new THREE.Vector3(cx, 0, cy));
+    else ask(new THREE.Vector3(cx + size * 0.75, size * 1.05, cy + size * 1.0), new THREE.Vector3(cx, 0.6, cy));
+  };
+  const focusItem = (it: FurnitureItem) => {
+    const r = Math.max(it.w, it.d, it.h, 0.6) * 2.2 + 0.6;
+    ask(new THREE.Vector3(it.x + r * 0.6, it.h + r * 0.7, it.y + r * 0.8), new THREE.Vector3(it.x, it.h / 2, it.y));
+  };
+  const walkTo = (p: Vec2) => {
+    const sp = model.spaces.find((s) => pointInPolygon(p, s.polygon));
+    if (sp && distPointPolygonEdges(p, sp.polygon) >= 0.25) walk.current.goal = p;
+  };
+
+  useEffect(() => {
+    if (mode === 'walk') return;
+    const isField = (t: EventTarget | null) => t instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    const down = (e: KeyboardEvent) => {
+      if (isField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k !== 'q' && k !== 'e') return;
+      const st = useStore.getState();
+      const sel = st.selection;
+      if (sel?.kind !== 'furniture') return;
+      const it = st.model.furniture.find((f) => f.id === sel.id);
+      if (!it || it.locked) return;
+      const deg = Math.PI / 180;
+      const step = (e.shiftKey ? 90 : 15) * deg;
+      let rot = Math.round((it.rotation + (k === 'e' ? step : -step)) / deg) * deg;
+      rot = ((rot % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const c = itemCorners({ ...it, rotation: rot });
+      e.preventDefault();
+      if (!st.model.spaces.some((s) => c.every((p) => pointInPolygon(p, s.polygon)))) { st.toast('No room to rotate here', 'warn'); return; }
+      st.dispatch({ type: 'UPDATE_OBJECT', id: it.id, patch: { rotation: rot } });
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, [mode]);
+  const fitRef = useRef(fit); fitRef.current = fit;
+  useEffect(() => {
+    const h = () => fitRef.current();
+    window.addEventListener('spacelens:reset-view', h);
+    return () => window.removeEventListener('spacelens:reset-view', h);
+  }, []);
 
   useEffect(() => {
     if (mode !== 'walk') return;
@@ -433,8 +593,9 @@ export function SceneView() {
   return (
     <div className="scene3d" ref={wrap} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <Canvas shadows dpr={[1, 2]} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
-        gl={{ antialias: true }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
+        gl={{ antialias: true }} onCreated={({ gl }) => { gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         <color attach="background" args={['#1b1e24']} />
+        <fog attach="fog" args={['#1b1e24', room.size * 2.5, room.size * 7]} />
         <hemisphereLight args={['#f4f1ea', '#5b5348', 0.55]} />
         <Sun hour={hour} room={room} />
         <Environment resolution={128}>
@@ -443,7 +604,7 @@ export function SceneView() {
           <Lightformer form="rect" intensity={0.6} color="#dbe8ff" position={[5, 2, 0]} rotation={[0, -Math.PI / 2, 0]} scale={[10, 3, 1]} />
         </Environment>
 
-        {model.spaces.map((s) => <Floor key={s.id} space={s} />)}
+        {model.spaces.map((s) => <Floor key={s.id} space={s} onWalkTo={mode === 'walk' ? walkTo : undefined} />)}
         {model.spaces.map((s) => s.polygon.map((_, i) => (
           <Wall key={s.id + i + ':' + model.version} space={s} i={i} openings={model.openings} ceiling={model.ceilingM}
             selected={selection?.kind === 'wall' && selection.id === wallId(s.id, i)} cutaway={cutaway && mode !== 'walk'} />
@@ -453,7 +614,7 @@ export function SceneView() {
           return s && s.polygon.length > o.wallIndex ? <DoorLeaf key={o.id} space={s} o={o} /> : null;
         })}
 
-        <Furniture items={shown} />
+        <Furniture items={shown} interactive={mode !== 'walk' && !activeCandidateId} onFocus={focusItem} />
         {activeCandidateId && showBefore && <Furniture items={model.furniture} ghost />}
         <Routes />
         <Heat />
@@ -463,9 +624,11 @@ export function SceneView() {
 
         <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.45} blur={2.4} far={2} resolution={512} frames={1} />
         <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={room.size * 5} />
-        <CameraRig mode={mode} eye={eye} room={room} walk={walk} />
+        <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} />
       </Canvas>
 
+      <div className="scene3d-vignette" aria-hidden="true" />
+      {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate, double-click to focus</div>}
       <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
         <div className="scene3d-modes">
           {(['dollhouse', 'top', 'walk'] as CamMode[]).map((m) => (
@@ -473,6 +636,7 @@ export function SceneView() {
               {m === 'dollhouse' ? '3D' : m === 'top' ? 'Top' : 'Walk'}
             </button>
           ))}
+          <button className="btn btn-sm btn-ghost" onClick={fit} title="Fit room in view">Fit</button>
           <button className="btn btn-sm btn-ghost" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="View options">{open ? '−' : '⋯'}</button>
         </div>
         {open && (
@@ -497,7 +661,7 @@ export function SceneView() {
       {mode === 'walk' && (
         <>
           <Joystick walk={walk} />
-          <div className="scene3d-hint muted">WASD or arrows to move, drag to look</div>
+          <div className="scene3d-hint muted">Tap floor or WASD to move, drag to look</div>
         </>
       )}
     </div>
