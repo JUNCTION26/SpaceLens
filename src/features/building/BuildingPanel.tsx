@@ -147,7 +147,7 @@ export function BuildingPanel() {
       // searched in a worker, so the panel and the 3D view keep responding
       const res = await planBuildingAsync(shell, entrances, windows, p, { count: 3, seed: 1 });
       setPlans(res);
-      if (!res.length) setError('No plan found for this shell and programme.');
+      if (!res.length) setError('No plan fits');
     } catch (e) { setError((e as Error).message); }
     finally { setPlanning(false); }
   };

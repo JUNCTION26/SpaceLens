@@ -186,12 +186,11 @@ export function LibraryPanel() {
 
       <div className="furniture-grid">
         {list.map((e) => (
-          <button key={e.id} className="furniture-card" draggable title="Drag onto the plan, or click to add"
+          <button key={e.id} className="furniture-card" draggable title={`${e.name}, ${cm(e.w)}×${cm(e.d)} cm. Drag or click to add`}
             onClick={() => addFromCatalog(e.id)}
             onDragStart={(ev) => { ev.dataTransfer.setData(CATALOG_DND, e.id); ev.dataTransfer.setData('text/plain', e.name); ev.dataTransfer.effectAllowed = 'copy'; }}>
             <Footprint e={e} />
             <span className="furniture-name">{e.name}</span>
-            <span className="furniture-meta">{cm(e.w)}×{cm(e.d)} cm</span>
             <span className="furniture-meta">{fmtSek(e.priceSek)}</span>
           </button>
         ))}

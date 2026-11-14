@@ -307,7 +307,7 @@ export function DrawingsPanel() {
 
   function applyCalibration() {
     const d = Number(calDist.replace(',', '.'));
-    if (calPts.length !== 2 || !(d > 0)) return toast('Click two points and enter the real distance in metres', 'warn');
+    if (calPts.length !== 2 || !(d > 0)) return toast('Click 2 points, type metres', 'warn');
     setMPerPx((m) => ({ ...m, [page]: d / pxDist(calPts[0], calPts[1]) }));
     toast('Scale set from your two points', 'ok');
   }
@@ -335,7 +335,7 @@ export function DrawingsPanel() {
   }, [trace, mpp, dims, pg]);
 
   function explore3d() {
-    if (!doc || !pg || !mpp || trace.length < 3) return toast('Set a scale and click at least 3 corners', 'warn');
+    if (!doc || !pg || !mpp || trace.length < 3) return toast('Set scale, click 3 corners', 'warn');
     let poly: Vec2[] = trace.map((p) => ({ x: p.x * pg.pxW * mpp, y: p.y * pg.pxH * mpp }));
     const minX = Math.min(...poly.map((p) => p.x)), minY = Math.min(...poly.map((p) => p.y));
     poly = poly.map((p) => ({ x: p.x - minX, y: p.y - minY }));
@@ -422,13 +422,13 @@ export function DrawingsPanel() {
                   </div>
                 ))}
               </div>
-              {!proposalScale && <p className="muted drawings-bnote">No printed areas. Set the scale.</p>}
+              {!proposalScale && <p className="muted drawings-bnote">No areas. Set scale.</p>}
               <button className="btn btn-primary drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}>Open in 3D</button>
               {!proposalScale && <button className="btn btn-sm" onClick={() => setTool('calibrate')}>Set scale</button>}
             </>
           ) : (
             <>
-              <p className="muted">No drawing lines in a picture.</p>
+              <p className="muted">No lines in a picture</p>
               {hasGemini() && <button className="btn btn-primary drawings-big" disabled={building} onClick={() => void proposeRooms()}>{building ? 'Finding rooms…' : 'Find rooms with Gemini'}</button>}
               <button className="btn drawings-big" onClick={() => setTool(mpp ? 'trace' : 'calibrate')}>Trace a room</button>
             </>
@@ -600,7 +600,7 @@ export function DrawingsPanel() {
               <p className="muted drawings-cost">
                 {stats.free} of {stats.asked} answered free · {st!.rooms} rooms · {st!.dimensions} dimensions
               </p>
-              {st!.text === 0 && <p className="muted">No text layer found. Questions go to the model if a key is set.</p>}
+              {st!.text === 0 && <p className="muted">No text layer</p>}
               <div className="list">
                 {answers.map((a) => (
                   <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
@@ -657,7 +657,7 @@ export function DrawingsPanel() {
               <h4>Trace room</h4>
               <ol className="drawings-steps">
                 <li className={mpp ? 'done' : 'now'}>Set the scale</li>
-                <li className={trace.length >= 3 ? 'done' : mpp ? 'now' : ''}>Click each corner of a room</li>
+                <li className={trace.length >= 3 ? 'done' : mpp ? 'now' : ''}>Click room corners</li>
                 <li className={trace.length >= 3 && mpp ? 'now' : ''}>Explore in 3D</li>
               </ol>
               {tool !== 'trace' ? null : (

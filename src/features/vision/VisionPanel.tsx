@@ -72,7 +72,7 @@ function FurnitureFromPhoto() {
 
   return (
     <div className="vision-body">
-      <p className="muted small">An A4 sheet or a known size sets the scale.</p>
+      <p className="muted small">A4 sheet sets scale</p>
       <input placeholder="Known size, e.g. 200 cm" value={known} onChange={(e) => setKnown(e.target.value)} />
       <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}

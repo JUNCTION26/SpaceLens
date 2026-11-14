@@ -72,7 +72,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
     openPrint(`${model.name} room sheet`,
       `<h2 style="margin:0 0 2mm">${esc(model.name)} <small style="font-weight:400;color:#666">Room sheet · v${model.version}</small></h2>${svg}
 <div class="cols"><div><h3>Furniture schedule</h3>${schedTable()}</div><div><h3>Quantities</h3><table>${qt}</table><h3>Checks</h3><ul>${checkLines}</ul>
-<p style="color:#666">Estimates. Check values marked ? before building.</p></div></div>`,
+<p style="color:#666">Check values marked ?</p></div></div>`,
       '@page{size:A4 portrait;margin:10mm}svg{width:100%;height:auto;max-height:150mm}.cols{display:grid;grid-template-columns:3fr 2fr;gap:6mm;font-size:10px}ul{padding-left:4mm;margin:0}');
   };
 
@@ -133,13 +133,12 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
             <button className="export-row" onClick={r.run} title={r.desc}>
               <Icon name={r.icon} size={15} />
               <span className="export-name">{r.k === 'link' && shared ? 'Link copied' : r.name}</span>
-              <span className="export-size">{r.size}</span>
             </button>
           </li>
         ))}
         <li>
           <button className="export-row" onClick={() => fileRef.current?.click()}>
-            <Icon name="plus" size={15} /><span className="export-name">Import project</span><span className="export-size" />
+            <Icon name="plus" size={15} /><span className="export-name">Import</span>
           </button>
           <input ref={fileRef} type="file" accept=".json,application/json" hidden
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />

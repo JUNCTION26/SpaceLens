@@ -61,7 +61,7 @@ export function ForgePanel() {
   const toggleMic = () => {
     if (rec.current) { rec.current.stop(); return; }
     const C = RecCtor();
-    if (!C) { toast('Voice is not supported in this browser', 'warn'); return; }
+    if (!C) { toast('No voice here', 'warn'); return; }
     const r = new C();
     r.lang = navigator.language || 'en-US'; r.interimResults = true; r.continuous = false;
     let said = '';

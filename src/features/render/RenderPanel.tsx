@@ -95,7 +95,7 @@ export function RenderPanel() {
       )}
       {shot && <Compare before={shot.frame.dataUrl} after={shot.image} />}
       {shot && <div className="label">{STYLES.find((s) => s.id === shot.style)?.label}, {shot.secs}s, {shot.model}</div>}
-      <div className="label">AI impression. Positions follow the model; details are invented.</div>
+      <div className="label">AI impression</div>
       {shots.length > 1 && (
         <div className="hist" aria-label="Earlier renders">
           {shots.map((s) => <button key={s.id} aria-current={s.id === current} aria-label={`Render ${s.id}`} onClick={() => setCurrent(s.id)}><img src={s.image} alt="" /></button>)}

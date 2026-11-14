@@ -79,7 +79,7 @@ export function BudgetPanel() {
   const max = Math.max(10000, Math.ceil((buyNow * 1.5) / 1000) * 1000);
   const status = !result ? null : result.feasible ? 'ok' : 'bad';
 
-  if (!furniture.length) return <div className="budget"><p className="budget-note muted">Add furniture to the room and its cost shows up here.</p></div>;
+  if (!furniture.length) return <div className="budget"><p className="budget-note muted">No furniture yet</p></div>;
 
   return (
     <div className="budget">

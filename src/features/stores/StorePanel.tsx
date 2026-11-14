@@ -99,7 +99,7 @@ export function StorePanel() {
   }
 
   async function runPhoto(file: File) {
-    if (!file.type.startsWith('image/')) { setStatus('Drop an image file (a screenshot or photo of the listing).'); return; }
+    if (!file.type.startsWith('image/')) { setStatus('Drop a screenshot'); return; }
     setBusy('photo'); setStatus('Reading your picture…');
     try {
       const dataUrl = await blobToDataUrl(file);
@@ -204,7 +204,7 @@ export function StorePanel() {
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void runPhoto(f); e.target.value = ''; }} />
       </div>
 
-      <p className="shop-fine">Prices and stock come from each listing at the time it was read. <abbr title={READER_NOTE} tabIndex={0}>Details</abbr></p>
+      <p className="shop-fine">Prices as read <abbr title={READER_NOTE} tabIndex={0}>Details</abbr></p>
       {status && <p className="shop-status" role="status">{(busy === 'search' || busy === 'link') && <span className="shop-spin" aria-hidden="true" />}{status}</p>}
 
       {picked.length >= 2 && (
@@ -299,7 +299,7 @@ export function StorePanel() {
                 )}
                 {st?.stage === 'image' && (
                   <div className="shop-size-form" role="note">
-                    <small>The store blocks reuse of its photo. Drop the picture here, or:</small>
+                    <small>Photo blocked. Drop it here, or:</small>
                     <button className="btn btn-sm" onClick={() => void build(c.key)}>Build from title</button>
                   </div>
                 )}

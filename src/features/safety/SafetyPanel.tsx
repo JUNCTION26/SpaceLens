@@ -155,20 +155,16 @@ export function SafetyPanel() {
       <section className="safety-block">
         <label className="safety-row">
           <span>People</span>
-          <input type="number" min={0} inputMode="numeric" value={occ} placeholder={String(report.occupancy.total)} onChange={(e) => setOcc(e.target.value)} aria-describedby="safety-occ-basis" />
+          <input type="number" min={0} inputMode="numeric" value={occ} placeholder={String(report.occupancy.total)} onChange={(e) => setOcc(e.target.value)} title={report.occupancy.overridden ? 'Split by room size' : report.occupancy.rooms.map((r) => `${r.name}: ${r.people} (${r.basis})`).join('; ')} />
         </label>
-        <p id="safety-occ-basis" className="muted safety-note">
-          {report.occupancy.overridden ? 'Split by room size.' : report.occupancy.rooms.map((r) => `${r.name}: ${r.people} (${r.basis})`).join('; ')}
-        </p>
         <button className="btn btn-primary safety-wide" disabled={!ev || !ev.agents.length} onClick={evacuate}>
           <Icon name={play?.on ? 'pause' : 'play'} size={14} /> {play?.on ? 'Stop' : 'Evacuate'}
         </button>
         {ev && (play?.on
-          ? <p className="safety-note" aria-live="polite">{Math.round(play.t)} s · {left} still inside</p>
-          : <p className="safety-note">
-            Everyone out in about <strong>{Math.round(ev.timeToClearS)} s</strong>{report.evacuationSlowS != null && <> ({Math.round(report.evacuationSlowS)} s at slower pace)</>}.
-            {ev.bottleneck && <> Bottleneck: {ev.bottleneck.label}, {ev.bottleneck.people} people{ev.bottleneck.maxWaitS >= 1 ? `, up to ${Math.round(ev.bottleneck.maxWaitS)} s queue` : ''}.</>}
-            {ev.unreachable > 0 && <> {ev.unreachable} cannot get out.</>}
+          ? <p className="safety-note" aria-live="polite">{Math.round(play.t)} s · {left} inside</p>
+          : <p className="safety-note" title={ev.bottleneck ? `Bottleneck: ${ev.bottleneck.label}, ${ev.bottleneck.people} people` : undefined}>
+            Out in <strong>{Math.round(ev.timeToClearS)} s</strong>
+            {ev.unreachable > 0 && <> · <span className="safety-bad">{ev.unreachable} trapped</span></>}
           </p>)}
       </section>
 
@@ -179,7 +175,7 @@ export function SafetyPanel() {
             <input type="checkbox" checked={d.exit} onChange={(e) => setExit(d.id, e.target.checked)} />
             <span>{d.label}</span>
           </label>
-        )) : <p className="muted safety-note">Add a door to the plan first.</p>}
+        )) : <p className="muted safety-note">No door yet</p>}
       </details>
 
       <section className="safety-block">
@@ -190,27 +186,25 @@ export function SafetyPanel() {
             {model.spaces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
-        <button className="btn safety-wide" onClick={download}><Icon name="download" size={14} /> Download evacuation plan</button>
+        <button className="btn safety-wide" onClick={download}><Icon name="download" size={14} /> Exit plan</button>
       </section>
 
       <details className="safety-block">
-        <summary>What we assumed</summary>
-        <p className="muted safety-note">Rules of thumb for planning, not a compliance check.</p>
+        <summary>Assumptions</summary>
         {GROUPS.map(([g, name]) => (
           <fieldset key={g} className="safety-defaults">
             <legend>{name}</legend>
             {(Object.keys(SAFETY_DEFAULT_INFO) as SafetyKey[]).filter((k) => SAFETY_DEFAULT_INFO[k].group === g).map((k) => (
-              <label key={k} className="safety-def">
+              <label key={k} className="safety-def" title={SAFETY_DEFAULT_INFO[k].why}>
                 <span className="safety-def-name">{SAFETY_DEFAULT_INFO[k].label}</span>
                 <input type="number" step="any" min={0} value={saved.config[k] ?? ''} placeholder={String(SAFETY_DEFAULTS[k])} onChange={(e) => setCfg(k, e.target.value)} />
                 <span className="muted safety-unit">{SAFETY_DEFAULT_INFO[k].unit}</span>
-                <span className="muted safety-why">{SAFETY_DEFAULT_INFO[k].why}</span>
               </label>
             ))}
           </fieldset>
         ))}
-        {Object.keys(saved.config).length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => update({ ...saved, config: {} })}>Reset to defaults</button>}
-        <p className="safety-note"><strong>Not assessed</strong></p>
+        {Object.keys(saved.config).length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => update({ ...saved, config: {} })}>Reset</button>}
+        <p className="safety-note"><strong>Not checked</strong></p>
         <ul className="safety-na">{report.notAssessed.map((t) => <li key={t}>{t}</li>)}</ul>
       </details>
     </div>
