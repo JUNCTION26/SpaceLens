@@ -37,7 +37,7 @@ const wristRoll = (h: THREE.Group) => {
  * floor (5 cm snap, kept inside the room) and commit with UPDATE_OBJECT on release. Pressing on the
  * floor teleports. Renders nothing and does nothing until a WebXR session is presenting.
  */
-export function XRRig({ spawn }: { spawn: Vec2 }) {
+export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number }) {
   const { gl, scene } = useThree();
   const items = useShownFurniture();
   const spaces = useStore((s) => s.model.spaces);
@@ -48,21 +48,30 @@ export function XRRig({ spawn }: { spawn: Vec2 }) {
   const hands = useRef<Hand[]>([]);
   const base = useRef<XRReferenceSpace | null>(null);
   const userPos = useRef<Vec2>(spawn);
+  const userYaw = useRef(spawnYaw);
   const panel = useRef<THREE.Group>(null);
   const mic = useRef<THREE.Mesh>(null);
   const lastStick = useRef(0);
   const canVoice = typeof window !== 'undefined' && !!((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
-  const spawnRef = useRef(spawn); spawnRef.current = spawn;
+  const spawnRef = useRef({ pos: spawn, yaw: spawnYaw }); spawnRef.current = { pos: spawn, yaw: spawnYaw };
 
   const fits = (it: FurnitureItem, x: number, y: number, rotation = it.rotation) => {
     const c = itemCorners({ ...it, x, y, rotation });
     return spaces.some((sp) => c.every((p) => pointInPolygon(p, sp.polygon)));
   };
 
-  const moveUser = (p: Vec2) => {
+  /**
+   * Stand the person at plan point p, at true scale, facing `yaw` (same convention as the walk
+   * camera: forward is (-sin yaw, -cos yaw)). The offset space is the inverse of "translate to p,
+   * then turn by yaw", so a person at the tracking origin appears at p.
+   */
+  const moveUser = (p: Vec2, yaw = userYaw.current) => {
     const b = base.current; if (!b) return;
-    userPos.current = p;
-    gl.xr.setReferenceSpace(b.getOffsetReferenceSpace(new XRRigidTransform({ x: -p.x, y: 0, z: -p.y })));
+    userPos.current = p; userYaw.current = yaw;
+    const c = Math.cos(-yaw), s = Math.sin(-yaw);
+    // rotate (-p) about +Y by -yaw
+    const x = -p.x * c + -p.y * s, z = -(-p.x) * s + -p.y * c;
+    gl.xr.setReferenceSpace(b.getOffsetReferenceSpace(new XRRigidTransform({ x, y: 0, z }, { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) })));
   };
 
   // Controllers, grips and hands live in the scene only while a session runs.
@@ -91,7 +100,7 @@ export function XRRig({ spawn }: { spawn: Vec2 }) {
       base.current = gl.xr.getReferenceSpace();
       added.forEach((o) => scene.add(o));
       setPresenting(true);
-      moveUser(spawnRef.current);
+      moveUser(spawnRef.current.pos, spawnRef.current.yaw);
     };
     const end = () => { added.forEach((o) => scene.remove(o)); base.current = null; heldRef.current = null; setHeld(null); setPresenting(false); };
     gl.xr.addEventListener('sessionstart', start);

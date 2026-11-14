@@ -4,9 +4,13 @@ import { ContactShadows, Edges, Environment, Html, OrbitControls } from '@react-
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
-  bounds, centroid, distPointPolygonEdges, itemCorners, norm, openingSegment, pointInPolygon, sub, wallInwardNormal, wallId,
+  area, bounds, centroid, itemCorners, norm, openingSegment, pointInPolygon, sub, wallId,
 } from '../../core/geometry';
 import type { FurnitureItem, Opening, Space, Vec2 } from '../../core/types';
+import { buildGrid, isRug, type OccGrid } from '../sim/grid';
+import { clearOfWalls, entranceSpawn, solidSegments, spaceAt, wallEdges, yawFor, type WallEdge } from '../sim/walls';
+import { pathBetween, planTour } from '../sim/tour';
+import { applyDemoLink } from '../building/demo';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
 import { Icon } from '../../ui/icons';
 import './scene3d.css';
@@ -41,7 +45,15 @@ floorMat.normalScale.set(0.6, 0.6);
 const SNAP = 0.05;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
-interface Walk { pos: Vec2; goal?: Vec2 | null; yaw: number; pitch: number; joy: { x: number; y: number }; keys: Set<string> }
+interface Walk {
+  pos: Vec2; goal?: Vec2 | null; yaw: number; pitch: number; joy: { x: number; y: number }; keys: Set<string>;
+  /** Waypoints still to walk (click-to-move or tour). */
+  path?: Vec2[] | null;
+  /** True while the automatic tour drives the camera. */
+  tour?: boolean;
+  /** Room key the visitor was last placed at the entrance for. */
+  spawnedFor?: string;
+}
 
 const wallMat = new THREE.MeshStandardMaterial({
   map: tex('painted_plaster_wall_diff_1k.jpg', 1, true), normalMap: tex('painted_plaster_wall_nor_gl_1k.jpg', 1),
@@ -65,8 +77,11 @@ function useRoom() {
     const w = Math.max(bb.maxX - bb.minX, 1), d = Math.max(bb.maxY - bb.minY, 1);
     const size = Math.max(w, d, 2);
     // Changes only when the room itself changes, so moving furniture never resets the camera.
-    const key = [cx, cy, w, d].map((v) => v.toFixed(2)).join(':');
-    return { model, cx, cy, w, d, size, key };
+    const key = [cx, cy, w, d, model.spaces.length].map((v) => v.toFixed(2)).join(':');
+    const edges = wallEdges(model);
+    const solids = solidSegments(model, edges);
+    const spawn = entranceSpawn(model);
+    return { model, cx, cy, w, d, size, key, edges, solids, spawn };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model.version, model]);
 }
@@ -94,69 +109,76 @@ function Ceiling({ space, h }: { space: Space; h: number }) {
 
 interface Box { pos: [number, number, number]; size: [number, number, number]; mat: THREE.Material }
 
-function wallBoxes(space: Space, i: number, openings: Opening[], ceiling: number): { boxes: Box[]; extras: Box[]; doors: Opening[] } {
-  const a = space.polygon[i], b = space.polygon[(i + 1) % space.polygon.length];
-  const L = Math.hypot(b.x - a.x, b.y - a.y);
-  const t = space.walls[i]?.thicknessM ?? 0.12;
-  const ops = openings.filter((o) => o.spaceId === space.id && o.wallIndex === i).sort((p, q) => p.offsetM - q.offsetM);
+/**
+ * Boxes for one wall. A facade wall stands outside the room's edge (inner face on the polygon); a
+ * wall shared by two rooms is drawn once, centred on the shared line with both halves' thickness.
+ * Local frame: x along the wall from `a`, +z outward from the owning room.
+ */
+function wallBoxes(edge: WallEdge, ceiling: number): { boxes: Box[]; extras: Box[] } {
+  const L = edge.length;
+  const interior = !!edge.neighbour;
+  const t = interior ? Math.max(0.06, edge.thicknessM + edge.neighbourThicknessM) : edge.thicknessM || 0.12;
+  const zc = interior ? 0 : t / 2;
+  const ext = interior ? t / 2 : t;
   const boxes: Box[] = [], extras: Box[] = [];
-  // Local frame: x along wall (0 at a), z outward, wall centred at z = t/2 so the inner face sits on the polygon edge.
   const solid = (x0: number, x1: number, y0: number, y1: number) => {
     if (x1 - x0 < 1e-3 || y1 - y0 < 1e-3) return;
-    boxes.push({ pos: [(x0 + x1) / 2, (y0 + y1) / 2, t / 2], size: [x1 - x0, y1 - y0, t], mat: wallMat });
+    boxes.push({ pos: [(x0 + x1) / 2, (y0 + y1) / 2, zc], size: [x1 - x0, y1 - y0, t], mat: wallMat });
   };
-  let cur = -t;
-  for (const o of ops) {
-    const s = Math.max(0, o.offsetM - o.widthM / 2), e = Math.min(L, o.offsetM + o.widthM / 2);
+  let cur = -ext;
+  for (const g of edge.gaps) {
+    const o = g.opening;
+    const s = Math.max(cur, g.s), e = g.e;
+    if (e - s < 0.05) continue;
     const sill = o.kind === 'window' ? o.sillM : 0;
     const head = Math.min(ceiling, sill + o.heightM);
     solid(cur, s, 0, ceiling);
     solid(s, e, 0, sill);
     solid(s, e, head, ceiling);
     if (o.kind === 'window') {
-      extras.push({ pos: [(s + e) / 2, (sill + head) / 2, t / 2], size: [e - s, head - sill, 0.012], mat: glassMat });
-      extras.push({ pos: [(s + e) / 2, sill + 0.02, t / 2 - 0.02], size: [e - s, 0.04, t + 0.06], mat: frameMat });
-      extras.push({ pos: [(s + e) / 2, head - 0.02, t / 2], size: [e - s, 0.04, t + 0.02], mat: frameMat });
-      extras.push({ pos: [s + 0.02, (sill + head) / 2, t / 2], size: [0.04, head - sill, t + 0.02], mat: frameMat });
-      extras.push({ pos: [e - 0.02, (sill + head) / 2, t / 2], size: [0.04, head - sill, t + 0.02], mat: frameMat });
+      extras.push({ pos: [(s + e) / 2, (sill + head) / 2, zc], size: [e - s, head - sill, 0.012], mat: glassMat });
+      extras.push({ pos: [(s + e) / 2, sill + 0.02, zc - 0.02], size: [e - s, 0.04, t + 0.06], mat: frameMat });
+      extras.push({ pos: [(s + e) / 2, head - 0.02, zc], size: [e - s, 0.04, t + 0.02], mat: frameMat });
+      extras.push({ pos: [s + 0.02, (sill + head) / 2, zc], size: [0.04, head - sill, t + 0.02], mat: frameMat });
+      extras.push({ pos: [e - 0.02, (sill + head) / 2, zc], size: [0.04, head - sill, t + 0.02], mat: frameMat });
     }
     cur = e;
   }
-  solid(cur, L + t, 0, ceiling);
-  // Baseboard on the inner face, skipping door gaps.
-  let bs = 0;
-  for (const o of ops.filter((q) => q.kind !== 'window')) {
-    const s = o.offsetM - o.widthM / 2;
-    if (s > bs) extras.push({ pos: [(bs + s) / 2, 0.05, -0.009], size: [s - bs, 0.1, 0.018], mat: baseMat });
-    bs = o.offsetM + o.widthM / 2;
+  solid(cur, L + ext, 0, ceiling);
+  // Baseboards on each room-facing face, skipping door gaps.
+  const faces = interior ? [-(t / 2 + 0.009), t / 2 + 0.009] : [-0.009];
+  for (const z of faces) {
+    let bs = 0;
+    for (const g of edge.gaps.filter((q) => q.kind !== 'window')) {
+      if (g.s > bs) extras.push({ pos: [(bs + g.s) / 2, 0.05, z], size: [g.s - bs, 0.1, 0.018], mat: baseMat });
+      bs = Math.max(bs, g.e);
+    }
+    if (L > bs) extras.push({ pos: [(bs + L) / 2, 0.05, z], size: [L - bs, 0.1, 0.018], mat: baseMat });
   }
-  if (L > bs) extras.push({ pos: [(bs + L) / 2, 0.05, -0.009], size: [L - bs, 0.1, 0.018], mat: baseMat });
-  return { boxes, extras, doors: ops.filter((o) => o.kind === 'door') };
+  return { boxes, extras };
 }
 
-function Wall({ space, i, openings, ceiling, selected, cutaway }: { space: Space; i: number; openings: Opening[]; ceiling: number; selected: boolean; cutaway: boolean }) {
+function Wall({ edge, ceiling, selected, cutaway }: { edge: WallEdge; ceiling: number; selected: boolean; cutaway: boolean }) {
   const ref = useRef<THREE.Group>(null);
-  const { a, ang, outward, mid } = useMemo(() => {
-    const a = space.polygon[i], b = space.polygon[(i + 1) % space.polygon.length];
-    const n = wallInwardNormal(space, i);
-    return { a, ang: -Math.atan2(b.y - a.y, b.x - a.x), outward: { x: -n.x, y: -n.y }, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
-  }, [space, i]);
-  // Local +z must point outward; with yaw = -atan2(d), local z maps to (-dy, dx).
-  const flip = useMemo(() => {
-    const b = space.polygon[(i + 1) % space.polygon.length];
+  const { a, ang, outward, mid, flip } = useMemo(() => {
+    const { a, b, inward } = edge;
+    const outward = { x: -inward.x, y: -inward.y };
     const d = norm(sub(b, a));
-    return (-d.y * outward.x + d.x * outward.y) < 0;
-  }, [space, i, a, outward]);
-  const { boxes, extras } = useMemo(() => wallBoxes(space, i, openings, ceiling), [space, i, openings, ceiling]);
+    // Local +z must point outward; with yaw = -atan2(d), local z maps to (-dy, dx).
+    return { a, ang: -Math.atan2(b.y - a.y, b.x - a.x), outward, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, flip: (-d.y * outward.x + d.x * outward.y) < 0 };
+  }, [edge]);
+  const { boxes, extras } = useMemo(() => wallBoxes(edge, ceiling), [edge, ceiling]);
   const target = useRef(1);
+  // Only facade walls between the camera and the building fold down; inner walls stay standing.
+  const canCut = cutaway && !edge.neighbour;
   useFrame(({ camera, invalidate }) => {
     if (!ref.current) return;
     const outside = (camera.position.x - mid.x) * outward.x + (camera.position.z - mid.y) * outward.y > 0;
-    target.current = cutaway && outside && camera.position.y > 1.9 ? 0.06 : 1;
+    target.current = canCut && outside && camera.position.y > 1.9 ? 0.06 : 1;
     const s = ref.current.scale.y;
     if (Math.abs(s - target.current) > 0.005) { ref.current.scale.y = s + (target.current - s) * 0.2; invalidate(); }
   });
-  const onClick = (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); useStore.getState().select({ kind: 'wall', id: wallId(space.id, i) }); };
+  const onClick = (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); useStore.getState().select({ kind: 'wall', id: wallId(edge.spaceId, edge.wallIndex) }); };
   return (
     <group position={[a.x, 0, a.y]} rotation={[0, ang, 0]}>
       <group scale-z={flip ? -1 : 1}><group ref={ref}>
@@ -170,6 +192,23 @@ function Wall({ space, i, openings, ceiling, selected, cutaway }: { space: Space
         ))}
       </group></group>
     </group>
+  );
+}
+
+/** Room names floating over each floor, for buildings with more than one room. */
+function RoomLabels({ spaces }: { spaces: Space[] }) {
+  return (
+    <>
+      {spaces.map((s) => {
+        const c = centroid(s.polygon);
+        const at = pointInPolygon(c, s.polygon) ? c : s.polygon[0];
+        return (
+          <Html key={s.id} position={[at.x, 0.1, at.y]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+            <div className="scene3d-roomlabel">{s.name}<span>{area(s.polygon).toFixed(0)} m²</span></div>
+          </Html>
+        );
+      })}
+    </>
   );
 }
 
@@ -383,12 +422,17 @@ function homeView(room: ReturnType<typeof useRoom>, cam: THREE.Camera, kind: 'do
   return { p: t.clone().addScaledVector(new THREE.Vector3(0.75, 1.05, 1.0).normalize(), dist), t };
 }
 
-function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; req: CamReq | null }) {
+const angleTo = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
+function CameraRig({ mode, eye, room, walk, req, onRoom, onTourEnd }: {
+  mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; req: CamReq | null;
+  onRoom: (spaceId: string | null) => void; onTourEnd: () => void;
+}) {
   const { camera, invalidate } = useThree();
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; enabled: boolean } | null;
   const anim = useRef<{ t: number; fromP: THREE.Vector3; fromT: THREE.Vector3; toP: THREE.Vector3; toT: THREE.Vector3 } | null>(null);
-  const space = room.model.spaces[0];
   const items = useShownFurniture();
+  const lastRoom = useRef<string | null | undefined>(undefined);
 
   const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height));
   const framed = useRef<{ key: string; aspect: number; mode: CamMode } | null>(null);
@@ -403,7 +447,10 @@ function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number;
     if (mode !== 'walk') ({ p: toP, t: toT } = homeView(room, camera, mode));
     else {
       const w = walk.current;
-      if (!space || !pointInPolygon(w.pos, space.polygon)) w.pos = space ? centroid(space.polygon) : { x: room.cx, y: room.cy };
+      // first walk in this building (or standing outside it): start at the entrance, looking in
+      if (w.spawnedFor !== room.key || !spaceAt(room.model, w.pos)) {
+        w.pos = { ...room.spawn.pos }; w.yaw = room.spawn.yaw; w.pitch = 0; w.spawnedFor = room.key; w.path = null; w.goal = null;
+      }
       toP = new THREE.Vector3(w.pos.x, eye, w.pos.y);
       toT = toP.clone().add(new THREE.Vector3(-Math.sin(w.yaw), 0, -Math.cos(w.yaw)));
     }
@@ -424,10 +471,12 @@ function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req?.n]);
 
+  // Inside some room, clear of every wall piece (door and opening gaps are open) and of furniture.
+  const solidItems = useMemo(() => items.filter((it) => !isRug(it)).map((it) => itemCorners(it)), [items]);
   const blocked = (p: Vec2) => {
-    if (!space) return false;
-    if (!pointInPolygon(p, space.polygon) || distPointPolygonEdges(p, space.polygon) < 0.2) return true;
-    return items.some((it) => pointInPolygon(p, itemCorners(it)));
+    if (!room.model.spaces.length) return false;
+    if (!spaceAt(room.model, p) || !clearOfWalls(p, 0.2, room.solids)) return true;
+    return solidItems.some((c) => pointInPolygon(p, c));
   };
 
   useFrame((_, dt) => {
@@ -452,9 +501,23 @@ function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number;
     if (k.has('s') || k.has('arrowdown')) f -= 1;
     if (k.has('d') || k.has('arrowright')) s += 1;
     if (k.has('a') || k.has('arrowleft')) s -= 1;
-    const speed = 1.4 * Math.min(dt, 0.05);
-    if (f || s) w.goal = null;
-    if (w.goal) {
+    const step = Math.min(dt, 0.05);
+    const speed = 1.4 * step;
+    if (f || s) {
+      w.goal = null; w.path = null;
+      if (w.tour) { w.tour = false; onTourEnd(); }
+    }
+    if (w.path?.length) {
+      // follow planned waypoints (already clear of walls), turning to face the way ahead
+      const g = w.path[0];
+      const gx = g.x - w.pos.x, gy = g.y - w.pos.y, gl = Math.hypot(gx, gy);
+      const v = (w.tour ? 1.15 : 1.4) * step;
+      if (gl <= v) { w.pos = { x: g.x, y: g.y }; w.path.shift(); }
+      else w.pos = { x: w.pos.x + (gx / gl) * v, y: w.pos.y + (gy / gl) * v };
+      if (gl > 0.05) w.yaw += angleTo(w.yaw, yawFor({ x: gx, y: gy })) * Math.min(1, step * (w.tour ? 2.2 : 4));
+      if (w.tour) w.pitch += (-0.08 - w.pitch) * Math.min(1, step * 2);
+      if (!w.path.length) { w.path = null; if (w.tour) { w.tour = false; onTourEnd(); } }
+    } else if (w.goal) {
       const gx = w.goal.x - w.pos.x, gy = w.goal.y - w.pos.y, gl = Math.hypot(gx, gy);
       if (gl < 0.02) w.goal = null;
       else {
@@ -473,6 +536,8 @@ function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number;
     }
     camera.position.set(w.pos.x, eye, w.pos.y);
     camera.rotation.set(w.pitch, w.yaw, 0, 'YXZ');
+    const here = room.model.spaces.length > 1 ? spaceAt(room.model, w.pos)?.id ?? null : null;
+    if (here !== lastRoom.current) { lastRoom.current = here; onRoom(here); }
   });
   return null;
 }
@@ -573,10 +638,98 @@ export function SceneView() {
     const r = Math.max(it.w, it.d, it.h, 0.6) * 2.2 + 0.6;
     ask(new THREE.Vector3(it.x + r * 0.6, it.h + r * 0.7, it.y + r * 0.8), new THREE.Vector3(it.x, it.h / 2, it.y));
   };
-  const walkTo = (p: Vec2) => {
-    const sp = model.spaces.find((s) => pointInPolygon(p, s.polygon));
-    if (sp && distPointPolygonEdges(p, sp.polygon) >= 0.25) walk.current.goal = p;
+  // Walking grid (rooms, interior walls with door gaps, furniture), built on first use per change.
+  const gridRef = useRef<{ model: unknown; items: unknown; g: OccGrid } | null>(null);
+  const grid = () => {
+    const c = gridRef.current;
+    if (c && c.model === model && c.items === shown) return c.g;
+    const g = buildGrid(model, shown);
+    gridRef.current = { model, items: shown, g };
+    return g;
   };
+  const walkTo = (p: Vec2) => {
+    if (!spaceAt(model, p)) return;
+    const w = walk.current;
+    if (w.tour) { w.tour = false; endTour(); }
+    const path = pathBetween(grid(), w.pos, p);
+    if (path) { w.path = path; w.goal = null; }
+    else if (clearOfWalls(p, 0.25, room.solids)) { w.path = null; w.goal = p; }
+  };
+
+  // Where the visitor is during walk and tour, for the "you are in" label.
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const roomName = roomId ? model.spaces.find((s) => s.id === roomId)?.name ?? null : null;
+
+  // Auto tour: walk every room along the door graph; optionally record it as a WebM video.
+  const [touring, setTouring] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const canRecord = typeof MediaRecorder !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
+  const endTour = () => {
+    setTouring(false);
+    const r = recorder.current;
+    if (r && r.state !== 'inactive') r.stop();
+  };
+  const startTour = (record: boolean) => {
+    const st = useStore.getState();
+    const t = planTour(model, grid(), room.spawn.pos);
+    if (t.stops.length < 2 || !t.points.length) { st.toast('No route between rooms to tour', 'warn'); return; }
+    const w = walk.current;
+    w.pos = { ...room.spawn.pos }; w.yaw = room.spawn.yaw; w.pitch = 0; w.spawnedFor = room.key;
+    w.path = t.points.map((p) => ({ ...p })); w.goal = null; w.tour = true;
+    setTouring(true);
+    setMode('walk');
+    if (record && glRef.current) {
+      try {
+        const canvas = glRef.current.domElement as HTMLCanvasElement & { captureStream: (fps?: number) => MediaStream };
+        const stream = canvas.captureStream(30);
+        const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
+        const rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 6_000_000 } : undefined);
+        const chunks: Blob[] = [];
+        rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+        rec.onstop = () => {
+          setRecording(false);
+          stream.getTracks().forEach((tr) => tr.stop());
+          if (!chunks.length) return;
+          const url = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+          const a = document.createElement('a');
+          a.href = url; a.download = `${(model.name || 'tour').replace(/[^\w-]+/g, '-').toLowerCase()}-tour.webm`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          useStore.getState().toast('Tour video saved', 'ok');
+        };
+        rec.start(500);
+        recorder.current = rec;
+        setRecording(true);
+      } catch {
+        st.toast('This browser cannot record the view', 'warn');
+      }
+    }
+  };
+  const stopTour = () => { walk.current.tour = false; walk.current.path = null; endTour(); };
+  useEffect(() => () => { const r = recorder.current; if (r && r.state !== 'inactive') r.stop(); }, []);
+  useEffect(() => { applyDemoLink(); }, []);
+  // Development handle for the browser test scripts: read the walker, send it somewhere, start a tour.
+  const devRef = useRef({ walk, walkTo, startTour, setMode });
+  devRef.current = { walk, walkTo, startTour, setMode };
+  useEffect(() => {
+    const h = () => devRef.current.startTour(false);
+    window.addEventListener('spacelens:tour', h);
+    return () => window.removeEventListener('spacelens:tour', h);
+  }, []);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __spacelensWalk?: unknown };
+    w.__spacelensWalk = {
+      get pos() { return devRef.current.walk.current.pos; },
+      get path() { return devRef.current.walk.current.path; },
+      walk: () => devRef.current.setMode('walk'),
+      to: (x: number, y: number) => devRef.current.walkTo({ x, y }),
+      tour: (record = false) => devRef.current.startTour(record),
+      place: (x: number, y: number, yaw: number) => { const k = devRef.current.walk.current; k.pos = { x, y }; k.yaw = yaw; k.path = null; },
+    };
+    return () => { delete w.__spacelensWalk; };
+  }, []);
 
   useEffect(() => {
     if (mode === 'walk') return;
@@ -640,15 +793,9 @@ export function SceneView() {
   };
   const onUp = () => { drag.current = null; };
 
-  const space0 = model.spaces[0];
-  const figAt = useMemo(() => {
-    if (!space0) return { x: room.cx, y: room.cy };
-    const c = centroid(space0.polygon);
-    const [a, b] = [space0.polygon[0], space0.polygon[1]];
-    const n = wallInwardNormal(space0, 0);
-    const m = { x: (a.x + b.x) / 2 + n.x * 0.6, y: (a.y + b.y) / 2 + n.y * 0.6 };
-    return pointInPolygon(m, space0.polygon) ? m : c;
-  }, [space0, room.cx, room.cy]);
+  // The figure, the walk and VR all start at the entrance, looking in.
+  const figAt = room.spawn.pos;
+  const multi = model.spaces.length > 1;
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
 
@@ -663,10 +810,11 @@ export function SceneView() {
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
 
         {model.spaces.map((s) => <Floor key={s.id} space={s} onWalkTo={mode === 'walk' ? walkTo : undefined} />)}
-        {model.spaces.map((s) => s.polygon.map((_, i) => (
-          <Wall key={s.id + i + ':' + model.version} space={s} i={i} openings={model.openings} ceiling={model.ceilingM}
-            selected={selection?.kind === 'wall' && selection.id === wallId(s.id, i)} cutaway={cutaway && mode !== 'walk'} />
-        )))}
+        {room.edges.filter((e) => e.owner).map((e) => (
+          <Wall key={e.spaceId + e.wallIndex + ':' + model.version} edge={e} ceiling={model.ceilingM}
+            selected={selection?.kind === 'wall' && (selection.id === wallId(e.spaceId, e.wallIndex))} cutaway={cutaway && mode !== 'walk'} />
+        ))}
+        {multi && mode !== 'walk' && <RoomLabels spaces={model.spaces} />}
         {mode === 'walk' && model.spaces.map((s) => <Ceiling key={'c' + s.id} space={s} h={model.ceilingM} />)}
         {model.openings.filter((o) => o.kind === 'door').map((o) => {
           const s = model.spaces.find((x) => x.id === o.spaceId);
@@ -683,8 +831,8 @@ export function SceneView() {
 
         <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.55} blur={2.8} far={1.6} resolution={512} color="#2a2118" frames={1} />
         <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={room.size * 5} />
-        <XRRig spawn={figAt} />
-        <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} />
+        <XRRig spawn={figAt} spawnYaw={room.spawn.yaw} />
+        <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} onRoom={setRoomId} onTourEnd={endTour} />
       </Canvas>
 
       <div className="scene3d-vignette" aria-hidden="true" />
@@ -699,6 +847,12 @@ export function SceneView() {
               </button>
             );
           })}
+          {multi && (touring
+            ? <button className="scene3d-ib on" onClick={stopTour} aria-label="Stop tour" title="Stop tour"><Icon name="pause" /></button>
+            : <>
+              <button className="scene3d-ib" onClick={() => startTour(false)} aria-label="Auto tour" title="Auto tour"><Icon name="play" /></button>
+              {canRecord && <button className="scene3d-ib" onClick={() => startTour(true)} aria-label="Record tour as video" title="Record tour as video"><Icon name="camera" /></button>}
+            </>)}
           <span className="scene3d-sep" aria-hidden="true" />
           <button className="scene3d-ib" onClick={fit} aria-label="Fit room in view" title="Fit room in view"><Icon name="maximize" /></button>
           {xrSup.vr && <button className={`scene3d-ib${xrMode === 'immersive-vr' ? ' on' : ''}`} onClick={() => startXR('immersive-vr')} aria-label="Enter VR" title="Enter VR"><Icon name="eye" /></button>}
@@ -726,8 +880,11 @@ export function SceneView() {
       </div>
       {mode === 'walk' && (
         <>
-          <Joystick walk={walk} />
-          <div className="scene3d-hint muted">Tap floor or WASD to move, drag to look</div>
+          {!touring && <Joystick walk={walk} />}
+          <div className="scene3d-hint muted">
+            {multi && roomName && <div className="scene3d-here" aria-live="polite"><span className="sr-only">You are in </span>{roomName}</div>}
+            {recording ? <span className="scene3d-rec">Recording</span> : touring ? 'Touring every room. Press a move key to stop.' : 'Tap floor or WASD to move, drag to look'}
+          </div>
         </>
       )}
     </div>
