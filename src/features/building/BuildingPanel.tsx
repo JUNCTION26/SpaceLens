@@ -3,8 +3,12 @@ import { useStore } from '../../core/store';
 import type { Vec2 } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { toSpaceModel } from './assemble';
-import { furnishBuilding, type RoomProgress } from './furnish';
-import { lShell, planBuilding, rectShell, type BuildingPlan, type ShellEntrance, type ShellWindow } from './partition';
+import { fmtSek } from '../../core/geometry';
+import type { SpaceModel } from '../../core/types';
+import { wallEdges } from '../sim/walls';
+import { buildingBill, furnishBuilding, type RoomProgress } from './furnish';
+import { lShell, rectShell, type BuildingPlan, type ShellEntrance, type ShellWindow } from './partition';
+import { planBuildingAsync } from './planAsync';
 import { programmeArea, programmeFromBrief, TEMPLATES, type Privacy, type ProgrammeRoom, type RoomProgramme } from './programme';
 import { planSvg } from './render';
 import './building.css';
@@ -23,6 +27,27 @@ function wallLabel(p: Vec2[], i: number) {
   return `${side} ${i + 1} · ${L.toFixed(1)} m`;
 }
 const wallLen = (p: Vec2[], i: number) => Math.hypot(p[(i + 1) % p.length].x - p[i].x, p[(i + 1) % p.length].y - p[i].y);
+
+interface WallRow { kind: 'Outer' | 'Inner'; thicknessCm: number; lengthM: number; doors: number; windows: number; count: number }
+
+/** Builder's wall schedule: outer and inner walls by thickness, with lengths and openings. */
+export function wallSchedule(model: SpaceModel): WallRow[] {
+  const rows = new Map<string, WallRow>();
+  for (const e of wallEdges(model)) {
+    if (!e.owner) continue;
+    const kind = e.neighbour ? 'Inner' : 'Outer';
+    const thicknessCm = Math.round((e.neighbour ? e.thicknessM + e.neighbourThicknessM : e.thicknessM) * 100);
+    const key = `${kind}${thicknessCm}`;
+    const r = rows.get(key) ?? { kind, thicknessCm, lengthM: 0, doors: 0, windows: 0, count: 0 };
+    r.lengthM += e.length; r.count++;
+    r.doors += e.gaps.filter((g) => g.kind !== 'window').length;
+    r.windows += e.gaps.filter((g) => g.kind === 'window').length;
+    rows.set(key, r);
+  }
+  return [...rows.values()].sort((a, b) => (a.kind === b.kind ? b.thicknessCm - a.thicknessCm : a.kind === 'Outer' ? -1 : 1));
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 function Bar({ value }: { value: number }) {
   const v = Math.round(Math.max(0, Math.min(1, value)) * 100);
@@ -115,19 +140,34 @@ export function BuildingPanel() {
     finally { setReading(false); }
   };
 
-  const propose = () => {
+  const propose = async (p: RoomProgramme = prog) => {
     setPlanning(true); setError(null);
-    // let the button show its busy state before the search runs
-    setTimeout(() => {
-      try {
-        const { entrances, windows } = inputs();
-        const res = planBuilding(shell, entrances, windows, prog, { count: 3, seed: 1 });
-        setPlans(res);
-        if (!res.length) setError('No plan found for this shell and programme.');
-      } catch (e) { setError((e as Error).message); }
-      finally { setPlanning(false); }
-    }, 30);
+    try {
+      const { entrances, windows } = inputs();
+      // searched in a worker, so the panel and the 3D view keep responding
+      const res = await planBuildingAsync(shell, entrances, windows, p, { count: 3, seed: 1 });
+      setPlans(res);
+      if (!res.length) setError('No plan found for this shell and programme.');
+    } catch (e) { setError((e as Error).message); }
+    finally { setPlanning(false); }
   };
+
+  /** Generated plans stay consistent as a whole: to resize a room, plan again with it larger. */
+  const enlarge = (programmeId: string, name: string) => {
+    const next = { ...prog, rooms: prog.rooms.map((r) => r.id === programmeId ? { ...r, preferredAreaM2: Math.round(r.preferredAreaM2 * 1.25 * 2) / 2, minAreaM2: Math.round(Math.max(r.minAreaM2, r.preferredAreaM2) * 2) / 2 } : r) };
+    setProg(next); setTpl('');
+    toast(`Planning again with a larger ${name}`, 'info');
+    void propose(next);
+  };
+
+  const walkThrough = (tour = false) => {
+    const st = useStore.getState();
+    if (st.view === '2d') st.setView('split');
+    setTimeout(() => window.dispatchEvent(new Event(tour ? 'spacelens:tour' : 'spacelens:walk')), 300);
+  };
+
+  const schedule = useMemo(() => (usedPlan ? wallSchedule(model) : []), [usedPlan, model]);
+  const bill = useMemo(() => (usedPlan && model.furniture.length ? buildingBill(model) : null), [usedPlan, model]);
 
   const use = (p: BuildingPlan) => {
     dispatch({ type: 'REPLACE_MODEL', model: toSpaceModel(p, model) });
@@ -229,7 +269,7 @@ export function BuildingPanel() {
 
       <section className="panel">
         <h3>3. Plan options</h3>
-        <button className="btn btn-primary" onClick={propose} disabled={planning || !prog.rooms.length}><Icon name="layout" /> {planning ? 'Planning…' : plans.length ? 'Plan again' : 'Propose plans'}</button>
+        <button className="btn btn-primary" onClick={() => propose()} disabled={planning || !prog.rooms.length}><Icon name="layout" /> {planning ? 'Planning…' : plans.length ? 'Plan again' : 'Propose plans'}</button>
         {error && <p className="bld-error" role="alert">{error}</p>}
         <div className="bld-cards">
           {plans.map((p) => <PlanCard key={p.id} plan={p} onUse={() => use(p)} />)}
@@ -238,8 +278,12 @@ export function BuildingPanel() {
 
       {usedPlan && (
         <section className="panel">
-          <h3>4. Furnish</h3>
-          <button className="btn btn-primary" onClick={furnish} disabled={furnishing}><Icon name="sofa" /> {furnishing ? 'Furnishing…' : 'Furnish every room'}</button>
+          <h3>4. Your plan</h3>
+          <div className="row bld-actions">
+            <button className="btn btn-primary" onClick={furnish} disabled={furnishing}><Icon name="sofa" /> {furnishing ? 'Furnishing…' : 'Furnish every room'}</button>
+            <button className="btn" onClick={() => walkThrough()}><Icon name="walk" /> Walk through</button>
+            <button className="btn btn-ghost" onClick={() => walkThrough(true)} title="Walk the camera through every room"><Icon name="play" /> Tour</button>
+          </div>
           {progress.length > 0 && (
             <ul className="list bld-progress">
               {progress.map((p) => (
@@ -252,6 +296,41 @@ export function BuildingPanel() {
               ))}
             </ul>
           )}
+          {bill && (
+            <details className="bld-sub">
+              <summary><b>{plural(bill.items, 'item')}</b> · {fmtSek(bill.totalSek)}</summary>
+              <table className="bld-table bld-bill">
+                <thead><tr><th>Item</th><th>Qty</th><th>Rooms</th><th>Total</th></tr></thead>
+                <tbody>{bill.lines.map((l) => (
+                  <tr key={l.catalogId + l.name}><td>{l.name}</td><td>{l.qty}</td><td className="muted">{l.rooms.join(', ')}</td><td>{fmtSek(l.totalSek)}</td></tr>
+                ))}</tbody>
+              </table>
+            </details>
+          )}
+
+          <h4 className="section-label">Walls</h4>
+          <table className="bld-table bld-schedule">
+            <thead><tr><th>Wall</th><th>Thick</th><th>Length</th><th>Openings</th></tr></thead>
+            <tbody>{schedule.map((r) => (
+              <tr key={r.kind + r.thicknessCm}>
+                <td>{r.kind}</td><td>{r.thicknessCm} cm</td><td>{r.lengthM.toFixed(1)} m</td>
+                <td className="muted">{[r.doors ? plural(r.doors, 'door') : '', r.windows ? plural(r.windows, 'window') : ''].filter(Boolean).join(', ') || 'None'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+
+          <h4 className="section-label">Room sizes</h4>
+          <ul className="list bld-rooms">
+            {usedPlan.rooms.map((r) => (
+              <li key={r.id}>
+                <span className="bld-grow">{r.name}</span>
+                <span className="muted">{r.areaM2.toFixed(1)} m²</span>
+                {r.programmeId && prog.rooms.some((x) => x.id === r.programmeId) && (
+                  <button className="btn btn-ghost btn-sm" disabled={planning} onClick={() => enlarge(r.programmeId!, r.name)} aria-label={`Plan again with a larger ${r.name}`} title="Plan again with this room larger"><Icon name="plus" /></button>
+                )}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </div>
