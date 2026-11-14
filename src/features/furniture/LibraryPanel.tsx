@@ -154,10 +154,7 @@ export function LibraryPanel() {
             {sel.material && <span className="muted">{sel.material}</span>}
           </div>
           <div className="furniture-actions">
-            <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { locked: !sel.locked } })}>{sel.locked ? 'Unlock' : 'Lock'}</button>
-            <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: sel.owned ? { owned: false, priceStatus: 'estimated' } : { owned: true, priceStatus: 'owned' } })}>{sel.owned ? 'Not owned' : 'I own this'}</button>
             <button className="btn btn-sm" onClick={() => setPrice(sel)}>Set price</button>
-            <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); select(null); notify(`${sel.name} removed.`, { tone: 'ok', actions: [{ label: 'Undo', run: () => useStore.getState().undo() }] }); }} aria-label={`Remove ${sel.name}`} title="Remove (Delete)"><Icon name="trash" size={14} /></button>
           </div>
         </section>
       )}
@@ -176,7 +173,6 @@ export function LibraryPanel() {
                   onDragStart={(ev) => { ev.dataTransfer.setData(SPEC_DND, m.id); ev.dataTransfer.setData('text/plain', m.name); ev.dataTransfer.effectAllowed = 'copy'; specDrag.current = { id: m.id, name: m.name, w: m.size.w, d: m.size.d }; }}>
                   <span className="furniture-swatch" style={{ background: lib.dominantColor(m) }} aria-hidden="true" />
                   <span className="furniture-name">{m.name}</span>
-                  <span className="furniture-meta">{cm(m.size.w)}×{cm(m.size.d)} cm</span>
                 </button>
               ))}
             </div>
@@ -186,12 +182,11 @@ export function LibraryPanel() {
 
       <div className="furniture-grid">
         {list.map((e) => (
-          <button key={e.id} className="furniture-card" draggable title={`${e.name}, ${cm(e.w)}×${cm(e.d)} cm. Drag or click to add`}
+          <button key={e.id} className="furniture-card" draggable title={`${e.name}, ${cm(e.w)}×${cm(e.d)} cm, ${fmtSek(e.priceSek)}`}
             onClick={() => addFromCatalog(e.id)}
             onDragStart={(ev) => { ev.dataTransfer.setData(CATALOG_DND, e.id); ev.dataTransfer.setData('text/plain', e.name); ev.dataTransfer.effectAllowed = 'copy'; }}>
             <Footprint e={e} />
             <span className="furniture-name">{e.name}</span>
-            <span className="furniture-meta">{fmtSek(e.priceSek)}</span>
           </button>
         ))}
         {list.length === 0 && (
