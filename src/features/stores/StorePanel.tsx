@@ -79,7 +79,7 @@ export function StorePanel() {
           return [...next, ...others];
         }),
       });
-      if (!done.length) setStatus('No product pages found. Try other words, or paste a link.');
+      if (!done.length) setStatus('No products found.');
     } catch (e) {
       if (!ctrl.signal.aborted) setStatus(e instanceof Error ? e.message : 'Search failed.');
     } finally { setBusy(null); }
@@ -158,7 +158,7 @@ export function StorePanel() {
       if (item.custom) patchAdd(key, { spec: item.custom });
       addToRoom(item);
       patchAdd(key, { stage: 'done' });
-      toast(`${item.name} added at ${fmtDims(item)}. Price and link are in the bill.`, 'ok');
+      toast(`${item.name} added, ${fmtDims(item)}.`, 'ok');
     } catch (e) {
       if (e instanceof MissingDimensionsError) patchAdd(key, { stage: 'size', message: e.message });
       else patchAdd(key, { stage: 'error', message: e instanceof Error ? e.message : 'Could not build it.' });
@@ -200,7 +200,7 @@ export function StorePanel() {
         onPaste={(e) => { const f = e.clipboardData.files?.[0]; if (f) void runPhoto(f); }}
       >
         <Icon name="image" size={16} />
-        <span>{busy === 'photo' ? 'Reading picture…' : 'Drop a listing screenshot or photo'}</span>
+        <span>{busy === 'photo' ? 'Reading picture…' : 'Drop a listing screenshot'}</span>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void runPhoto(f); e.target.value = ''; }} />
       </div>
 
@@ -265,7 +265,7 @@ export function StorePanel() {
                           {['SEK', 'EUR', 'USD', 'GBP', 'NOK', 'DKK'].map((x) => <option key={x}>{x}</option>)}
                         </select>
                       </>
-                    : c.price !== null ? fmtMoney(c.price, c.currency) : <span className="muted">{c.pending ? '…' : 'No price listed'}</span>}
+                    : c.price !== null ? fmtMoney(c.price, c.currency) : <span className="muted">{c.pending ? '…' : 'No price'}</span>}
                   <span className="shop-size">{fmtDims(c.stated)}</span>
                 </span>
                 {rate && c.price !== null && (
@@ -274,7 +274,7 @@ export function StorePanel() {
                     <span className="muted">1 {c.currency} =</span>
                     <input inputMode="decimal" value={rate.rate} aria-label={`SEK per ${c.currency}`}
                       onChange={(e) => { const n = parseFloat(e.target.value.replace(',', '.')); if (Number.isFinite(n) && n > 0) setRates((m) => ({ ...m, [c.currency]: { rate: n, source: 'your rate' } })); }} />
-                    <span className="muted">kr · {rate.source}</span>
+                    <span className="muted">kr</span>
                   </label>
                 )}
                 {(c.issues.length > 0 || c.note) && (
@@ -286,7 +286,7 @@ export function StorePanel() {
 
                 {st?.stage === 'size' && (
                   <div className="shop-size-form">
-                    <small>{st.message ?? 'Confirm the size from the listing (cm).'}</small>
+                    <small>{st.message ?? 'Size (cm)'}</small>
                     <div className="shop-dims">
                       {(['w', 'd', 'h'] as const).map((k) => (
                         <label key={k}><span>{k.toUpperCase()}</span>
@@ -299,7 +299,7 @@ export function StorePanel() {
                 )}
                 {st?.stage === 'image' && (
                   <div className="shop-size-form" role="note">
-                    <small>This store does not let other sites reuse its photo. Drop the picture here to shape the 3D model from it, or build it from the title.</small>
+                    <small>The store blocks reuse of its photo. Drop the picture here, or:</small>
                     <button className="btn btn-sm" onClick={() => void build(c.key)}>Build from title</button>
                   </div>
                 )}
@@ -307,7 +307,7 @@ export function StorePanel() {
                   <div className="shop-build">
                     {ForgePreview
                       ? <Suspense fallback={<span className="shop-spin" />}><div className="shop-preview"><ForgePreview spec={st.spec} assembling /></div></Suspense>
-                      : <span className="shop-status"><span className="shop-spin" aria-hidden="true" />Building at true size…</span>}
+                      : <span className="shop-status"><span className="shop-spin" aria-hidden="true" />Building…</span>}
                     {st.message && <small className="muted">{st.message}</small>}
                   </div>
                 )}
