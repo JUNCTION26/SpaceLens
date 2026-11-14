@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { sampleRoom } from '../../core/sample';
 import { applyOp } from '../../core/ops';
 import { assessSafety, quickFindings } from './assess';
-import { cafe, deadEndOffice, shelfRoom, twoRoomFlat } from './fixtures';
+import { cafe, deadEndOffice, item, shelfRoom, twoRoomFlat } from './fixtures';
 import { evacuationPlanSvg } from './plan';
 import { evacHeat } from './evac';
 
@@ -73,5 +74,41 @@ describe('escape routes', () => {
     const m = shelfRoom();
     const r = assessSafety(m, m.furniture, { exitOverrides: { exit: false }, skipFixes: true });
     expect(r.findings[0].kind).toBe('no-exit');
+  });
+});
+
+describe('blocked door', () => {
+  it('a desk in the doorway gets a verified fix that clears the door', () => {
+    const base = shelfRoom();
+    const m = { ...base, furniture: [...base.furniture, item('desk', 'desk', 0.45, 1, 0.7, 1.4, { name: 'Desk' })] };
+    const r = assessSafety(m, m.furniture);
+    const f = r.findings.find((x) => x.kind === 'door-blocked');
+    expect(f).toBeDefined();
+    expect(f!.fix).toBeDefined();
+    let next = m;
+    for (const op of f!.fix!.ops) next = applyOp(next, op);
+    expect(quickFindings(next, next.furniture).some((x) => x.kind === 'door-blocked')).toBe(false);
+  });
+
+  it('sample room: desk pushed into the door gets a fix', () => {
+    const base = sampleRoom();
+    const k = 0.5 / Math.hypot(1.7 - 0.6, 2.1 - 4.2);
+    const m = { ...base, furniture: base.furniture.map((f) => ({ ...f, x: 0.6 + (1.7 - 0.6) * k, y: 4.2 + (2.1 - 4.2) * k })) };
+    const r = assessSafety(m, m.furniture);
+    const f = r.findings.find((x) => x.kind === 'door-blocked');
+    expect(f).toBeDefined();
+    expect(f!.fix).toBeDefined();
+    let next = m;
+    for (const op of f!.fix!.ops) next = applyOp(next, op);
+    expect(quickFindings(next, next.furniture).some((x) => x.kind === 'door-blocked')).toBe(false);
+  });
+
+  it('inward door with a desk in the doorway and the swing: fix exists', () => {
+    const base = shelfRoom();
+    const m = { ...base, openings: base.openings.map((o) => ({ ...o, swing: 'in' as const })), furniture: [...base.furniture, item('desk', 'desk', 0.6, 1, 0.7, 1.4, { name: 'Desk' })] };
+    const r = assessSafety(m, m.furniture);
+    const f = r.findings.find((x) => x.kind === 'door-blocked');
+    expect(f).toBeDefined();
+    expect(f!.fix).toBeDefined();
   });
 });

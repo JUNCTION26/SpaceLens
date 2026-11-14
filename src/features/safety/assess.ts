@@ -642,14 +642,29 @@ function searchFix(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyCon
       if (p.item.locked || delta < p.minD - 1e-9) continue;
       {
         const dir = p.dir;
-        const x = Math.round((p.item.x + dir.x * delta) * 1000) / 1000, y = Math.round((p.item.y + dir.y * delta) * 1000) / 1000;
-        if (!poseValid(model, p.item, x, y, furniture, zones)) continue;
+        let x = Math.round((p.item.x + dir.x * delta) * 1000) / 1000, y = Math.round((p.item.y + dir.y * delta) * 1000) / 1000;
+        if (!poseValid(model, p.item, x, y, furniture, zones)) {
+          // An item pushed into a wall or doorway may overhang the room: also try the same move pulled back inside.
+          const r0 = roomOf(model, p.item);
+          const pg = r0 >= 0 ? model.spaces[r0].polygon : [];
+          const c0 = pg.length ? { x: pg.reduce((a, q) => a + q.x, 0) / pg.length, y: pg.reduce((a, q) => a + q.y, 0) / pg.length } : null;
+          let fitted: Vec2 | null = null;
+          if (c0) {
+            const inward = norm(sub(c0, { x, y }));
+            for (let k = 1; k <= 12 && !fitted; k++) {
+              const qx = Math.round((x + inward.x * 0.05 * k) * 1000) / 1000, qy = Math.round((y + inward.y * 0.05 * k) * 1000) / 1000;
+              if (poseValid(model, p.item, qx, qy, furniture, zones)) fitted = { x: qx, y: qy };
+            }
+          }
+          if (!fitted || dist(fitted, p.item) > cfg.maxMoveM + 1e-9) continue;
+          x = fitted.x; y = fitted.y;
+        }
         if (checks++ > 28) return undefined;
         const moved = furniture.map((f) => (f.id === p.item.id ? { ...f, x, y } : f));
         const after = analyse(model, moved, cfg, overrides, occ, false).findings;
         if (gone(after) && crit(after) <= need) {
-          const d = Math.round(delta * 100);
-          return { label: `Move ${label(p.item)} ${d} cm ${DIR_WORD(dir)}`, ops: [{ type: 'UPDATE_OBJECT', id: p.item.id, patch: { x, y } }], movedM: delta, verified: true };
+          const mv = dist({ x, y }, p.item), d = Math.max(5, Math.round(mv * 100));
+          return { label: `Move ${label(p.item)} ${d} cm ${DIR_WORD({ x: x - p.item.x, y: y - p.item.y })}`, ops: [{ type: 'UPDATE_OBJECT', id: p.item.id, patch: { x, y } }], movedM: mv, verified: true };
         }
       }
     }
