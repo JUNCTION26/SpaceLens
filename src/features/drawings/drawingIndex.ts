@@ -1,5 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
-import { classify, mergeSplitAreas, joinLineFragments, type TextItem, type TextKind } from './textCore';
+import { mergeSplitAreas, joinLineFragments, type TextItem, type TextKind } from './textCore';
+import { readPagePaths, type PagePaths } from './pdfPaths';
+import { textItemsFrom } from './pdfText';
 
 export { classify, parseDimension } from './textCore';
 export type { TextItem, TextKind } from './textCore';
@@ -20,6 +22,8 @@ export interface DrawingDoc {
   name: string;
   pages: DrawingPage[];
   items: TextItem[];
+  /** Drawing lines per page (PDF only), for turning the plan into a building. */
+  vectors?: Array<PagePaths | null>;
 }
 
 const MAX_PX = 2000;
@@ -34,7 +38,7 @@ export async function loadPdf(data: ArrayBuffer, name: string, onProgress?: (p: 
   const pdf = await pdfjs.getDocument({ data }).promise;
   const pages: DrawingPage[] = [];
   const items: TextItem[] = [];
-  let id = 0;
+  const vectors: Array<PagePaths | null> = [];
   const n = Math.min(pdf.numPages, 30);
   for (let p = 1; p <= n; p++) {
     onProgress?.(`Reading page ${p} of ${n}`);
@@ -48,21 +52,10 @@ export async function loadPdf(data: ArrayBuffer, name: string, onProgress?: (p: 
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     pages.push({ index: p - 1, dataUrl: canvas.toDataURL('image/jpeg', 0.85), pxW: canvas.width, pxH: canvas.height, ptW: base.width, ptH: base.height });
     const tc = await page.getTextContent();
-    for (const raw of tc.items) {
-      if (!('str' in raw) || !raw.str.trim()) continue;
-      const t = pdfjs.Util.transform(vp.transform, raw.transform);
-      const fh = Math.hypot(t[2], t[3]) || 8;
-      const w = Math.max(raw.width * scale, fh * 0.5);
-      const vertical = Math.abs(t[1]) > Math.abs(t[0]);
-      const bx = vertical ? t[4] - fh : t[4];
-      const by = vertical ? t[5] - w : t[5] - fh;
-      const bw = vertical ? fh : w;
-      const bh = vertical ? w : fh;
-      const c = classify(raw.str);
-      items.push({ id: id++, page: p - 1, str: raw.str.trim(), x: bx / vp.width, y: by / vp.height, w: bw / vp.width, h: bh / vp.height, ...c });
-    }
+    items.push(...textItemsFrom(tc.items, vp, scale, p - 1, items.length));
+    try { vectors.push(await readPagePaths(page, pdfjs.OPS as unknown as Record<string, number>)); } catch { vectors.push(null); }
   }
-  return { name, pages, items: mergeSplitAreas(joinLineFragments(items)) };
+  return { name, pages, items: mergeSplitAreas(joinLineFragments(items)), vectors };
 }
 
 export async function loadImage(file: Blob, name: string): Promise<DrawingDoc> {

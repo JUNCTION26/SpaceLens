@@ -256,18 +256,29 @@ function findDoors(paths: VPath[], rMin: number, rMax: number, wallStyles: Set<s
       let tip = b, jamb = a;
       if (bWall && !aWall) { tip = a; jamb = b; }
       else if (aWall === bWall) {
-        // fall back to the drawn leaf: a straight line from the hinge to the tip
-        const tol = circ.r * 0.12;
-        const leafTo = (e: P) => segs.some(([u, v]) => (dist(u, circ.c) < tol && dist(v, e) < tol) || (dist(v, circ.c) < tol && dist(u, e) < tol));
-        if (leafTo(a) && !leafTo(b)) { tip = a; jamb = b; }
+        // Behind the hinge, the wall carries on along the closed leaf's line; across the open
+        // leaf's line it ends after one wall thickness. Sample both lines.
+        const behind = (e: P) => {
+          const ux = (e.x - circ.c.x) / circ.r, uy = (e.y - circ.c.y) / circ.r;
+          let hit = 0;
+          for (let k = 1; k <= 12; k++) { const s = (k / 12) * wallT * 3; if (grid.blockedNear({ x: circ.c.x - ux * s, y: circ.c.y - uy * s }, grid.cell)) hit++; }
+          return hit;
+        };
+        const sa = behind(a), sb = behind(b);
+        if (sa !== sb) { if (sb > sa) { tip = a; jamb = b; } }
+        else {
+          // last resort: the drawn leaf, a straight line from the hinge to the tip
+          const tol = circ.r * 0.12;
+          const leafTo = (e: P) => segs.some(([u, v]) => (dist(u, circ.c) < tol && dist(v, e) < tol) || (dist(v, circ.c) < tol && dist(u, e) < tol));
+          if (leafTo(a) && !leafTo(b)) { tip = a; jamb = b; }
+        }
       }
       doors.push({ hinge: circ.c, tip, jamb, widthPt: circ.r });
     }
   }
-  // drop duplicates (the same swing drawn twice)
-  const out: Door[] = [];
-  for (const d of doors) if (!out.some((o) => dist(o.hinge, d.hinge) < d.widthPt * 0.1 && dist(o.jamb, d.jamb) < d.widthPt * 0.1)) out.push(d);
-  return out;
+  // Every drawn swing is kept, as printed (a swing drawn twice usually marks two leaves);
+  // the model builder places each position once.
+  return doors;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -545,7 +556,12 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   const doorR = mPerPt ? [0.45 / mPerPt, 1.4 / mPerPt] : [wallT * 3, wallT * 14];
   const doors = findDoors(pp.paths, doorR[0], doorR[1], wall.styles, grid, wallT);
   const windows = findWindows(pp.paths, grid, wallT, wall.thick90, wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
-  for (const d of doors) grid.fillSegment(d.hinge, d.jamb, wallT, 2);
+  for (const d of doors) {
+    // the hinge line sits on the wall face on the swing side: fill the band behind it, away from the leaf
+    const L = dist(d.hinge, d.tip) || 1;
+    const ox = (-(d.tip.x - d.hinge.x) / L) * (wallT / 2), oy = (-(d.tip.y - d.hinge.y) / L) * (wallT / 2);
+    grid.fillSegment({ x: d.hinge.x + ox, y: d.hinge.y + oy }, { x: d.jamb.x + ox, y: d.jamb.y + oy }, wallT, 2);
+  }
   for (const w of windows) grid.fillSegment(w.a, w.b, Math.max(w.depthPt, wallT * 0.5), 2);
 
   // 5. rooms: fill from every printed room number, then any other enclosed space
