@@ -18,7 +18,7 @@ import { TopBar } from './ui/TopBar';
 import { Toasts } from './ui/Toasts';
 import { useTheme } from './ui/theme';
 import { Settings } from './ui/Settings';
-import { resolveNav, useUi } from './ui/uiStore';
+import { applyDeepLink, resolveNav, useUi } from './ui/uiStore';
 import { Sidebar, MobileNav } from './ui/Sidebar';
 import { Icon } from './ui/icons';
 import { CommandPalette } from './features/command/CommandPalette';
@@ -26,6 +26,9 @@ import { DemoRunner } from './features/demo/DemoRunner';
 import { Coach } from './ui/onboarding/Coach';
 import { VisionPanel } from './features/vision/VisionPanel';
 import { VoiceAdd } from './features/voice/VoiceAdd';
+import { AgentDock, OPTIONAL_PANELS } from './ui/sections';
+
+applyDeepLink();
 
 const MODE_KEYS: Mode[] = ['capture', 'design', 'experience', 'deliver'];
 const SHORTCUTS: Array<[string, string]> = [
@@ -62,6 +65,7 @@ function Globals({ help, setHelp }: { help: boolean; setHelp: (b: boolean) => vo
 const PANELS: Record<string, React.ComponentType> = {
   capture: CapturePanel, drawings: DrawingsPanel, describe: IntentPanel, layouts: DesignPanel,
   furniture: LibraryPanel, inspire: VisionPanel, walk: SimPanel, export: ExportPanel,
+  ...Object.fromEntries(Object.entries(OPTIONAL_PANELS).filter((e): e is [string, React.ComponentType] => !!e[1])),
 };
 const VIEWS = [['2d', '2D'], ['split', 'Split'], ['3d', '3D']] as const;
 
@@ -73,6 +77,11 @@ function ChecksPill() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const fails = useMemo(() => summarize(validateLayout(model, furniture, requirements)).fail, [model.version, furniture, requirements]);
   useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener('spacelens:checks', show);
+    return () => window.removeEventListener('spacelens:checks', show);
+  }, []);
+  useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     window.addEventListener('keydown', onKey);
@@ -80,10 +89,10 @@ function ChecksPill() {
   }, [open]);
   return (
     <div className="checks-float">
-      {open && <div className="checks-pop" role="dialog" aria-label="Checks"><ChecksPanel /></div>}
-      <button className={`status-pill${fails ? ' bad' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button className={`status-pill${fails ? ' bad' : ''}`} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} title="Design checks">
         <i aria-hidden="true" />{fails ? `${fails} to fix` : 'All clear'}
       </button>
+      {open && <div className="checks-pop" role="dialog" aria-label="Checks"><ChecksPanel /></div>}
     </div>
   );
 }
@@ -145,25 +154,25 @@ export function App() {
   const exp = mode === 'experience';
   const shown = exp ? '3d' : view;
 
+  const viewSwitch = !exp && (
+    <div className="seg view-seg" role="radiogroup" aria-label="View">
+      {VIEWS.map(([v, l]) => <button key={v} role="radio" aria-checked={v === view} className={v === view ? 'on' : ''} onClick={() => setView(v)}>{l}</button>)}
+    </div>
+  );
+
   return (
-    <div className="app">
-      <TopBar />
+    <div className={`app${collapsed ? ' nav-collapsed' : ''}`}>
+      <TopBar center={<>{viewSwitch}<ChecksPill /></>} />
       <div className={`workspace${collapsed ? ' nav-collapsed' : ''}`}>
         <Sidebar active={active} />
         <section className="panel-col" aria-label={active.label}>
-          <header className="panel-col-head"><h1>{active.label}</h1></header>
+          <header className="panel-col-head"><h1>{active.label}</h1><p>{active.hint}</p></header>
           <div className="side-body"><Suspense fallback={<PanelSkeleton />}><Panel key={active.key} /></Suspense></div>
         </section>
         <main className={`stage stage-${shown}`}>
-          {shown !== '3d' && <section className="pane pane-2d"><PlanView /></section>}
-          {shown !== '2d' && <section className="pane pane-3d"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></section>}
-          {!exp && (
-            <div className="seg view-seg" role="radiogroup" aria-label="View">
-              {VIEWS.map(([v, l]) => <button key={v} role="radio" aria-checked={v === view} className={v === view ? 'on' : ''} onClick={() => setView(v)}>{l}</button>)}
-            </div>
-          )}
-          <ChecksPill />
-          <VoiceAdd />
+          {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><PlanView /></section>}
+          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></section>}
+          {AgentDock ? <Suspense fallback={null}><AgentDock overlay={false} /></Suspense> : <VoiceAdd />}
           <InspectorSheet />
         </main>
       </div>
