@@ -1050,7 +1050,12 @@ export function PlanView() {
         </span>
       </div>
 
-      {activeCandidateId && <div className="plan2d-preview chip chip-warn">Previewing a layout. Editing applies it.</div>}
+      {activeCandidateId && (
+        <div className="plan2d-preview float">
+          <span className="chip chip-warn">Preview</span>
+          <button className="btn btn-sm btn-primary" onClick={() => useStore.getState().applyCandidate(activeCandidateId)}>Apply</button>
+        </div>
+      )}
 
       <div className="plan2d-scale">
         <svg width={scaleLen / px} height={14} aria-hidden="true">

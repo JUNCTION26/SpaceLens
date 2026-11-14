@@ -191,3 +191,5 @@ circle.plan2d-mark-hit { stroke: none; }
   .plan2d-mark-dot, .plan2d-tick, .plan2d-fixghosts, .plan2d-item.is-focus .plan2d-ring { animation: none; }
   .plan2d-item.is-drag .plan2d-item-body { transition: none; }
 }
+
+.plan2d-preview { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 8px; z-index: 6; }

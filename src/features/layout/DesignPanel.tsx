@@ -4,9 +4,9 @@ import { bounds, fmtM2, fmtSek, itemCorners } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
-import { designRoom, type FullReport } from '../design/pipeline';
+import { designRoom } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
-import { DecisionsPanel } from '../design/DecisionsPanel';
+import { DecisionsPanel, shortLabel } from '../design/DecisionsPanel';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { showLayouts } from './progress';
@@ -25,17 +25,6 @@ function ScoreRing({ value }: { value: number }) {
       <text x={16} y={16} textAnchor="middle" dominantBaseline="central" fontSize={10} fill="currentColor">{v}</text>
     </svg>
   );
-}
-
-/** The two highest-weight reasons, skipping items the rules say are failing. */
-function strongestReasons(rep: FullReport): string[] {
-  const failing = new Set(rep.verdicts.filter((v) => !v.pass).flatMap((v) => v.itemIds));
-  const seen = new Set<string>();
-  return [...rep.program.relations]
-    .sort((a, b) => Number(failing.has(a.subject)) - Number(failing.has(b.subject)) || b.weight - a.weight)
-    .map((r) => r.reason)
-    .filter((t) => (seen.has(t) ? false : (seen.add(t), true)))
-    .slice(0, 2);
 }
 
 function Thumb({ model, cand, scale }: { model: SpaceModel; cand: LayoutCandidate; scale: number }) {
@@ -117,23 +106,22 @@ export function DesignPanel() {
       <div className="panel layout-panel">
         {infeasibility ? (
           <div className="layout-infeasible">
-            <strong>Not everything fits in this room</strong>
-            <ul className="list">{infeasibility.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+            <strong>Does not fit</strong>
             {req && (
               <div className="layout-actions">
                 {infeasibility.relaxations.slice(0, 3).map((r, i) => (
                   <button key={r.label} className={`btn btn-sm${i === 0 ? ' btn-primary' : ''}`} disabled={busy} onClick={() => void regenerate({ ...req, ...r.patch })}>{r.label}</button>
                 ))}
-                <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Edit the brief</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Edit brief</button>
               </div>
             )}
           </div>
         ) : (
           <div className="layout-empty">
-            <strong>{req ? 'Ready to lay out the room' : 'Start with a short brief'}</strong>
+            <strong>{req ? 'No layouts yet' : 'No brief yet'}</strong>
             {req
-              ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Making layouts' : 'Make 3 layouts'}</button>
-              : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe the room</button>}
+              ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Working' : 'Make layouts'}</button>
+              : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe</button>}
           </div>
         )}
       </div>
@@ -148,18 +136,18 @@ export function DesignPanel() {
     <div className="panel layout-panel">
       {stale && (
         <div className="layout-stale">
-          <span>Room changed since these were made.</span>
+          <span className="chip chip-warn">Outdated</span>
           <button className="btn btn-sm" disabled={busy || !req} onClick={() => void regenerate()}>Regenerate</button>
         </div>
       )}
       <div className="layout-toolbar">
         <span className="muted">{candidates.length} layout{candidates.length > 1 ? 's' : ''}</span>
-        {current ? <span className="layout-progress" role="status"><i aria-hidden="true" />{current.label}</span> : busy && <span className="muted">Working</span>}
+        {(current || busy) && <span className="layout-progress" role="status" title={current?.label}><i aria-hidden="true" />Working</span>}
         <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
       </div>
       {compare && (
         <div className="layout-combine muted">
-          <span>Pick two to combine ({pins.length}/2)</span>
+          <span>Pick 2 ({pins.length}/2)</span>
           <button className="btn btn-sm" disabled={busy || pins.length !== 2} onClick={combine}>Combine</button>
         </div>
       )}
@@ -168,33 +156,24 @@ export function DesignPanel() {
           {candidates.map((c) => (
             <figure key={c.id} className={c.id === activeId ? 'on' : ''} onClick={() => useStore.getState().previewCandidate(c.id)}>
               <Thumb model={model} cand={c} scale={scale} />
-              <figcaption>{c.name}<br />{fmtM2(c.metrics.openAreaM2)} open{c.metrics.routeLenM != null && ` · route ${c.metrics.routeLenM.toFixed(1)} m`}</figcaption>
+              <figcaption>{shortLabel(c.name)}<br />{fmtM2(c.metrics.openAreaM2)} free</figcaption>
             </figure>
           ))}
         </div>
       )}
       <div className="layout-cards">
         {candidates.map((c) => {
-          const passed = c.checks.filter((r) => r.result === 'pass').length;
-          const failed = c.checks.filter((r) => r.result === 'fail').length;
-          const tone = failed > 0 ? 'chip-bad' : passed < c.checks.length ? 'chip-warn' : 'chip-ok';
           const nowFail = recheck.get(c.id) ?? 0;
           const rep = reports[c.id];
-          const reasons = rep ? strongestReasons(rep) : [];
           return (
             <div key={c.id} className={`layout-card${c.id === activeId ? ' on' : ''}`} onClick={() => useStore.getState().previewCandidate(c.id)}>
               {sp && <Thumb model={model} cand={c} scale={scale * 0.6} />}
               <div className="layout-card-body">
                 <div className="layout-card-head">
-                  <strong>{c.name}</strong>
-                  {!rep && <span className={`chip ${tone}`}>{passed}/{c.checks.length} checks</span>}
-                  {nowFail > 0 && <span className="chip chip-bad">{nowFail} now fail</span>}
-                  {rep?.critique && <span className="chip layout-second" title={rep.critique.summary}>Second opinion {Math.round(rep.critique.score)}/10</span>}
-                  {rep && <ScoreRing value={c.metrics.score} />}
+                  <strong title={c.name}>{shortLabel(c.name)}</strong>
+                  {nowFail > 0 && <span className="chip chip-bad">{nowFail} fail</span>}
+                  <ScoreRing value={c.metrics.score} />
                 </div>
-                {reasons.length > 0 ? (
-                  <ul className="layout-reasons">{reasons.map((t) => <li key={t}>{t}</li>)}</ul>
-                ) : <div className="muted layout-reason" title={c.summary}>{c.summary}</div>}
                 <div className="layout-foot">
                   <span>{fmtSek(c.metrics.costSek)}</span>
                   {compare && (
@@ -203,10 +182,10 @@ export function DesignPanel() {
                     </button>
                   )}
                   {appliedId === c.id
-                    ? <span className="chip chip-ok" title="This layout is on the plan">Applied</span>
+                    ? <span className="chip chip-ok">Applied</span>
                     : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>}
                 </div>
-                {rep && c.id === activeId && <DecisionsPanel model={model} candidate={c} report={rep} />}
+                {rep && c.id === activeId && <DecisionsPanel report={rep} />}
               </div>
             </div>
           );

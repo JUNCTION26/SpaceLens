@@ -58,15 +58,23 @@ const METRICS = `(() => {
   const inter = [...document.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=radio], [role=menuitem], [role=switch], [role=slider]')]
     .filter((el) => !el.disabled && vis(el));
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let texts = 0, words = 0; const seen = new Map();
+  let texts = 0, words = 0, longest = 0, panelWords = 0, longText = ''; const seen = new Map();
+  const blocks = new Map();
   for (let n; (n = walker.nextNode());) {
     const t = n.textContent.replace(/\\s+/g, ' ').trim();
     if (!t || !n.parentElement || n.parentElement.closest('script, style, [aria-hidden=true], .sr-only, .visually-hidden')) continue;
     let ok = seen.get(n.parentElement);
     if (ok === undefined) { ok = vis(n.parentElement); seen.set(n.parentElement, ok); }
     if (!ok) continue;
-    texts++; words += t.split(' ').length;
+    const n2 = t.split(' ').length;
+    texts++; words += n2;
+    if (n.parentElement.closest('.panel-col, .inspector-sheet, .checks-pop')) panelWords += n2;
+    // A text block is the nearest block-level ancestor: words across inline children count together.
+    let b = n.parentElement;
+    while (b && b !== document.body && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
+    if (!b.matches('button, [role=button], a, label, option, select')) blocks.set(b, (blocks.get(b) ?? 0) + n2);
   }
+  for (const [b, c] of blocks) if (c > longest) { longest = c; longText = (b.innerText || '').replace(/\s+/g, ' ').slice(0, 90); }
   const stage = document.querySelector('.stage');
   let overlays = 0;
   if (stage) {
@@ -79,7 +87,7 @@ const METRICS = `(() => {
       counted.push(el); overlays++;
     }
   }
-  return { controls: inter.length, texts, words, overlays };
+  return { controls: inter.length, texts, words, overlays, longest, panelWords, longText };
 })()`;
 
 const RUBRIC = `You are a senior Apple Human Interface designer reviewing one screen of a web app called SpaceLens
@@ -91,7 +99,10 @@ const RUBRIC = `You are a senior Apple Human Interface designer reviewing one sc
 - Redundant labels, repeated information, competing accent colours, stacked statistic cards, chip rows, helper paragraphs.
 - Misalignment, inconsistent control heights or spacing, truncated, clipped or overlapping text.
 - Developer detail shown to a normal person (timings, token counts, model ids, rule ids, raw numbers).
-- Empty states: one sentence and one button is ideal.
+- Empty states: one short line and one button is ideal.
+- HARD RULE, this app must be usable by anyone, including people who struggle to read: no sentences and no paragraphs anywhere.
+  Headings 1-3 words, buttons 1-2 words, use icons, ticks, colour and numbers instead of prose. Any text block over 8 words,
+  or more than about 40 visible words in a side panel, is a top problem and caps the score at 60.
 Score 0-100 where 90+ means it could ship in an Apple product, 70 is decent but busy, under 50 is cluttered.
 Return only JSON: {"score": number, "visibleControlCount": number, "topProblems": [{"what": string, "where": string, "fix": string}] (max 5, most important first),
 "remove": [string] (elements to delete outright), "hide": [string] (move behind More/Details/hover), "keep": [string] (what works)}.
@@ -157,9 +168,10 @@ try {
 await Promise.all(pending);
 
 const pad = (v, n) => String(v).padEnd(n);
-console.log(`${pad('screen', 16)}${pad('score', 7)}${pad('ctrls', 7)}${pad('words', 7)}${pad('texts', 7)}${pad('over', 6)}err`);
+console.log(`${pad('screen', 16)}${pad('score', 7)}${pad('ctrls', 7)}${pad('words', 7)}${pad('panelW', 8)}${pad('longest', 9)}${pad('over', 6)}${pad('err', 5)}rule`);
 for (const r of rows) {
-  console.log(`${pad(r.name, 16)}${pad(r.critic?.score ?? '-', 7)}${pad(r.controls, 7)}${pad(r.words, 7)}${pad(r.texts, 7)}${pad(r.overlays, 6)}${r.errors.length}`);
+  const fail = r.longest > 8 || r.panelWords > 40;
+  console.log(`${pad(r.name, 16)}${pad(r.critic?.score ?? '-', 7)}${pad(r.controls, 7)}${pad(r.words, 7)}${pad(r.panelWords, 8)}${pad(r.longest, 9)}${pad(r.overlays, 6)}${pad(r.errors.length, 5)}${fail ? 'FAIL' : 'ok'}`);
 }
 const scored = rows.filter((r) => typeof r.critic?.score === 'number');
 if (scored.length) console.log(`mean score ${Math.round(scored.reduce((a, r) => a + r.critic.score, 0) / scored.length)}, mean controls ${Math.round(rows.reduce((a, r) => a + r.controls, 0) / rows.length)}`);
@@ -168,7 +180,7 @@ const md = [`# UI critic report`, `${new Date().toISOString()}`, ''];
 for (const r of rows) {
   const c = r.critic ?? {};
   md.push(`## ${r.name}  score ${c.score ?? '-'}  (${r.size}, ?${r.q})`);
-  md.push(`DOM: ${r.controls} controls, ${r.texts} text nodes, ${r.words} words, ${r.overlays} overlays on canvas. Model says ${c.visibleControlCount ?? '-'} controls.${c.error ? ` Critic error: ${c.error}` : ''}`);
+  md.push(`DOM: ${r.controls} controls, ${r.texts} text nodes, ${r.words} words (${r.panelWords} in panels), longest block ${r.longest} words ("${r.longText}"), ${r.overlays} overlays on canvas. Model says ${c.visibleControlCount ?? '-'} controls.${c.error ? ` Critic error: ${c.error}` : ''}`);
   if (r.errors.length) md.push(`Page errors:\n${r.errors.map((e) => `- ${e}`).join('\n')}`);
   for (const p of c.topProblems ?? []) md.push(`- PROBLEM ${p.what} @ ${p.where} -> ${p.fix}`);
   if (c.remove?.length) md.push(`- REMOVE: ${c.remove.join('; ')}`);

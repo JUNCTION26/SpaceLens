@@ -30,3 +30,10 @@
 .dec-kind::after { content: ':'; }
 .dec-critic .dec-kind { color: var(--text); }
 .dec-notes { font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
+
+.dec-ticks { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dec-ticks button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font-size: var(--fs); text-align: left; }
+.dec-ticks button:hover:not(:disabled) { background: var(--hover); }
+.dec-ticks button:disabled { opacity: 1; cursor: default; }
+.dec-ticks .is-pass svg { color: var(--ok); }
+.dec-ticks .is-fail svg { color: var(--bad); }
