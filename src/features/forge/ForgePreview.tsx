@@ -57,6 +57,8 @@ export function ForgePreview({ spec, assembling, open }: { spec: ObjectSpec | nu
   }, [open]);
 
   const size = spec?.size ?? { w: 1, d: 0.6, h: 0.75 };
+  // While the model starts, the request's template shows as a ghost.
+  const silhouette = assembling ? (spec as (ObjectSpec & { silhouette?: ObjectSpec['parts'] }) | null)?.silhouette : undefined;
   const shadow = useMemo(() => Math.max(size.w, size.d) * 2 + 0.6, [size.w, size.d]);
   return (
     <div className="forge-preview" aria-label={spec ? `3D preview of ${spec.name}` : 'Preview'}>
@@ -66,6 +68,7 @@ export function ForgePreview({ spec, assembling, open }: { spec: ObjectSpec | nu
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <directionalLight position={[-4, 3, -2]} intensity={0.45} />
         {spec && <GeneratedMesh spec={spec} assembling={assembling} open={openT} />}
+        {silhouette && <GeneratedMesh key={`ghost-${spec!.id}`} spec={{ ...spec!, parts: silhouette, motions: undefined }} ghost />}
         {spec && !assembling && <Callouts size={spec.size} />}
         <ContactShadows position={[0, 0.001, 0]} scale={shadow} blur={2.4} opacity={0.45} far={Math.max(1, size.h)} resolution={512} />
         <OrbitControls target={[0, size.h / 2, 0]} autoRotate autoRotateSpeed={assembling ? 2.2 : 0.9} enablePan={false} enableDamping makeDefault minDistance={0.3} maxDistance={20} />

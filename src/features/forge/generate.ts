@@ -1,17 +1,26 @@
-// Words (or a photo) to a custom 3D object. The model streams parts; each partial is parsed,
-// normalised and shown so the object assembles while it is still being written. The final
-// object is fitted to the person's exact dimensions and validated; one repair pass runs if it
-// comes back broken. Without a key, or on failure, the parametric templates take over.
+// Words (or a photo) to a custom 3D object.
+//
+// 1. Instantly: a local silhouette (the template for the request) is shown as a ghost.
+// 2. The model streams a short list of kit items and plain parts; kits expand in code into
+//    detailed parts, so each streamed item drops a finished sub-assembly onto the screen.
+// 3. Finishing is deterministic: counts, sides and named styles from the words are enforced on
+//    the raw items, swapped axes are turned back, the object is fitted to the exact size, repaired,
+//    and recoloured if the named colours did not come through.
+// 4. On a strong, fast model a second pass adds detail; on lite models the budget stays lean.
+// Without a key, or on failure, the kit templates take over.
 
-import { ai, aiReady, partialJson } from '../../core/ai';
+import { ai, aiReady, aiRoute, partialJson } from '../../core/ai';
 import { dataUrlToInlineData, fileToInlineData, type GeminiPart } from '../../core/gemini';
 import { uid } from '../../core/geometry';
-import type { ObjectSpec } from '../../core/types';
-import { EXAMPLES } from './examples';
+import type { ObjectPart, ObjectSpec } from '../../core/types';
+import { coerceKit } from './kits';
+import { KIT_EXAMPLES, type KitExample } from './kitExamples';
 import { fitSpec } from './fit';
+import { fixAxes } from './orient';
 import { kindById, parseEdit, parseRequest, resolveSize, type ParsedRequest } from './parseRequest';
+import { enforceColors } from './recolor';
 import { defaultSemantics, rulesObject } from './rulesFallback';
-import { MATERIAL_IDS, normalizeSpec, PART_SHAPES, SPEC_JSON_SCHEMA } from './spec';
+import { MATERIAL_IDS, normalizeSpec, SPEC_JSON_SCHEMA, specFootprint } from './spec';
 import { validateSpec } from './validate';
 
 export interface GenerateOpts {
@@ -19,89 +28,180 @@ export interface GenerateOpts {
   signal?: AbortSignal;
 }
 
+/** How a spec was made: kept on the object for timing and quality checks. */
+export interface GenInfo {
+  model: string;
+  tier: 'lean' | 'rich';
+  firstPartsMs: number | null;
+  totalMs: number;
+  passes: number;
+  items: number;
+  fixes: string[];
+}
+
+/** An ObjectSpec plus generation details and, while streaming, the ghost silhouette. */
+export type ForgeSpec = ObjectSpec & { gen?: GenInfo; silhouette?: ObjectPart[] };
+
 type Size = { w: number; d: number; h: number };
 export { parseEdit };
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const cm = (m: number) => Math.round(m * 100);
 
-// ---- prompt ------------------------------------------------------------------------------
+// ---- model tiers -------------------------------------------------------------------------
 
-const SYSTEM = `You are a master furniture and product designer who builds exact 3D models from parts.
-Return ONE JSON object: {name, size:{w,d,h}, parts:[...], motions?:[...], openSize?, semantics:{...}}.
-
-COORDINATES: metres. Origin at the floor centre of the footprint. +x right, +y up, +z is the FRONT (the side a person uses).
-w = extent along x, d = along z, h = along y. Every part: {name, shape, size:[x,y,z] full extents, pos:[x,y,z] centre, rot?:[rx,ry,rz] radians, radius?, material, color?, profile?, group?}.
-The union of all parts must fill the box x in [-w/2,w/2], y in [0,h], z in [-d/2,d/2] exactly: something touches every face of it.
-
-SHAPES: ${PART_SHAPES.join(', ')}.
-- box/panel: flat boards; rounded: softened block (radius); cushion: upholstery; leg/tube: slim posts, rails, rods; cylinder/cone/sphere: round parts (size gives the bounding box).
-- extrude: a closed 2D outline profile [[x,y],...] in metres (centred on 0,0) extruded along z by size[2]. Use it for signature silhouettes: arched or scalloped headboards, heart shapes, curved armrests, wavy shelf sides, cut-out letters.
-- lathe: profile [[radius,height],...] from bottom to top revolved around y. Use it for turned legs, vases, lamp bases and shades, bowls, round pedestals.
-MATERIALS (only these ids): ${MATERIAL_IDS.join(', ')}. Add color (hex) whenever the person names or implies a colour, and match it exactly ("pink" means a clear pink like #f2a7c3, "Barbie" means hot pink #e0218a with white and light pink).
-
-QUALITY BAR:
-- 12-40 parts with realistic joinery: legs meet the top, rails meet legs, drawers sit inside carcasses, cushions rest on frames. No floating parts, no deep interpenetration.
-- Real proportions: desk/table top 2.5-4 cm thick at 72-76 cm; seat height 42-47 cm; sofa seat depth 55-60 cm; shelves 30-38 cm apart, boards 1.8-2.5 cm; handles 1-2 cm; legs 3-6 cm.
-- Character and fidelity, never a generic box: capture what makes THIS object recognisable (theme, era, signature shapes, colour palette, details like piping, tufting, handles, crowns, scallops). A themed request gets the full theme.
-- Moving parts: if the object folds, opens or slides (wall bed, fold-down desk, drawers, doors, extendable table), give those parts a shared group and add motions [{group,label,kind:'hinge'|'slide',pivot,axis,open}] in the CLOSED pose; open = radians (hinge) or metres (slide). Add openSize for the footprint when fully open.
-- semantics: {category (one lowercase word or hyphenated: desk, table, coffee-table, sofa, armchair, chair, office-chair, bed, bookshelf, wardrobe, dresser, nightstand, tv-unit, bench, lamp, rug, ...), role (seating|surface|storage|sleeping|decor|lighting|appliance|divider|floor), wallBacked, frontClearanceM, sideClearanceM, pairsWith [categories], faces (room|window|screen|table|none), tall (h>1.2), description (one plain sentence)}.
-- Name: short and specific, as a shop would title it.
-Exact numbers the person gives are law. Output parts in build order: base and legs first, then body, then details.`;
-
-function compact(spec: ObjectSpec) {
-  const r = (v: number) => Math.round(v * 1000) / 1000;
-  return {
-    name: spec.name,
-    size: spec.size,
-    parts: spec.parts.map((p) => ({ ...p, size: p.size.map(r), pos: p.pos.map(r), ...(p.rot ? { rot: p.rot.map(r) } : {}) })),
-    ...(spec.motions ? { motions: spec.motions, openSize: spec.openSize } : {}),
-    semantics: spec.semantics,
-  };
+/** Strong, fast models get a richer budget and a detail pass; lite models stay lean. */
+export function modelTier(model: string | undefined): 'lean' | 'rich' {
+  if (!model) return 'lean';
+  const m = model.toLowerCase();
+  if (/lite|nano|8b/.test(m)) return 'lean';
+  return /gemini-4|hydrogen|carbon|argon|3\.[5-9]-flash|pro/.test(m) ? 'rich' : 'lean';
 }
 
-/** The 2-3 exemplars most like the request, by category and words. */
-export function pickExamples(prompt: string, parsed: ParsedRequest, n = 2): ObjectSpec[] {
+const BUDGET = { lean: '6 to 16 items', rich: '10 to 28 items' } as const;
+
+// ---- prompt ------------------------------------------------------------------------------
+
+const KIT_GUIDE = `KITS (code expands each into detailed, correctly joined parts inside its box; use them wherever they fit):
+- legs: count 4|6|3; style square|round|tapered|splayed|turned|hairpin|bun|sled|trestle|panel. Box = the leg zone under the body.
+- casters: five-star chair base with castors and gas lift. Box = base footprint, height up to the seat.
+- pedestal: centre column with base for round tables; style column|tulip|cross|turned|drum.
+- frame: rails along the box edges; style top|apron|base|full|sides; radius = rail thickness / 2.
+- carcass: cabinet body (sides, top, bottom, back, plinth) with an open front; count = bays; style plinth|legs.
+- drawers: count drawers filling a front zone (box depth = drawer depth); style bar|knob|cup|cutout|push, add "2col" for two columns. Moving parts included.
+- doors: count doors across a front zone; style hinged|sliding|glass|cane|shaker|fluted|flip|lift, add "push" for no handle. Moving parts included.
+- shelves: count boards bottom to top; style books|decor|glass. bookcase: carcass + count shelves, style books|decor.
+- books: a row of books. plant: pot + foliage.
+- cushions: count cushions side by side along x; style seat|back|pillows|bolster|tufted|channel.
+- bedding: mattress + duvet (color) + pillows (count) + throw and accent cushions (accent); style heart|plain|bare. Box = mattress footprint, height to the top of the bedding.
+- headboard: style rect|arch|scallop|heart|wave|crown|cloud|shell|round|channel|tufted|wingback.
+- canopy: four posts, rails, fabric top and drapes (accent = fabric colour); style drapes|princess|curtains|frame.
+- arc: a curved band seen from above. size = [outer chord width, height, curve depth (how far the middle sits behind the ends)]; radius = band thickness; inset moves it inward; count = segments; style concave (ends come forward, curved sofas) or convex (bulges forward, reception desks). Arcs with the same width and depth share one curve.
+- plan: an outline seen from above, extruded upward; style piano|kidney|oval|round|rounded|d-shape|l-shape|u-shape|boat|hexagon|octagon, or profile [[x,z],...].
+- ladder (count rungs), slide (playground slide; style front|left|right = the way it runs down), slats (count bars; vertical|horizontal; cot sides, railings), screen (TV, monitor, arcade display; accent = picture colour), keyboard (piano keys), wallbed (a complete fold-down wall bed in its cabinet, bedding and motion included; accent = cabinet colour).
+PLAIN PARTS: shape box|rounded|panel|leg|tube|cylinder|cone|sphere|cushion|extrude|lathe. extrude + style (heart, arch, scallop, star, wave, cloud...) gives that outline. mirror "x" adds the right-hand twin of a left part, "z" the back twin, "xz" all four corners. count + step [dx,dy,dz] repeats a part.`;
+
+function systemPrompt(tier: 'lean' | 'rich'): string {
+  return `You are a master furniture and product designer. You build exact, characterful 3D objects from a few kit items and plain parts.
+Return ONE JSON object: {name, size:{w,d,h}, parts:[...items], semantics:{...}}.
+
+COORDINATES: metres. Origin at the floor centre of the footprint. +x right, +y UP, +z is the FRONT (the side a person uses). w is along x, d along z, h along y: a desk 160x80 is 1.6 wide (x) and 0.8 deep (z), standing 0.75 tall (y). Each item: size = full box [x,y,z], pos = box centre. The lowest item touches y=0, items touch each other, and together they fill the w x d x h box.
+
+${KIT_GUIDE}
+
+MATERIALS (ids only): ${MATERIAL_IDS.join(', ')}. color and accent are hex. Use the exact hex values in the request line for the parts that carry them: a coloured request must look that colour at a glance, never beige or grey.
+QUALITY: real proportions (seat 42-47 cm high, desk and table tops 72-76 cm, mattress top 45-55 cm, counters 90-110 cm, shelves 30-38 cm apart, boards 1.8-2.5 cm). Capture what makes THIS object recognisable: signature silhouette, theme, palette and details. Exact numbers and counts the person gives are law. ${BUDGET[tier]}; base and legs first, then body, then details.
+semantics: {category (desk, table, sofa, armchair, chair, office-chair, bed, bunk-bed, crib, bookshelf, wardrobe, dresser, cabinet, tv-unit, counter, bench, lamp, piano, ...), role (seating|surface|storage|sleeping|decor|lighting|appliance|divider|floor), wallBacked, frontClearanceM, sideClearanceM, pairsWith [categories], faces (room|window|screen|table|none), description (one plain sentence)}.`;
+}
+
+/** The two examples most like the request, by words and category. */
+export function pickExamples(prompt: string, parsed: ParsedRequest, n = 2): KitExample[] {
   const words = new Set(prompt.toLowerCase().split(/[^a-zåäö]+/).filter((w) => w.length > 2));
-  const cat = parsed.kind?.category, tmpl = parsed.kind?.template;
-  const scored = EXAMPLES.map((e) => {
+  const cat = parsed.kind?.category;
+  const scored = KIT_EXAMPLES.map((e, i) => {
     let s = 0;
-    if (cat && e.semantics.category === cat) s += 10;
-    if (tmpl && (e.semantics.category.includes(tmpl) || e.name.toLowerCase().includes(tmpl))) s += 5;
-    for (const w of `${e.name} ${e.prompt} ${e.semantics.category}`.toLowerCase().split(/[^a-zåäö]+/)) if (words.has(w)) s += 1;
-    if (e.motions?.length && /fold|drop|murphy|wall bed|open|slide|drawer|bäddskåp|fäll/.test(prompt.toLowerCase())) s += 4;
-    return { e, s };
+    const sem = (e.json.semantics ?? {}) as { category?: string };
+    if (cat && sem.category === cat) s += 6;
+    for (const w of `${e.prompt} ${String(e.json.name)}`.toLowerCase().split(/[^a-zåäö]+/)) if (words.has(w)) s += 2;
+    if (/fold|drop|murphy|wall bed|drawer|door|slid/.test(prompt.toLowerCase()) && /drawers|doors|wallbed/.test(JSON.stringify(e.json))) s += 2;
+    return { e, s: s - i * 0.01 };
   }).sort((a, b) => b.s - a.s);
   return scored.slice(0, n).map((x) => x.e);
 }
 
-function sizeLine(parsed: ParsedRequest, target: Size): string {
+function requestLines(parsed: ParsedRequest, target: Size): string {
   const said = (['w', 'd', 'h'] as const).filter((k) => parsed[k] !== undefined);
   const lines = [`Target size: w ${target.w} m, d ${target.d} m, h ${target.h} m.`];
-  if (said.length) lines.push(`The person stated ${said.map((k) => `${k}=${cm(parsed[k]!)} cm`).join(', ')}: these are exact.`);
-  else lines.push('Size not stated: use the target size unless the object clearly needs another.');
-  if (parsed.colors.length) lines.push(`Colours said: ${parsed.colors.map((c) => `${c.word} (${c.hex})`).join(', ')}.`);
-  if (parsed.materials.length) lines.push(`Materials said: ${parsed.materials.join(', ')}.`);
-  if (parsed.features.length) lines.push(`Must include: ${parsed.features.join(', ')}${parsed.side ? ` (on the ${parsed.side})` : ''}.`);
+  if (said.length) lines.push(`Stated exactly: ${said.map((k) => `${k} = ${cm(parsed[k]!)} cm`).join(', ')}.`);
+  if (parsed.colors.length) lines.push(`Colours (exact): ${parsed.colors.map((c, i) => `${c.word} ${c.hex}${i === 0 ? ' (main)' : i === 1 ? ' (accent)' : ''}`).join(', ')}.`);
+  if (parsed.theme) lines.push(`Theme: ${parsed.theme.brief}`);
+  if (parsed.materials.length) lines.push(`Materials: ${parsed.materials.join(', ')}.`);
+  const counts = Object.entries(parsed.counts);
+  if (counts.length) lines.push(`Exactly: ${counts.map(([k, v]) => `${v} ${k}`).join(', ')}.`);
+  if (parsed.features.length) lines.push(`Must include: ${parsed.features.join(', ')}${parsed.side ? ` (on the ${parsed.side}, +x is right)` : ''}.`);
   if (parsed.seats) lines.push(`Seats ${parsed.seats} people.`);
-  return lines.join(' ');
+  return lines.join('\n');
 }
 
-function userParts(prompt: string, parsed: ParsedRequest, target: Size, examples: ObjectSpec[]): GeminiPart[] {
-  const shots = examples.map((e) => `Request: "${e.prompt}"\n${JSON.stringify(compact(e))}`).join('\n\n');
-  return [{ text: `${shots ? `EXAMPLES (style and precision to match):\n${shots}\n\n` : ''}NOW BUILD:\nRequest: "${prompt}"\n${sizeLine(parsed, target)}` }];
+function userParts(prompt: string, parsed: ParsedRequest, target: Size, examples: KitExample[]): GeminiPart[] {
+  const shots = examples.map((e) => `Request: "${e.prompt}"\n${JSON.stringify(e.json)}`).join('\n\n');
+  return [{ text: `EXAMPLES (match this style and precision):\n${shots}\n\nNOW BUILD:\nRequest: "${prompt}"\n${requestLines(parsed, target)}` }];
+}
+
+// ---- deterministic repairs on the raw items ------------------------------------------------
+
+type RawItem = Record<string, unknown>;
+const HEADBOARD_STYLES: Array<[RegExp, string]> = [
+  [/\bheart/, 'heart'], [/\barch(ed)?\b/, 'arch'], [/\bscallop/, 'scallop'], [/\bwav(e|y)\b/, 'wave'], [/\bcrown|tiara/, 'crown'],
+  [/\bcloud/, 'cloud'], [/\bchannel/, 'channel'], [/\btufted|button/, 'tufted'], [/\bwing/, 'wingback'], [/\bshell|fan\b/, 'shell'],
+];
+
+/** Make the raw items obey what the words said: counts, sides and named shapes. Returns the fixes made. */
+export function repairItems(raw: unknown, parsed: ParsedRequest): string[] {
+  const fixes: string[] = [];
+  const o = raw && typeof raw === 'object' ? (raw as { parts?: unknown }) : null;
+  if (!o || !Array.isArray(o.parts)) return fixes;
+  const items = o.parts.filter((p): p is RawItem => !!p && typeof p === 'object');
+  const kitOf = (it: RawItem) => coerceKit(it.kit);
+  const text = parsed.text.toLowerCase();
+  const setCount = (kit: string, n: number | undefined) => {
+    if (!n) return;
+    const hits = items.filter((it) => kitOf(it) === kit || (kit === 'shelves' && kitOf(it) === 'bookcase'));
+    if (hits.length !== 1 || hits[0].count === n) return;
+    if (typeof hits[0].mirror === 'string' && kit !== 'shelves') return; // a mirrored pair carries half each
+    hits[0].count = n; fixes.push(`${kit} count ${n}`);
+  };
+  setCount('drawers', parsed.counts.drawers);
+  setCount('doors', parsed.counts.doors);
+  setCount('shelves', parsed.counts.shelves);
+  setCount('legs', parsed.counts.legs);
+  setCount('ladder', parsed.counts.rungs);
+  // Side: a pedestal or drawer stack said to be on the right sits at +x.
+  if (parsed.side) {
+    const want = parsed.side === 'right' ? 1 : -1;
+    for (const it of items) {
+      const name = String(it.name ?? '').toLowerCase();
+      if (!/pedestal|drawer/.test(name) && kitOf(it) !== 'drawers') continue;
+      const pos = Array.isArray(it.pos) ? it.pos : null;
+      if (pos && typeof pos[0] === 'number' && Math.abs(pos[0]) > 0.05 && Math.sign(pos[0]) !== want && typeof it.mirror !== 'string') {
+        pos[0] = -pos[0]; fixes.push(`moved ${name || 'drawers'} to the ${parsed.side}`);
+      }
+    }
+  }
+  // Headboard shape named in the words.
+  const style = HEADBOARD_STYLES.find(([re]) => re.test(text))?.[1];
+  if (style && /headboard|bed\b/.test(text)) {
+    const hb = items.find((it) => kitOf(it) === 'headboard') ?? items.find((it) => /headboard/i.test(String(it.name ?? '')) && !it.profile);
+    if (hb && String(hb.style ?? '') !== style && !(kitOf(hb) !== 'headboard' && /heart/.test(String(hb.style)))) {
+      hb.kit = 'headboard'; hb.style = style; delete hb.shape; fixes.push(`${style} headboard`);
+    }
+  }
+  // Reception desks bulge toward the visitor.
+  if (/reception|front desk|counter/.test(text)) for (const it of items) if (kitOf(it) === 'arc' && !it.style) { it.style = 'convex'; fixes.push('convex curve'); }
+  return fixes;
 }
 
 // ---- finishing ---------------------------------------------------------------------------
 
 interface Want { prompt: string; size: Size; name?: string }
 
-/** Size the object must end with: stated numbers first, then the model's, then defaults. */
-function finalSize(parsed: ParsedRequest, modelSize: Partial<Size> | undefined, fallback: Size): Size {
-  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0.005 && v < 12;
-  const pick = (k: keyof Size) => parsed[k] ?? (ok(modelSize?.[k]) ? modelSize![k]! : fallback[k]);
-  const s = { w: pick('w'), d: pick('d'), h: pick('h') };
-  if (parsed.round && parsed.w !== undefined && parsed.d === undefined) s.d = parsed.w;
-  return s;
+/**
+ * Final size: stated numbers are law. Unstated ones keep the model's own proportions, scaled by
+ * how much the stated ones were scaled, within a sane range of the kind's default.
+ */
+export function finalSize(parsed: ParsedRequest, raw: Size, fallback: Size): Size {
+  const keys = ['w', 'd', 'h'] as const;
+  const stated = keys.filter((k) => parsed[k] !== undefined);
+  const ok = (v: number) => Number.isFinite(v) && v > 0.02 && v < 12;
+  const logs = stated.filter((k) => ok(raw[k])).map((k) => Math.log(parsed[k]! / raw[k]));
+  const k = logs.length ? Math.exp(logs.reduce((a, b) => a + b, 0) / logs.length) : 1;
+  const out = { ...fallback };
+  for (const key of keys) {
+    if (parsed[key] !== undefined) { out[key] = parsed[key]!; continue; }
+    const v = raw[key] * k;
+    out[key] = ok(v) ? Math.round(Math.min(fallback[key] * 2.6, Math.max(fallback[key] * 0.45, v)) * 1000) / 1000 : fallback[key];
+  }
+  if (parsed.round && parsed.w !== undefined && parsed.d === undefined) out.d = parsed.w;
+  return out;
 }
 
 function withSemantics(spec: ObjectSpec, parsed: ParsedRequest): ObjectSpec {
@@ -125,52 +225,45 @@ function withSemantics(spec: ObjectSpec, parsed: ParsedRequest): ObjectSpec {
   };
 }
 
-interface Finished { spec: ObjectSpec; ok: boolean; issues: unknown[] }
+interface Finished { spec: ObjectSpec; ok: boolean; issues: string[]; fixes: string[]; items: number }
 
 const normWant = (parsed: ParsedRequest, want: Want) => ({ prompt: want.prompt, name: want.name, w: parsed.w, d: parsed.d, h: parsed.h });
+const itemCount = (raw: unknown) => (raw && typeof raw === 'object' && Array.isArray((raw as { parts?: unknown }).parts) ? (raw as { parts: unknown[] }).parts.length : 0);
 
-/** normalizeSpec plus moving parts carried over from the raw JSON. */
-function normalize(raw: unknown, parsed: ParsedRequest, want: Want): ObjectSpec {
-  const norm = normalizeSpec(raw, normWant(parsed, want));
-  const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<ObjectSpec>;
-  if (!norm.motions && Array.isArray(o.motions)) {
-    const groups = new Set(norm.parts.map((q) => q.group).filter(Boolean));
-    const motions = o.motions.filter((m) => m && typeof m.group === 'string' && groups.has(m.group) && Array.isArray(m.axis) && typeof m.open === 'number'
-      && (m.kind === 'hinge' || m.kind === 'slide'));
-    if (motions.length) {
-      norm.motions = motions.map((m) => ({ group: m.group, label: String(m.label || 'Open').slice(0, 30), kind: m.kind, axis: m.axis, open: m.open, ...(m.pivot ? { pivot: m.pivot } : {}) }));
-      const os = o.openSize;
-      if (os && [os.w, os.d, os.h].every((v) => typeof v === 'number' && v > 0 && v < 12)) norm.openSize = { w: os.w, d: os.d, h: os.h };
-    }
-  }
-  return norm;
-}
-
-function finish(raw: unknown, parsed: ParsedRequest, want: Want): Finished {
-  const norm = normalize(raw, parsed, want);
-  const size = finalSize(parsed, norm.size, want.size);
+/** The whole deterministic finish for one model reply. */
+export function finish(raw: unknown, parsed: ParsedRequest, want: Want): Finished {
+  const fixes = repairItems(raw, parsed);
+  let norm = normalizeSpec(raw, normWant(parsed, want));
+  const stated = { w: parsed.w !== undefined, d: parsed.d !== undefined, h: parsed.h !== undefined };
+  const turned = fixAxes(norm, want.size, stated);
+  if (turned.fixed) { norm = turned.spec; fixes.push(`axes ${turned.fixed}`); }
+  const fp = specFootprint(norm);
+  const size = finalSize(parsed, { w: fp.w, d: fp.d, h: fp.h }, want.size);
   const fitted = fitSpec(norm, size);
   const v = validateSpec(fitted);
-  const spec = withSemantics({ ...v.fixed, size: v.fixed.size ?? size }, parsed);
-  return { spec, ok: v.ok, issues: v.issues as unknown[] };
+  const colored = enforceColors(v.fixed, parsed);
+  fixes.push(...colored.fixes);
+  const spec = withSemantics({ ...colored.spec, size: colored.spec.size ?? size }, parsed);
+  return { spec, ok: v.ok, issues: v.issues, fixes, items: itemCount(raw) };
 }
 
-const issueText = (i: unknown) => (typeof i === 'string' ? i : typeof i === 'object' && i && 'message' in i ? String((i as { message: unknown }).message) : JSON.stringify(i));
-const broken = (f: Finished) => !f.ok && (f.issues.length >= 3 || f.spec.parts.length < 4);
+const broken = (f: Finished) => !f.ok && (f.issues.length >= 4 || f.spec.parts.length < 4);
 
-/** Reveal a finished object part by part (used for the template path so it still assembles). */
+/** Reveal a finished object part by part (the template path still assembles). */
 async function reveal(spec: ObjectSpec, onPartial?: (s: ObjectSpec) => void, signal?: AbortSignal) {
   if (!onPartial) return;
   const step = Math.max(1, Math.ceil(spec.parts.length / 14));
   for (let i = step; i < spec.parts.length; i += step) {
     if (signal?.aborted) return;
     onPartial({ ...spec, parts: spec.parts.slice(0, i) });
-    await new Promise((r) => setTimeout(r, 28));
+    await new Promise((r) => setTimeout(r, 24));
   }
   onPartial(spec);
 }
 
-function streamer(parsed: ParsedRequest, want: Want, onPartial?: (s: ObjectSpec) => void) {
+interface StreamState { firstPartsMs: number | null; t0: number }
+
+function streamer(parsed: ParsedRequest, want: Want, st: StreamState, onPartial?: (s: ObjectSpec) => void, silhouette?: ObjectPart[]) {
   let lastCount = 0;
   return (text: string) => {
     if (!onPartial) return;
@@ -178,52 +271,85 @@ function streamer(parsed: ParsedRequest, want: Want, onPartial?: (s: ObjectSpec)
     const n = Array.isArray(raw?.parts) ? raw!.parts.length : 0;
     if (!n || n === lastCount) return;
     try {
-      const spec = normalize(raw, parsed, want);
-      if (spec.parts.length) { lastCount = n; onPartial(spec); }
-    } catch { /* incomplete part: wait for more text */ }
+      const spec: ForgeSpec = normalizeSpec(raw, normWant(parsed, want));
+      if (!spec.parts.length) return;
+      lastCount = n;
+      if (st.firstPartsMs === null) st.firstPartsMs = Math.round(now() - st.t0);
+      // Keep the ghost until the real object has some body.
+      if (silhouette && spec.parts.length < 10) spec.silhouette = silhouette;
+      onPartial(spec);
+    } catch { /* incomplete item: wait for more text */ }
   };
 }
 
-async function callModel(system: string, parts: GeminiPart[], parsed: ParsedRequest, want: Want, opts: GenerateOpts, task: 'fast' | 'vision' = 'fast') {
-  const res = await ai<unknown>({ task, system, parts, schema: SPEC_JSON_SCHEMA, onPartial: streamer(parsed, want, opts.onPartial), signal: opts.signal, temperature: 0.4 });
-  return { data: res.data, model: res.model };
+async function callModel(system: string, parts: GeminiPart[], parsed: ParsedRequest, want: Want, opts: GenerateOpts, st: StreamState, silhouette?: ObjectPart[], task: 'fast' | 'vision' = 'fast') {
+  const res = await ai<unknown>({ task, system, parts, schema: SPEC_JSON_SCHEMA, onPartial: streamer(parsed, want, st, opts.onPartial, silhouette), signal: opts.signal, temperature: 0.35 });
+  return { data: res.data, model: res.model, ms: res.ms };
 }
 
-async function withRepair(first: { data: unknown; model: string }, parsed: ParsedRequest, want: Want, opts: GenerateOpts, task: 'fast' | 'vision' = 'fast') {
-  let f = finish(first.data, parsed, want), model = first.model;
+const issueList = (f: Finished) => f.issues.filter((i) => !/was floating; moved|duplicated/.test(i)).slice(0, 10);
+
+/** One fix-up call when the first reply is broken. */
+async function withRepair(first: { data: unknown; model: string }, parsed: ParsedRequest, want: Want, opts: GenerateOpts, st: StreamState, system: string, task: 'fast' | 'vision' = 'fast') {
+  let f = finish(first.data, parsed, want), model = first.model, data = first.data, passes = 1;
   if (broken(f) && !opts.signal?.aborted) {
     try {
-      const fix = await callModel(SYSTEM, [{ text: `This object for "${want.prompt}" has problems:\n- ${f.issues.slice(0, 12).map(issueText).join('\n- ')}\n\nReturn the corrected full JSON. Keep size ${want.size.w} × ${want.size.d} × ${want.size.h} m.\n${JSON.stringify(compact(f.spec))}` }], parsed, want, opts, task === 'vision' ? 'fast' : task);
+      const fix = await callModel(system, [{ text: `This object for "${want.prompt}" has problems:\n- ${issueList(f).join('\n- ')}\n\nReturn the corrected full JSON (kits welcome). Keep size ${want.size.w} x ${want.size.d} x ${want.size.h} m.\n${JSON.stringify(first.data)}` }], parsed, want, opts, st, undefined, task === 'vision' ? 'fast' : task);
+      passes++;
       const g = finish(fix.data, parsed, want);
-      if (g.ok || g.issues.length < f.issues.length) { f = g; model = fix.model; }
+      if (g.ok || g.issues.length < f.issues.length) { f = g; model = fix.model; data = fix.data; }
     } catch (e) { if (opts.signal?.aborted) throw e; }
   }
-  return { f, model };
+  return { f, model, data, passes };
+}
+
+/** A detail pass on strong models: more signature details and hardware, same overall object. */
+async function refine(prev: { f: Finished; data: unknown; model: string }, prompt: string, parsed: ParsedRequest, want: Want, opts: GenerateOpts, st: StreamState, system: string) {
+  const text = `Here is your object for "${prompt}" as JSON. Make it more recognisable and finely detailed: keep every item and the overall size, and add up to 10 items of signature detail (trim, hardware, piping, stitching, panels, small accessories that belong to it). Fix anything that does not match the request.\n${requestLines(parsed, want.size)}\n${JSON.stringify(prev.data)}`;
+  const res = await callModel(system, [{ text }], parsed, want, opts, st);
+  const g = finish(res.data, parsed, want);
+  return g.ok && g.spec.parts.length >= prev.f.spec.parts.length ? { f: g, data: res.data, model: res.model } : prev;
 }
 
 // ---- public API --------------------------------------------------------------------------
 
+function stamp(spec: ObjectSpec, info: GenInfo): ForgeSpec {
+  return { ...spec, gen: info };
+}
+
 /** A custom object built to the person's words and exact numbers. Never rejects except on abort. */
-export async function generateObject(prompt: string, opts: GenerateOpts = {}): Promise<ObjectSpec> {
+export async function generateObject(prompt: string, opts: GenerateOpts = {}): Promise<ForgeSpec> {
   const t0 = now();
   const parsed = parseRequest(prompt);
   const target = resolveSize(parsed);
+  const sil = rulesObject(prompt, { parsed, t0 });
   if (!aiReady()) {
-    const spec = rulesObject(prompt, { parsed, t0 });
-    await reveal(spec, opts.onPartial, opts.signal);
-    return spec;
+    await reveal(sil, opts.onPartial, opts.signal);
+    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: 0, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: [] });
   }
+  // Instant silhouette while the model starts.
+  opts.onPartial?.({ ...sil, parts: [], silhouette: sil.parts } as ForgeSpec);
   const want: Want = { prompt, size: target };
+  const tier = modelTier(aiRoute('fast')[0]);
+  const system = systemPrompt(tier);
+  const st: StreamState = { firstPartsMs: null, t0 };
   try {
-    const first = await callModel(SYSTEM, userParts(prompt, parsed, target, pickExamples(prompt, parsed, parsed.kind ? 2 : 3)), parsed, want, opts);
-    const { f, model } = await withRepair(first, parsed, want, opts);
+    const first = await callModel(system, userParts(prompt, parsed, target, pickExamples(prompt, parsed, 2)), parsed, want, opts, st, sil.parts);
+    let r = await withRepair(first, parsed, want, opts, st, system);
+    let passes = r.passes;
+    // A strong model that answered quickly gets a detail pass.
+    if (modelTier(r.model) === 'rich' && now() - t0 < 6000 && !opts.signal?.aborted) {
+      try { const g = await refine(r, prompt, parsed, want, opts, st, system); passes++; r = { ...r, ...g }; } catch (e) { if (opts.signal?.aborted) throw e; }
+    }
+    const { f, model } = r;
     if (f.spec.parts.length < 3) throw new Error('empty object');
-    return { ...f.spec, id: f.spec.id || uid('obj'), prompt, model, latencyMs: Math.round(now() - t0), createdAt: Date.now() };
+    const totalMs = Math.round(now() - t0);
+    return stamp({ ...f.spec, id: f.spec.id || uid('obj'), prompt, model, latencyMs: totalMs, createdAt: Date.now() },
+      { model, tier: modelTier(model), firstPartsMs: st.firstPartsMs, totalMs, passes, items: f.items, fixes: f.fixes });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
-    const spec = rulesObject(prompt, { parsed, t0 });
-    await reveal(spec, opts.onPartial, opts.signal);
-    return spec;
+    await reveal(sil, opts.onPartial, opts.signal);
+    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: null, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: ['model failed'] });
   }
 }
 
@@ -249,9 +375,13 @@ export async function editObject(base: ObjectSpec, instruction: string, opts: Ge
   };
   if (!aiReady()) { const s = finishLocal(); await reveal(s, opts.onPartial, opts.signal); return s; }
   const want: Want = { prompt, size: target, name: base.name };
+  const system = systemPrompt(modelTier(aiRoute('fast')[0]));
+  const st: StreamState = { firstPartsMs: null, t0 };
+  // Edits keep everything else: stated sizes become the current size.
+  const p3: ParsedRequest = { ...parsed, w: target.w, d: target.d, h: target.h };
   try {
-    const first = await callModel(SYSTEM, [{ text: `Current object:\n${JSON.stringify(compact(base))}\n\nChange requested: "${instruction}"\nApply only that change and keep everything else (style, colours, parts) the same. ${sizeLine(parsed, target)}\nReturn the full updated JSON.` }], parsed, want, opts);
-    const { f, model } = await withRepair(first, parsed, want, opts);
+    const first = await callModel(system, [{ text: `Current object:\n${JSON.stringify({ name: base.name, size: base.size, parts: base.parts, motions: base.motions, semantics: base.semantics })}\n\nChange requested: "${instruction}"\nApply only that change and keep everything else (style, colours, parts) the same. You may use kits for new pieces.\n${requestLines(p3, target)}\nReturn the full updated JSON.` }], p3, want, opts, st);
+    const { f, model } = await withRepair(first, p3, want, opts, st, system);
     if (f.spec.parts.length < 3) throw new Error('empty object');
     return { ...f.spec, id: uid('obj'), prompt, model, latencyMs: Math.round(now() - t0), createdAt: Date.now() };
   } catch (e) {
@@ -269,9 +399,11 @@ export async function generateFromImage(image: Blob | string, hint: { name?: str
   if (!aiReady()) return rulesObject(prompt, { parsed, size: target, t0 });
   const want: Want = { prompt, size: target, name: hint.name };
   const img = typeof image === 'string' ? dataUrlToInlineData(image) : await fileToInlineData(image);
+  const system = systemPrompt('rich');
+  const st: StreamState = { firstPartsMs: null, t0 };
   try {
-    const first = await callModel(SYSTEM, [img, { text: `Reproduce the product in this photo as an exact 3D object: its silhouette, proportions, parts, colours (as hex) and materials. Ignore the background and props.${hint.name ? ` It is listed as "${hint.name}".` : ''} ${sizeLine(parsed, target)}` }], parsed, want, opts, 'vision');
-    const { f, model } = await withRepair(first, parsed, want, opts, 'vision');
+    const first = await callModel(system, [img, { text: `Reproduce the product in this photo as an exact 3D object: its silhouette, proportions, parts, colours (as hex) and materials. Ignore the background and props.${hint.name ? ` It is listed as "${hint.name}".` : ''}\n${requestLines(parsed, target)}` }], parsed, want, opts, st, undefined, 'vision');
+    const { f, model } = await withRepair(first, parsed, want, opts, st, system, 'vision');
     if (f.spec.parts.length < 3) throw new Error('empty object');
     return { ...f.spec, id: uid('obj'), name: hint.name ?? f.spec.name, prompt, model, latencyMs: Math.round(now() - t0), createdAt: Date.now() };
   } catch (e) {
