@@ -82,3 +82,20 @@
 .capture-stats b { font-size: 1.3rem; font-family: var(--mono); }
 .capture-stats span { font-size: 0.8rem; opacity: 0.75; }
 @media (max-width: 420px) { .capture-steps li span { display: none; } .capture-tiles { grid-template-columns: repeat(3, 1fr); } }
+.capture { min-height: 100%; }
+.capture-methods { display: flex; flex-direction: column; gap: 8px; }
+.capture-method { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; min-height: 72px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); text-align: left; cursor: pointer; font-size: 13px; }
+.capture-method:hover { border-color: var(--accent); }
+.capture-method > span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.capture-method small { color: var(--muted); font-size: 12px; }
+.capture-chev { color: var(--muted); }
+.capture-head { align-items: center; gap: 8px; }
+.capture-title { font-weight: 600; font-size: 13px; }
+.capture-more { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.capture-more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.capture-more[open] > summary { margin-bottom: 8px; }
+.capture-tile { border-width: 1px; min-height: 52px; padding: 6px 4px; }
+.capture-tile svg { width: 24px; height: 20px; }
+.capture-steps li b { width: 18px; height: 18px; border-width: 1px; font-size: 11px; }
+.capture-progress { height: 1px; }
+.capture-hint { font-weight: 500; font-size: 13px; }

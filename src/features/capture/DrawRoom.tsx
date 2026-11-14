@@ -146,7 +146,6 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
         <div className="capture-seg capture-units">
           {(['cm', 'm'] as Unit[]).map((u) => <button key={u} className={`btn btn-sm ${unit === u ? 'btn-primary' : ''}`} aria-pressed={unit === u} onClick={() => setUnit(u)}>{u}</button>)}
         </div>
-        <span className="muted capture-small">Tap a wall in the preview to add a door or window.</span>
       </div>
 
       <svg className="capture-preview" viewBox={vb} onClick={clickPreview} role="img" aria-label="Room preview">
@@ -195,32 +194,36 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
         </div>
       )}
 
+      <details className="capture-more" open={!doorOk || !winOk || undefined}>
+        <summary>More options</summary>
+        <p className="muted capture-small">Tap a wall in the preview to place a door or window.</p>
       <div className="capture-grid">
-        <Num label="Ceiling" unit={unit} value={ceilingCm} onChange={setCeilingCm} />
-        <Num label="Wall thickness" unit={unit} value={thick} onChange={setThick} />
-      </div>
-
-      <fieldset className="capture-fs">
-        <legend><label><input type="checkbox" checked={door.on} onChange={(e) => setDoor({ ...door, on: e.target.checked })} /> Door</label></legend>
-        {door.on && <div className="capture-grid">
-          <label className="field capture-field"><span>Wall</span><select value={door.wall} onChange={(e) => setDoor({ ...door, wall: +e.target.value })}>{wallOpts}</select></label>
-          <Num label="Centre from wall start" unit={unit} value={door.offset} onChange={(n) => setDoor({ ...door, offset: n })} />
-          <Num label="Width" unit={unit} value={door.width} onChange={(n) => setDoor({ ...door, width: n })} />
-        </div>}
-        {!doorOk && <p className="chip chip-bad">Door doesn't fit on that wall.</p>}
-      </fieldset>
-
-      <fieldset className="capture-fs">
-        <legend><label><input type="checkbox" checked={win.on} onChange={(e) => setWin({ ...win, on: e.target.checked })} /> Window</label></legend>
-        {win.on && <div className="capture-grid">
-          <label className="field capture-field"><span>Wall</span><select value={win.wall} onChange={(e) => setWin({ ...win, wall: +e.target.value })}>{wallOpts}</select></label>
-          <Num label="Centre from wall start" unit={unit} value={win.offset} onChange={(n) => setWin({ ...win, offset: n })} />
-          <Num label="Width" unit={unit} value={win.width} onChange={(n) => setWin({ ...win, width: n })} />
-          <Num label="Sill height" unit={unit} value={win.sill} onChange={(n) => setWin({ ...win, sill: n })} />
-          <Num label="Height" unit={unit} value={win.height} onChange={(n) => setWin({ ...win, height: n })} />
-        </div>}
-        {!winOk && <p className="chip chip-bad">Window doesn't fit on that wall.</p>}
-      </fieldset>
+          <Num label="Ceiling" unit={unit} value={ceilingCm} onChange={setCeilingCm} />
+          <Num label="Wall thickness" unit={unit} value={thick} onChange={setThick} />
+        </div>
+  
+        <fieldset className="capture-fs">
+          <legend><label><input type="checkbox" checked={door.on} onChange={(e) => setDoor({ ...door, on: e.target.checked })} /> Door</label></legend>
+          {door.on && <div className="capture-grid">
+            <label className="field capture-field"><span>Wall</span><select value={door.wall} onChange={(e) => setDoor({ ...door, wall: +e.target.value })}>{wallOpts}</select></label>
+            <Num label="Centre from wall start" unit={unit} value={door.offset} onChange={(n) => setDoor({ ...door, offset: n })} />
+            <Num label="Width" unit={unit} value={door.width} onChange={(n) => setDoor({ ...door, width: n })} />
+          </div>}
+          {!doorOk && <p className="chip chip-bad">Door doesn't fit on that wall.</p>}
+        </fieldset>
+  
+        <fieldset className="capture-fs">
+          <legend><label><input type="checkbox" checked={win.on} onChange={(e) => setWin({ ...win, on: e.target.checked })} /> Window</label></legend>
+          {win.on && <div className="capture-grid">
+            <label className="field capture-field"><span>Wall</span><select value={win.wall} onChange={(e) => setWin({ ...win, wall: +e.target.value })}>{wallOpts}</select></label>
+            <Num label="Centre from wall start" unit={unit} value={win.offset} onChange={(n) => setWin({ ...win, offset: n })} />
+            <Num label="Width" unit={unit} value={win.width} onChange={(n) => setWin({ ...win, width: n })} />
+            <Num label="Sill height" unit={unit} value={win.sill} onChange={(n) => setWin({ ...win, sill: n })} />
+            <Num label="Height" unit={unit} value={win.height} onChange={(n) => setWin({ ...win, height: n })} />
+          </div>}
+          {!winOk && <p className="chip chip-bad">Window doesn't fit on that wall.</p>}
+        </fieldset>
+      </details>
 
       {problem && <p className="chip chip-bad capture-msg">{problem}</p>}
       <button className="btn btn-primary capture-big" disabled={!valid || !doorOk || !winOk || !(ceilingCm > 150)} onClick={create}>Create room</button>

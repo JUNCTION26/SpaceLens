@@ -7,9 +7,15 @@ import { Calibrate, type AiOpening, type TapPoint } from './Calibrate';
 import { Stepper } from './Stepper';
 import { signedArea } from '../../core/geometry';
 import { DrawRoom } from './DrawRoom';
+import { Icon } from '../../ui/icons';
 import './capture.css';
 
 type Sub = 'scan' | 'photos' | 'draw';
+const METHODS: { id: Sub; title: string; line: string; icon: string }[] = [
+  { id: 'draw', title: 'Draw with measurements', line: 'Pick a shape and type wall lengths.', icon: 'ruler' },
+  { id: 'photos', title: 'Photo + A4 sheet', line: 'One floor photo with an A4 sheet as scale.', icon: 'image' },
+  { id: 'scan', title: 'Live camera', line: 'Capture frames from your phone camera.', icon: 'camera' },
+];
 interface Shot { url: string; label: string }
 
 function fileToDataUrl(f: File): Promise<string> {
@@ -104,7 +110,7 @@ function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => voi
 
 export function CapturePanel() {
   const kind = useUi((s) => s.captureKind);
-  const [sub, setSub] = useState<Sub>(kind === 'scan' ? 'scan' : kind === 'photos' ? 'photos' : 'draw');
+  const [sub, setSub] = useState<Sub | null>(kind === 'scan' || kind === 'photos' || kind === 'draw' ? kind : null);
   const [ceilingCm, setCeilingCm] = useState(250);
   const [addRoom, setAddRoom] = useState(false);
   const [shots, setShots] = useState<Shot[]>([]);
@@ -174,14 +180,25 @@ export function CapturePanel() {
 
   if (summary) return <div className="panel capture"><SummaryCard s={summary} onDesign={() => setMode('design')} onAgain={restart} /></div>;
 
-  return (
+  if (!sub) return (
     <div className="panel capture">
-      <div className="capture-seg" role="tablist" aria-label="Capture method">
-        {(['scan', 'photos', 'draw'] as Sub[]).map((s) => (
-          <button key={s} role="tab" aria-selected={sub === s} className={`btn ${sub === s ? 'btn-primary' : ''}`} onClick={() => setSub(s)}>
-            {s === 'scan' ? 'Scan' : s === 'photos' ? 'Photos' : 'Draw'}
+      <div className="capture-methods">
+        {METHODS.map((m) => (
+          <button key={m.id} className="capture-method" onClick={() => setSub(m.id)}>
+            <Icon name={m.icon} size={20} />
+            <span><b>{m.title}</b><small>{m.line}</small></span>
+            <Icon name="chevronRight" size={14} className="capture-chev" />
           </button>
         ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="panel capture">
+      <div className="row capture-head">
+        <button className="btn btn-sm btn-ghost" onClick={() => { setSub(null); setStage('photo'); }}><Icon name="chevronLeft" size={14} /> Methods</button>
+        <span className="capture-title">{METHODS.find((m) => m.id === sub)?.title}</span>
       </div>
 
       {hasRooms && <label className="row capture-check"><input type="checkbox" checked={addRoom} onChange={(e) => setAddRoom(e.target.checked)} /> Add as another room</label>}

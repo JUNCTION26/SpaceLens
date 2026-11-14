@@ -1,3 +1,4 @@
+import { Icon } from '../../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { gemini, hasGemini, usage, dataUrlToInlineData } from '../../core/gemini';
@@ -95,8 +96,8 @@ export function DrawingsPanel() {
   }, []);
 
   const benchCard = bench && (
-    <section className="card drawings-bench">
-      <h4>Benchmark</h4>
+    <details className="drawings-bench">
+      <summary>Accuracy</summary>
       <div className="row drawings-stats">
         <div className="stat"><b>{bench.accuracyOnAnswered}%</b><span className="muted">accuracy when answered</span></div>
         <div className="stat"><b>{bench.coverage}%</b><span className="muted">answered</span></div>
@@ -104,7 +105,7 @@ export function DrawingsPanel() {
         <div className="stat"><b>0</b><span className="muted">model calls</span></div>
       </div>
       <p className="muted">{bench.dataset} · {bench.files} plans</p>
-    </section>
+    </details>
   );
 
   function openDoc(d: DrawingDoc) {
@@ -313,36 +314,45 @@ export function DrawingsPanel() {
 
   return (
     <div className="drawings">
-      <div className="drawings-bar row">
-        <label className="btn btn-primary btn-sm">
-          Open PDF or image
-          <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
-        </label>
-        {samples.length > 0 && (
-          <select className="field" defaultValue="" onChange={(e) => { const s = samples[Number(e.target.value)]; if (s) void openSample(s); }}>
-            <option value="" disabled>Sample drawings</option>
-            {samples.map((s, i) => <option key={s.url} value={i}>{s.name}</option>)}
-          </select>
-        )}
-        {doc && <>
-          <span className="drawings-sep" />
+      {doc && (
+        <div className="drawings-bar row" role="toolbar" aria-label="Drawing tools">
           {(['pan', 'calibrate', 'trace'] as Tool[]).map((t) => (
-            <button key={t} className={`btn btn-sm ${tool === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTool(t)}>
+            <button key={t} className={`btn btn-sm ${tool === t ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={tool === t} onClick={() => setTool(t)}>
               {t === 'pan' ? 'Move' : t === 'calibrate' ? 'Set scale' : 'Trace room'}
             </button>
           ))}
-          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} aria-label="Zoom in">+</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.max(0.3, z / 1.25))} aria-label="Zoom out">−</button>
+          <span className="drawings-sep" />
+          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} aria-label="Zoom in"><Icon name="plus" size={14} /></button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.max(0.3, z / 1.25))} aria-label="Zoom out"><Icon name="minus" size={14} /></button>
           <button className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</button>
           <button className={`btn btn-sm ${overlay ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={overlay} onClick={() => setOverlay((o) => !o)}>Overlay</button>
-        </>}
-        {loading && <span className="muted">{loading}…</span>}
-      </div>
+          {loading && <span className="muted">{loading}…</span>}
+          <label className="btn btn-ghost btn-sm drawings-open">
+            <Icon name="file" size={14} /> Open
+            <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
+          </label>
+        </div>
+      )}
 
       {!doc ? (
-        <div className="drawings-empty card">
-          <h3>Ask a drawing</h3>
-          <p className="muted">Open a plan to ask about it.</p>
+        <div className="drawings-empty">
+          <label className="drawings-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void openBlob(f, f.name); }}>
+            <Icon name="file" size={20} />
+            <b>Drop a PDF or image</b>
+            <span className="muted">or click to choose a plan</span>
+            <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
+          </label>
+          {loading && <p className="muted">{loading}…</p>}
+          {samples.length > 0 && (
+            <div className="drawings-samples">
+              <h4>Sample drawings</h4>
+              {samples.map((s) => (
+                <button key={s.url} className="drawings-sample" onClick={() => void openSample(s)}>
+                  <span>{s.name}</span><Icon name="chevronRight" size={14} />
+                </button>
+              ))}
+            </div>
+          )}
           {benchCard}
         </div>
       ) : (
@@ -399,14 +409,15 @@ export function DrawingsPanel() {
                 {suggestions.map((s) => <button key={s} className="chip" onClick={() => void ask(s)}>{s}</button>)}
               </div>
               <p className="muted drawings-cost">
-                {stats.free} of {stats.asked} answered free
+                {stats.free} of {stats.asked} answered free · {st!.rooms} rooms · {st!.dimensions} dimensions
               </p>
+              {st!.text === 0 && <p className="muted">No text layer found. Questions go to the model if a key is set.</p>}
               <div className="list">
                 {answers.map((a) => (
                   <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
                     <div className="muted drawings-aq">{a.question}</div>
                     <div className="drawings-at">{a.answer}</div>
-                    <div className="row">
+                    <div className="row drawings-meta">
                       <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
                       <span className="chip">{a.method === 'index' ? 'Free' : a.method === 'gemini' ? 'Gemini' : 'No answer'}</span>
                     </div>
@@ -423,16 +434,6 @@ export function DrawingsPanel() {
               </div>
             </section>
 
-            <section className="card">
-              <div className="row drawings-stats">
-                <div className="stat"><b>{st!.text}</b><span className="muted">text items</span></div>
-                <div className="stat"><b>{st!.dimensions}</b><span className="muted">dimensions</span></div>
-                <div className="stat"><b>{st!.rooms}</b><span className="muted">rooms</span></div>
-                <div className="stat"><b>{st!.areas}</b><span className="muted">areas</span></div>
-              </div>
-              {st!.text === 0 && <p className="muted">No text layer found. Questions go to the model if a key is set.</p>}
-            </section>
-
             {roomList.length > 0 && (
               <section className="card">
                 <h4>Rooms on this page</h4>
@@ -445,7 +446,7 @@ export function DrawingsPanel() {
                 </div>
               </section>
             )}
-            <section className="card">
+            {(tool === 'calibrate' || mpp) && <section className="card">
               <h4>Scale</h4>
               {mpp ? <p><span className="chip chip-ok">Set</span> {(mpp * 1000).toFixed(1)} mm per pixel</p> : <p className="muted">Not set.</p>}
               {mpp && tool !== 'trace' && (
@@ -461,9 +462,9 @@ export function DrawingsPanel() {
                   <button className="btn btn-sm btn-primary" onClick={applyCalibration}>Apply</button>
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section className="card">
+            {tool === 'trace' && <section className="card">
               <h4>Trace room</h4>
               <ol className="drawings-steps">
                 <li className={mpp ? 'done' : 'now'}>Set the scale</li>
@@ -489,7 +490,7 @@ export function DrawingsPanel() {
                   </div>
                 </>
               )}
-            </section>
+            </section>}
           </aside>
         </div>
       )}
