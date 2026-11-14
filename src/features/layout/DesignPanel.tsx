@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { bounds, fmtM2, fmtSek, itemCorners } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
@@ -74,7 +74,15 @@ export function DesignPanel() {
   const [busy, setBusy] = useState(false);
   const reports = useReports((s) => s.reports);
 
-  const stale = candidates.length > 0 && candidates.some((c) => c.parentVersion < model.version);
+  // Layouts go stale when the room itself changes, not when furniture moves (applying one moves furniture).
+  const roomSig = JSON.stringify([model.spaces.map((s) => s.polygon), model.openings.map((o) => [o.wallIndex, o.offsetM, o.widthM, o.kind]), model.ceilingM]);
+  const madeFor = useRef<{ cands: LayoutCandidate[]; sig: string } | null>(null);
+  if (madeFor.current?.cands !== candidates) madeFor.current = { cands: candidates, sig: roomSig };
+  const stale = candidates.length > 0 && madeFor.current.sig !== roomSig;
+  const appliedId = candidates.find((c) => c.furniture.length === model.furniture.length && c.furniture.every((f) => {
+    const g = model.furniture.find((x) => x.id === f.id);
+    return !!g && Math.abs(g.x - f.x) < 1e-3 && Math.abs(g.y - f.y) < 1e-3;
+  }))?.id;
   const recheck = useMemo(() => {
     const m = new Map<string, number>();
     if (!stale) return m;
@@ -205,7 +213,9 @@ export function DesignPanel() {
                       {pins.includes(c.id) ? 'Picked' : 'Pick'}
                     </button>
                   )}
-                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>
+                  {appliedId === c.id
+                    ? <span className="chip chip-ok" title="This layout is on the plan">Applied</span>
+                    : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>}
                 </div>
                 {rep && c.id === activeId && <DecisionsPanel model={model} candidate={c} report={rep} />}
               </div>
