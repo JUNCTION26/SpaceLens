@@ -11,7 +11,7 @@ import { applyFixes, critique, type Critique } from './critic';
 import { planConcepts, rulesConcept, type Concept } from './planner';
 import { evaluateRules } from './rules';
 import { designScore } from './score';
-import { solveProgram } from './solve';
+import { describeLayout, solveProgram } from './solve';
 import { mergeFurniture, subModelFor } from '../building/submodel';
 
 export type StageStatus = 'running' | 'done' | 'skipped' | 'failed';
@@ -39,7 +39,11 @@ export interface DesignOpts {
   spaceId?: string;
 }
 
-export type FullReport = DesignReport & { critique?: Critique; conceptName?: string; idea?: string; revised?: boolean; designScore: number; finalScore: number };
+export type FullReport = DesignReport & {
+  critique?: Critique; conceptName?: string; idea?: string; revised?: boolean; designScore: number; finalScore: number;
+  /** Per piece, sentences that are true of the solved layout (from its final poses and the rules that hold). */
+  reasons?: Array<{ itemId: string; text: string }>;
+};
 
 export interface DesignResult { candidates: LayoutCandidate[]; reports: FullReport[]; infeasibility: Infeasibility | null; stages: Stage[] }
 
@@ -158,9 +162,10 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
         return { cand, verdicts, ds: score100(verdicts) };
       }).sort((a, b) => b.ds - a.ds);
       if (cands.length) {
+        const desc = cands.map(({ cand }) => describeLayout(model, cand.furniture, req));
         opts.onProgress({
-          candidates: cands.map(({ cand, ds }) => ({ ...cand, metrics: { ...cand.metrics, score: ds } })),
-          reports: cands.map(({ cand, verdicts, ds }) => ({ candidateId: cand.id, program: early.reports?.find((r) => r.candidateId === cand.id)?.program ?? rulesConcept(model, items, req), verdicts, designScore: ds, finalScore: ds })),
+          candidates: cands.map(({ cand, ds }, k) => ({ ...cand, name: desc[k].name || cand.name, summary: desc[k].summary || cand.summary, metrics: { ...cand.metrics, score: ds } })),
+          reports: cands.map(({ cand, verdicts, ds }, k) => ({ candidateId: cand.id, program: early.reports?.find((r) => r.candidateId === cand.id)?.program ?? rulesConcept(model, items, req), verdicts, designScore: ds, finalScore: ds, reasons: desc[k].reasons })),
           infeasibility: null, stages: stages.map((x) => ({ ...x })),
         }, 'rules');
       }
@@ -206,10 +211,18 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
   const ruleCount = new Set(reports.flatMap((r) => r.verdicts.map((v) => v.ruleId))).size;
   end('rules', t, { label: `Checked ${ruleCount} rules`, detail: `best ${Math.max(...reports.map((r) => r.designScore))}/100` });
   abortIf(opts.signal);
+  // Card text comes only from the solved layout, never from what a concept hoped for: the name,
+  // summary and per-piece reasons describe final poses and the rules that actually hold.
+  const described = new WeakMap<FurnitureItem[], ReturnType<typeof describeLayout>>();
+  const describe = (f: FurnitureItem[]) => { let d = described.get(f); if (!d) { d = describeLayout(model, f, req); described.set(f, d); } return d; };
   const snapshot = (): DesignResult => {
     const ranked = entries.map((e, i) => ({ e, r: reports[i] })).sort((a, b) => b.r.finalScore - a.r.finalScore);
-    const candidates = ranked.map(({ e, r }) => ({ ...e.cand, metrics: { ...e.cand.metrics, score: r.finalScore }, generator: r.critique ? `${e.cand.generator} + critic` : e.cand.generator }));
-    return { candidates, reports: ranked.map((x) => x.r), infeasibility: null, stages: stages.map((x) => ({ ...x })) };
+    const candidates = ranked.map(({ e, r }) => {
+      const d = describe(e.cand.furniture);
+      return { ...e.cand, name: d.name || e.cand.name, summary: d.summary || e.cand.summary, metrics: { ...e.cand.metrics, score: r.finalScore }, generator: r.critique ? `${e.cand.generator} + critic` : e.cand.generator };
+    });
+    const out: FullReport[] = ranked.map(({ e, r }) => ({ ...r, idea: undefined, reasons: describe(e.cand.furniture).reasons }));
+    return { candidates, reports: out, infeasibility: null, stages: stages.map((x) => ({ ...x })) };
   };
   if (planned) opts.onProgress?.(snapshot(), 'concepts');
 

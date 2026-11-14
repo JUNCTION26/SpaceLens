@@ -15,7 +15,9 @@ vi.mock('./program', () => ({
   }),
 }));
 let solveCalls = 0;
+let describedName = '';
 vi.mock('./solve', () => ({
+  describeLayout: (_m: SpaceModel, furniture: FurnitureItem[]) => ({ name: describedName, summary: describedName ? 'Desk against the north wall.' : '', reasons: describedName ? [{ itemId: furniture[0].id, text: 'Against the north wall.' }] : [] }),
   solveProgram: async (_m: SpaceModel, items: FurnitureItem[], program: DesignProgram, opts: { variants?: number }) => {
     solveCalls++;
     const n = opts?.variants ?? 1;
@@ -101,5 +103,15 @@ describe('designRoom', () => {
     expect(placed.length).toBe(2);
     // the mock solver puts items at x = 0.5 + i in the cut-out room, which starts just past the shared wall
     expect(placed.every((x) => x.x > 4 && x.x < 8)).toBe(true);
+  });
+
+  it('names and explains layouts only from the solved result, not the concept idea', async () => {
+    ready = false; describedName = 'Desk on the north wall';
+    const res = await designRoom(model, req, { variants: 1 });
+    describedName = '';
+    expect(res.candidates[0].name).toBe('Desk on the north wall');
+    expect(res.candidates[0].summary).toBe('Desk against the north wall.');
+    expect(res.reports[0].idea).toBeUndefined();
+    expect(res.reports[0].reasons?.[0].text).toBe('Against the north wall.');
   });
 });
