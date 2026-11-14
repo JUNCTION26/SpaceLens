@@ -1,3 +1,4 @@
+import { ArButton } from '../ar/ArButton';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../core/store';
 import { fmtCm, fmtM2, fmtSek, parseWallId, perimeter, uid, wallLength } from '../../core/geometry';
@@ -318,7 +319,7 @@ function Selected() {
       return (<>
         <div className="provenance-title"><h3>{f.name}</h3>
           <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}><Icon name="trash" size={14} /></button></div>
-        <ObjectActions itemId={f.id} />
+        <div className="row"><ObjectActions itemId={f.id} /><ArButton model={model} item={f} className="btn btn-sm" label="AR" /></div>
         <div className="provenance-sheet">
         <div>
           <Field label="Width"><Num label="Width" value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} /></Field>

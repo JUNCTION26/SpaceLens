@@ -1,3 +1,4 @@
+import { ArButton } from '../ar/ArButton';
 import { useMemo, useRef, useState } from 'react';
 import { useShownFurniture, useStore } from '../../core/store';
 import { fmtSek } from '../../core/geometry';
@@ -155,7 +156,10 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
           <div className="export-toggles">
             {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
           </div>
-          <button className="btn btn-sm" onClick={printSheet}>Print room sheet</button>
+          <div className="row">
+            <button className="btn btn-sm" onClick={printSheet}>Room sheet</button>
+            <ArButton model={model} className="btn btn-sm" label="View in AR" />
+          </div>
           <div className="export-label">Quantities (estimate)</div>
           <table className="export-table">
             <tbody>
