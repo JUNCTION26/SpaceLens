@@ -7,6 +7,31 @@
 .provenance-diff .bad { color: var(--bad); } .provenance-diff .ok { color: var(--ok); }
 .provenance-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .provenance-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.provenance-num { width: 70px; }
 .provenance-hist { font-size: 12px; }
 .provenance-hist li { margin-bottom: 4px; }
+.provenance-head { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 2px 0; }
+.provenance-head:focus-visible { outline: 2px solid var(--accent, #6aa0ff); border-radius: 4px; }
+.provenance-caret { width: 10px; }
+.provenance-count { margin-left: auto; background: var(--panel-2); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+.provenance-body { padding-top: 6px; }
+.provenance-field { display: flex; flex-direction: column; gap: 2px; }
+.provenance-numwrap { display: inline-flex; align-items: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+.provenance-numwrap.invalid { border-color: var(--bad); }
+.provenance-num { width: 52px; border: 0; background: transparent; color: inherit; text-align: right; padding: 3px 2px; font: inherit; }
+.provenance-num:focus { outline: none; }
+.provenance-numwrap:focus-within { border-color: var(--accent, #6aa0ff); }
+.provenance-suffix { color: var(--muted); font-size: 11px; padding-right: 4px; }
+.provenance-step { all: unset; cursor: pointer; width: 20px; text-align: center; color: var(--muted); }
+.provenance-step:hover, .provenance-step:focus-visible { color: inherit; }
+.provenance-err { flex-basis: 100%; color: var(--bad); font-size: 11px; padding: 0 4px 2px; }
+.provenance-timeline { list-style: none; margin: 6px 0; padding: 0 0 0 4px; border-left: 2px solid var(--line); }
+.provenance-timeline li { display: flex; gap: 8px; margin: 0 0 8px -11px; font-size: 12px; }
+.provenance-ico { width: 20px; height: 20px; flex: none; display: grid; place-items: center; background: var(--panel-2); border-radius: 50%; font-size: 11px; }
+.provenance-ba { width: 100%; border-collapse: collapse; margin: 4px 0; }
+.provenance-ba th, .provenance-ba td { text-align: right; padding: 1px 4px; font-weight: normal; }
+.provenance-ba th { color: var(--muted); font-size: 11px; }
+.provenance-ba td:first-child { text-align: left; color: var(--muted); }
+.provenance-ba td.chg { font-weight: 600; }
+.provenance-diff .row { justify-content: space-between; }
+.provenance-empty { text-align: center; padding: 18px 8px; margin-bottom: 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.provenance-empty-ico { font-size: 28px; margin-bottom: 4px; }

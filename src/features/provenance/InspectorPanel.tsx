@@ -1,34 +1,88 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../core/store';
 import { fmtCm, fmtM2, fmtSek, parseWallId, perimeter, uid, wallLength } from '../../core/geometry';
 import type { Evidence, Measurement, Op, Requirements, SpaceModel } from '../../core/types';
 import {
   SOURCE_WORDS, STATUS_CHIP, diffSnaps, evaluateWall, layoutsOf, measurementFor, roomArea, snapshot, uncertainWalls, wallName,
-  type Diff,
+  type Diff, type Snap,
 } from './logic';
+import { ObjectActions } from '../objects/ObjectActions';
 import './provenance.css';
 
-function Num({ value, onCommit, step = 1, suffix = 'cm' }: { value: number; onCommit: (v: number) => void; step?: number; suffix?: string }) {
+function Num({ value, onCommit, step = 1, suffix = 'cm', min = 0, max = 100000, label }: {
+  value: number; onCommit: (v: number) => void; step?: number; suffix?: string; min?: number; max?: number; label?: string;
+}) {
   const [t, setT] = useState(String(value));
   useEffect(() => setT(String(value)), [value]);
-  const commit = () => { const n = parseFloat(t.replace(',', '.')); if (isFinite(n) && n !== value) onCommit(n); else setT(String(value)); };
+  const n = parseFloat(t.replace(',', '.'));
+  const err = !isFinite(n) ? 'Enter a number' : n < min ? `Min ${min}` : n > max ? `Max ${max}` : '';
+  const commit = () => { if (!err && n !== value) onCommit(n); else setT(String(value)); };
+  const bump = (dir: number) => {
+    const base = isFinite(n) ? n : value; const v = Math.min(max, Math.max(min, base + dir * step));
+    setT(String(v)); if (v !== value) onCommit(v);
+  };
   return (
-    <span><input className="provenance-num" type="number" step={step} value={t} onChange={(e) => setT(e.target.value)}
-      onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} /> {suffix}</span>
+    <span className={`provenance-numwrap${err ? ' invalid' : ''}`} title={err || undefined}>
+      <button type="button" className="provenance-step" onClick={() => bump(-1)} aria-label={`Decrease ${label ?? ''}`}>−</button>
+      <input className="provenance-num" inputMode="decimal" value={t} aria-label={label} aria-invalid={!!err}
+        onChange={(e) => setT(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur(); }
+          else if (e.key === 'Escape') { setT(String(value)); requestAnimationFrame(() => (e.target as HTMLInputElement).blur()); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); bump(1); }
+          else if (e.key === 'ArrowDown') { e.preventDefault(); bump(-1); }
+        }} />
+      <span className="provenance-suffix">{suffix}</span>
+      <button type="button" className="provenance-step" onClick={() => bump(1)} aria-label={`Increase ${label ?? ''}`}>+</button>
+      {err && <span className="provenance-err" role="alert">{err}</span>}
+    </span>
   );
 }
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="field provenance-field"><span>{label}</span>{children}</div>;
+}
+
+const OPEN_KEY = 'spacelens.inspector.open';
+function readOpen(): Record<string, boolean> { try { return JSON.parse(localStorage.getItem(OPEN_KEY) || '{}'); } catch { return {}; } }
+function Section({ id, title, count, defaultOpen = true, children }: {
+  id: string; title: string; count?: number; defaultOpen?: boolean; children: ReactNode;
+}) {
+  const [open, setOpen] = useState<boolean>(() => readOpen()[id] ?? defaultOpen);
+  const toggle = () => {
+    const v = !open; setOpen(v);
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify({ ...readOpen(), [id]: v })); } catch { /* storage off */ }
+  };
+  return (
+    <section className="provenance-section">
+      <button className="provenance-head" onClick={toggle} aria-expanded={open}>
+        <span className="provenance-caret" aria-hidden>{open ? '▾' : '▸'}</span>{title}
+        {count != null && <span className="provenance-count">{count}</span>}
+      </button>
+      {open && <div className="provenance-body">{children}</div>}
+    </section>
+  );
+}
+const EV_ICON: Record<Evidence['kind'], string> = { photo: '📷', pdf: '📄', image: '🖼', manual: '✍', sample: '🧪' };
 const cm = (m: number) => Math.round(m * 100);
 
-function DiffCard({ d, title }: { d: Diff; title: string }) {
+function DiffCard({ d, title, before, after, onUndo }: { d: Diff; title: string; before?: Snap; after?: Snap; onUndo?: () => void }) {
   const nothing = !d.invalid.length && !d.fixed.length && Math.abs(d.areaDelta) < 0.005 && !d.costDelta;
+  const sign = (v: number) => (v > 0 ? '+' : '');
   return (
     <div className="provenance-diff">
-      <b>{title}</b>
+      <div className="row"><b>{title}</b>{onUndo && <button className="btn btn-sm" onClick={onUndo}>Undo</button>}</div>
+      {before && after && (
+        <table className="provenance-ba"><thead><tr><th /><th>Before</th><th>After</th></tr></thead><tbody>
+          <tr><td>Area</td><td>{fmtM2(before.area)}</td><td className={Math.abs(d.areaDelta) >= 0.005 ? 'chg' : ''}>{fmtM2(after.area)}</td></tr>
+          <tr><td>Cost</td><td>{fmtSek(before.cost)}</td><td className={d.costDelta ? 'chg' : ''}>{fmtSek(after.cost)}</td></tr>
+          <tr><td>Layouts OK</td><td>{before.ok.size}</td><td className={before.ok.size !== after.ok.size ? 'chg' : ''}>{after.ok.size}</td></tr>
+        </tbody></table>
+      )}
       {nothing && <div className="muted">No checks changed.</div>}
       {d.invalid.length > 0 && <div className="bad">Became invalid: {d.invalid.join('; ')}</div>}
       {d.fixed.length > 0 && <div className="ok">Now passes: {d.fixed.join('; ')}</div>}
-      {Math.abs(d.areaDelta) >= 0.005 && <div>Area {d.areaDelta > 0 ? '+' : ''}{d.areaDelta.toFixed(2)} m²</div>}
-      {d.costDelta !== 0 && <div>Cost {d.costDelta > 0 ? '+' : ''}{fmtSek(d.costDelta)}</div>}
+      {!before && Math.abs(d.areaDelta) >= 0.005 && <div>Area {sign(d.areaDelta)}{d.areaDelta.toFixed(2)} m²</div>}
+      {!before && d.costDelta !== 0 && <div>Cost {sign(d.costDelta)}{fmtSek(d.costDelta)}</div>}
     </div>
   );
 }
@@ -89,26 +143,28 @@ function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
   };
   const sk = meas?.sourceKind ?? sourceKind; const st = meas?.status ?? status;
   return (
-    <div className="provenance-section">
-      <h4>Where this came from</h4>
+    <Section id="source" title="Where this came from">
       <div className="provenance-chips">
         <span className="chip">{SOURCE_WORDS[sk]}</span>
         <span className={`chip ${STATUS_CHIP[st]}`}>{st}</span>
         {meas?.toleranceM != null && <span className="chip">±{cm(meas.toleranceM)} cm</span>}
       </div>
-      {evs.map((e) => (
-        <div key={e.id}>
-          <div className="muted">{e.label}{e.page ? `, page ${e.page}` : ''}</div>
-          {e.imageUrl && <EvidenceThumb ev={e} />}
-          {e.note && <div className="muted">{e.note}</div>}
-        </div>
-      ))}
+      {evs.length > 0 && <ol className="provenance-timeline">{[...evs].sort((a, b) => b.createdAt - a.createdAt).map((e) => (
+        <li key={e.id}>
+          <span className="provenance-ico" aria-hidden>{EV_ICON[e.kind] ?? '•'}</span>
+          <div>
+            <div>{e.label}{e.page ? `, page ${e.page}` : ''} <span className="muted">{new Date(e.createdAt).toLocaleDateString()}</span></div>
+            {e.imageUrl && <EvidenceThumb ev={e} />}
+            {e.note && <div className="muted">{e.note}</div>}
+          </div>
+        </li>
+      ))}</ol>}
       {!evs.length && (
-        <div className="row"><span className="muted">No evidence recorded</span>
+        <div className="row"><span className="muted">No evidence yet</span>
           <button className="btn btn-sm" onClick={markMeasured}>Mark as measured</button></div>
       )}
       {usedBy.length > 0 && <div className="muted">Used by: {usedBy.join(', ')}</div>}
-    </div>
+    </Section>
   );
 }
 
@@ -124,8 +180,7 @@ function Uncertainty() {
   const best = [...res].sort((a, b) => open(b.verdicts) - open(a.verdicts))[0];
   const bestCount = open(best.verdicts);
   return (
-    <div className="provenance-section">
-      <h4>Uncertainty</h4>
+    <Section id="uncertainty" title="Uncertainty" count={res.length}>
       {res.map(({ w, verdicts }) => (
         <div key={w.id} className="card">
           <b>{w.name}</b> {fmtCm(w.len)} ±{cm(w.tol)} cm {!w.calibrated && <span className="chip">heuristic</span>}
@@ -137,7 +192,7 @@ function Uncertainty() {
         <div className="row"><span>Measure the {best.w.name} next ({bestCount} layouts depend on it)</span>
           <button className="btn btn-sm btn-primary" onClick={() => select({ kind: 'wall', id: best.w.id })}>Select it</button></div>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -146,14 +201,15 @@ function defaultReq(): Requirements {
 }
 
 function WhatIf() {
-  const [diff, setDiff] = useState<{ label: string; d: Diff; undoable: boolean } | null>(null);
+  const [diff, setDiff] = useState<{ label: string; d: Diff; undoable: boolean; before: Snap; after: Snap } | null>(null);
   const run = (label: string, op: Op | null, reqPatch?: Partial<Requirements>) => {
     const s = useStore.getState();
     const before = snapshot(s.model, layoutsOf(s.model, s.candidates), s.requirements);
     let nextModel = s.model; let nextReq = s.requirements;
     if (op) { s.dispatch(op); nextModel = useStore.getState().model; }
     if (reqPatch) { nextReq = { ...(s.requirements ?? defaultReq()), ...reqPatch }; s.setRequirements(nextReq); }
-    setDiff({ label, undoable: !!op, d: diffSnaps(before, snapshot(nextModel, layoutsOf(nextModel, s.candidates), nextReq)) });
+    const after = snapshot(nextModel, layoutsOf(nextModel, s.candidates), nextReq);
+    setDiff({ label, undoable: !!op, before, after, d: diffSnaps(before, after) });
     if (!op) prevReq.current = s.requirements;
   };
   const prevReq = useRef<Requirements | null>(null);
@@ -178,19 +234,15 @@ function WhatIf() {
     setDiff(null);
   };
   return (
-    <div className="provenance-section">
-      <h4>What if</h4>
+    <Section id="whatif" title="What-if">
       <div className="provenance-actions">
         <button className="btn btn-sm" onClick={narrower}>Room 30 cm narrower</button>
         <button className="btn btn-sm" onClick={door}>Door 10 cm wider</button>
         <button className="btn btn-sm" onClick={budget}>Budget minus 2 000 kr</button>
         <button className="btn btn-sm" onClick={() => run('Wheelchair first', null, { minRouteWidthM: 0.9 })}>Wheelchair first</button>
       </div>
-      {diff && <>
-        <DiffCard d={diff.d} title={diff.label} />
-        <button className="btn btn-sm btn-ghost" onClick={undo}>Undo</button>
-      </>}
-    </div>
+      {diff && <DiffCard d={diff.d} title={diff.label} before={diff.before} after={diff.after} onUndo={undo} />}
+    </Section>
   );
 }
 
@@ -206,16 +258,15 @@ useStore.subscribe((s, prev) => {
 });
 
 function History() {
-  const changes = useStore((s) => s.changes); const [open, setOpen] = useState(false);
+  const changes = useStore((s) => s.changes);
   if (!changes.length) return null;
   return (
-    <div className="provenance-section">
-      <button className="btn btn-sm btn-ghost" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? '▾' : '▸'} History ({changes.length})</button>
-      {open && <ul className="list provenance-hist">{[...changes].reverse().map((c) => {
+    <Section id="history" title="History" count={changes.length} defaultOpen={false}>
+      {<ul className="list provenance-hist">{[...changes].reverse().map((c) => {
         const d = changeDiffs.get(c.version);
         return <li key={`${c.version}-${c.at}`}>v{c.version} {c.label}{d && <DiffCard d={d} title="What changed" />}</li>;
       })}</ul>}
-    </div>
+    </Section>
   );
 }
 
@@ -229,8 +280,10 @@ function Selected() {
       const L = wallLength(sp, p.wallIndex);
       return (<>
         <h3>{wallName(sp, p.wallIndex)}</h3>
-        <div className="field">Length <Num value={cm(L)} onCommit={(v) => dispatch({ type: 'SET_WALL_LENGTH', spaceId: sp.id, wallIndex: p.wallIndex, lengthM: v / 100, sourceKind: 'user-measured' })} /></div>
+        <Section id="props" title="Properties">
+        <Field label="Length"><Num label="Length" value={cm(L)} onCommit={(v) => dispatch({ type: 'SET_WALL_LENGTH', spaceId: sp.id, wallIndex: p.wallIndex, lengthM: v / 100, sourceKind: 'user-measured' })} /></Field>
         <div className="muted">Thickness {fmtCm(w.thicknessM)}</div>
+        </Section>
         <Provenance targetId={sel.id} measurementId={w.measurementId} sourceKind={w.sourceKind} status={w.status} valueM={L} />
       </>);
     }
@@ -241,17 +294,19 @@ function Selected() {
       const up = (patch: Partial<typeof o>) => dispatch({ type: 'UPDATE_OPENING', id: o.id, patch });
       return (<>
         <h3>{o.kind[0].toUpperCase() + o.kind.slice(1)}</h3>
+        <Section id="props" title="Properties">
         <div className="grid2">
-          <div className="field">Width <Num value={cm(o.widthM)} onCommit={(v) => up({ widthM: v / 100 })} /></div>
-          <div className="field">Height <Num value={cm(o.heightM)} onCommit={(v) => up({ heightM: v / 100 })} /></div>
-          <div className="field">Sill <Num value={cm(o.sillM)} onCommit={(v) => up({ sillM: v / 100 })} /></div>
-          <div className="field">Offset <Num value={cm(o.offsetM)} onCommit={(v) => up({ offsetM: v / 100 })} /></div>
+          <Field label="Width"><Num label="Width" value={cm(o.widthM)} onCommit={(v) => up({ widthM: v / 100 })} /></Field>
+          <Field label="Height"><Num label="Height" value={cm(o.heightM)} onCommit={(v) => up({ heightM: v / 100 })} /></Field>
+          <Field label="Sill"><Num label="Sill" value={cm(o.sillM)} onCommit={(v) => up({ sillM: v / 100 })} /></Field>
+          <Field label="Offset"><Num label="Offset" value={cm(o.offsetM)} onCommit={(v) => up({ offsetM: v / 100 })} /></Field>
           <label className="field">Swing <select value={o.swing} onChange={(e) => up({ swing: e.target.value as typeof o.swing })}>
             <option value="in">In</option><option value="out">Out</option><option value="none">None</option></select></label>
           <label className="field">Hinge <select value={o.hinge} onChange={(e) => up({ hinge: e.target.value as typeof o.hinge })}>
             <option value="start">Start</option><option value="end">End</option></select></label>
         </div>
         <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OPENING', id: o.id }); select(null); }}>Delete</button>
+        </Section>
         <Provenance targetId={o.id} measurementId={o.measurementId} sourceKind={o.sourceKind} status={o.status} valueM={o.widthM} />
       </>);
     }
@@ -262,11 +317,12 @@ function Selected() {
       const up = (patch: Partial<typeof f>) => dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch });
       return (<>
         <h3>{f.name}</h3>
+        <Section id="props" title="Properties">
         <div className="grid2">
-          <div className="field">Width <Num value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} /></div>
-          <div className="field">Depth <Num value={cm(f.d)} onCommit={(v) => up({ d: v / 100 })} /></div>
-          <div className="field">Height <Num value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} /></div>
-          <div className="field">Rotation <Num value={Math.round((f.rotation * 180) / Math.PI)} suffix="°" onCommit={(v) => up({ rotation: (v * Math.PI) / 180 })} /></div>
+          <Field label="Width"><Num label="Width" value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} /></Field>
+          <Field label="Depth"><Num label="Depth" value={cm(f.d)} onCommit={(v) => up({ d: v / 100 })} /></Field>
+          <Field label="Height"><Num label="Height" value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} /></Field>
+          <Field label="Rotation"><Num label="Rotation" value={Math.round((f.rotation * 180) / Math.PI)} suffix="°" min={-360} max={360} step={15} onCommit={(v) => up({ rotation: (v * Math.PI) / 180 })} /></Field>
         </div>
         <div className="row">
           <label><input type="checkbox" checked={f.locked} onChange={(e) => up({ locked: e.target.checked })} /> Locked</label>
@@ -274,6 +330,8 @@ function Selected() {
         </div>
         <div className="row">{fmtSek(f.priceSek)} <span className="chip">{f.priceStatus}</span></div>
         <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}>Delete</button>
+        </Section>
+        <ObjectActions itemId={f.id} />
         <Provenance targetId={f.id} sourceKind={f.sourceKind} status={f.sourceKind === 'catalog' ? 'estimated' : 'verified'} valueM={f.w} />
       </>);
     }
@@ -281,12 +339,17 @@ function Selected() {
   const counts = { verified: 0, estimated: 0, unknown: 0, conflicting: 0 };
   model.spaces.forEach((s) => s.walls.forEach((w) => { counts[w.status]++; }));
   return (<>
+    <div className="provenance-empty">
+      <div className="provenance-empty-ico" aria-hidden>👆</div>
+      <b>Click a wall, door or item</b>
+      <div className="muted">Its size and source show here.</div>
+    </div>
     <h3>{model.name}</h3>
     <div className="grid2">
       <div className="stat">Area {fmtM2(roomArea(model))}</div>
       <div className="stat">Perimeter {model.spaces.reduce((a, s) => a + perimeter(s.polygon), 0).toFixed(2)} m</div>
     </div>
-    <div className="field">Ceiling <Num value={cm(model.ceilingM)} onCommit={(v) => dispatch({ type: 'SET_CEILING', heightM: v / 100 })} /></div>
+    <Field label="Ceiling"><Num label="Ceiling" value={cm(model.ceilingM)} onCommit={(v) => dispatch({ type: 'SET_CEILING', heightM: v / 100 })} /></Field>
     <div className="provenance-chips">
       {(Object.keys(counts) as (keyof typeof counts)[]).filter((k) => counts[k]).map((k) => (
         <span key={k} className={`chip ${STATUS_CHIP[k]}`}>{counts[k]} {k}</span>
