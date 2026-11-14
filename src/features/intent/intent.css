@@ -56,3 +56,8 @@
 .intent-stage-line { display: flex; align-items: center; gap: 8px; }
 .intent-stage-line .intent-stage-label { flex: 1; }
 .intent-summary-text, .intent-diff { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.intent-progress { display: flex; align-items: center; gap: 8px; }
+.intent-track { flex: 1; height: 2px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.intent-track > i { display: block; height: 100%; background: var(--accent); transition: width .4s var(--ease); }
+.intent-spin { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }

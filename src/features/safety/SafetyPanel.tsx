@@ -76,7 +76,7 @@ export function SafetyPanel() {
     if (!f.fix) return;
     for (const op of f.fix.ops) dispatch(op);
     setShown(null); setAnalysis({ routes: [], highlights: [] });
-    toast('Fixed', 'ok');
+    
   };
 
   const evacuate = () => {

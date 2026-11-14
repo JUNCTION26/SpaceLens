@@ -75,7 +75,7 @@ const METRICS = `(() => {
     if (!n.parentElement.closest('svg')) while (b && b !== document.body && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
     if (!b.matches('button, [role=button], a, label, option, select')) blocks.set(b, (blocks.get(b) ?? 0) + n2);
   }
-  for (const [b, c] of blocks) if (c > longest) { longest = c; longText = (b.innerText || '').replace(/\\s+/g, ' ').slice(0, 90); }
+  for (const [b, c] of blocks) if (c > longest) { longest = c; longText = `${b.tagName.toLowerCase()}: ${b.innerText || b.textContent || ''}`.replace(/\\s+/g, ' ').slice(0, 90); }
   const stage = document.querySelector('.stage');
   let overlays = 0;
   if (stage) {

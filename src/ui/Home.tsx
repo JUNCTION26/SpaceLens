@@ -110,7 +110,7 @@ export function Home() {
             {STARTS.map((s) => (
               <button key={s.kind} className="home-quick-card" onClick={() => { void runStart(s.kind); }}>
                 <span className="home-quick-icon"><Icon name={s.icon} size={18} /></span>
-                <span className="home-quick-text"><strong>{s.title}</strong><span>{s.text}</span></span>
+                <span className="home-quick-text"><strong>{s.title}</strong></span>
                 <Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}

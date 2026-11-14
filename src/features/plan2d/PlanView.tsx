@@ -1054,7 +1054,6 @@ export function PlanView() {
 
       {activeCandidateId && (
         <div className="plan2d-preview float">
-          <span className="chip chip-warn">Preview</span>
           <button className="btn btn-sm btn-primary" onClick={() => useStore.getState().applyCandidate(activeCandidateId)}>Apply</button>
         </div>
       )}

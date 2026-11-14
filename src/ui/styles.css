@@ -339,3 +339,5 @@ button.brand:hover { background: var(--hover); }
 .stage-tools .seg { background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow); }
 .topbar .project-name { font-weight: var(--fw-strong); color: var(--text); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.sample-tag { height: 20px; font-size: 11px; }
+.status-pill { min-width: 28px; justify-content: center; }

@@ -120,7 +120,7 @@ export function SimPanel() {
       ))}</div>
 
       <div className="sim-line" aria-live="polite">
-        {showSpin && routesBusy ? <span className="muted"><span className="sim-spin" aria-hidden="true" /> Checking</span>
+        {showSpin && routesBusy ? <span className="muted" aria-label="Checking"><span className="sim-spin" aria-hidden="true" /></span>
           : !rs.length ? <span className="muted">No doors yet</span>
           : <>
             <span className={`sim-dot ${bad.length ? 'bad' : 'ok'}`} aria-hidden="true" />

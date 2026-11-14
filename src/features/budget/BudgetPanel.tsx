@@ -68,7 +68,7 @@ export function BudgetPanel() {
   const apply = () => {
     if (!chosen.length || broken.length) return;
     dispatch({ type: 'SET_FURNITURE', items: after, label: `Applied budget plan (${chosen.length} ${chosen.length === 1 ? 'change' : 'changes'})` });
-    toast(`Saved ${kr(buyNow - afterTotal)}`, 'ok');
+    
   };
   const toggle = (id: string) => setOff((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -88,7 +88,6 @@ export function BudgetPanel() {
           <label htmlFor="budget-target" className="budget-label">Budget</label>
           <span className="budget-input"><input id="budget-target" inputMode="numeric" value={String(target)} onChange={(e) => setTarget(num(e.target.value))} /><span>kr</span></span>
         </div>
-        <input type="range" min={0} max={max} step={500} value={Math.min(target, max)} onChange={(e) => setTarget(Number(e.target.value))} aria-label="Budget slider" />
         <div className="budget-bar" role="img" aria-label={`${kr(shownTotal)} to buy against a budget of ${kr(target)}${over ? `, ${kr(over)} over` : ''}`}>
           <i className="budget-fill" style={{ width: `${(Math.min(shownTotal, target) / scale) * 100}%` }} />
           {over > 0 && <i className="budget-over" style={{ width: `${(over / scale) * 100}%` }} />}
@@ -99,7 +98,6 @@ export function BudgetPanel() {
           {over > 0 && <span className="bad"><i className="dot over" />Over {kr(over)}</span>}
           {owned > 0 && <span><i className="dot owned" />{owned} owned</span>}
         </div>
-        {estimates > 0 && <p className="budget-note muted" title={`${estimates} estimated, ${fromListing} from stores`}>{estimates} estimated</p>}
         <button type="button" className="btn btn-primary budget-wide" onClick={run} disabled={busy}>
           <Icon name="sparkles" />{busy ? 'Working' : result ? 'Optimise again' : 'Optimise'}
         </button>
@@ -107,10 +105,6 @@ export function BudgetPanel() {
 
       {result && (
         <section className="budget-block" aria-label="Plan" aria-live="polite">
-          <div className="budget-head">
-            <span className={`budget-dot ${status}`} aria-hidden="true" />
-            <span className="budget-headline" title={result.notes.join(' ')}>{result.feasible ? 'Fits budget' : 'Over budget'}</span>
-          </div>
           {result.plan.length > 0 && (
             <ul className="budget-list">
               {result.plan.map((s) => (

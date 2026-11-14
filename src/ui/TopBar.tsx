@@ -13,6 +13,7 @@ export function TopBar({ status }: { status?: ReactNode }) {
   const canRedo = useStore((s) => s.future.length > 0);
   const name = useStore((s) => s.model.name);
   const busy = useStore((s) => s.busy);
+  const sample = useStore((s) => s.model.sourceLabel === 'Sample');
   const dispatch = useStore((s) => s.dispatch);
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
@@ -33,8 +34,9 @@ export function TopBar({ status }: { status?: ReactNode }) {
           if (e.key === 'Escape') { setDraft(name); e.currentTarget.blur(); }
         }}
       />
+      {sample && <span className="chip sample-tag">Sample</span>}
       <div className="tools">
-        {busy ? <span className="busy" role="status"><i />{busy}</span> : status}
+        {busy ? <span className="busy" role="status" aria-label={busy} title={busy}><i /></span> : status}
         <button className="icon-btn" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" /></button>
         <button className="icon-btn" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" aria-label="Redo"><Icon name="redo" /></button>
         <button className="kbd-btn" onClick={() => window.dispatchEvent(new Event('spacelens:command'))} title="Search" aria-label="Search">

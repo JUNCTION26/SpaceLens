@@ -108,8 +108,8 @@ function ChecksPill() {
   return (
     <div className="checks-float">
       <button className={`status-pill${worst ? ` ${worst}` : ''}${celebrate ? ' is-cleared' : ''}${fixingAll ? ' is-busy' : ''}`} aria-expanded={open} aria-haspopup="dialog"
-        onClick={() => setOpen(!open)} title="Checks">
-        <i aria-hidden="true" />{fixingAll ? 'Fixing' : fails ? `${fails} to fix` : 'All good'}
+        onClick={() => setOpen(!open)} title="Checks" aria-label={fixingAll ? 'Fixing' : fails ? `${fails} to fix` : 'All good'}>
+        <i aria-hidden="true" />{fails > 0 && <span aria-hidden="true">{fails}</span>}
       </button>
       {open && <div className="checks-pop" role="dialog" aria-label="Checks"><ChecksPanel /></div>}
     </div>

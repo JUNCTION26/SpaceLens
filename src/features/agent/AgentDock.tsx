@@ -194,8 +194,8 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
           <div className="ad-caption">
             <Wave phase={phase} meter={s.listening} />
             <div className="ad-caption-text" aria-live="polite">
-              <span className={s.interim ? 'ad-interim' : undefined}>{caption || PHASE_LABEL[phase]}</span>
-              {(s.status || s.error) && <small className={s.error && !s.status ? 'ad-error' : undefined}>{s.status || s.error}</small>}
+              <span className={s.interim ? 'ad-interim' : undefined}>{caption}</span>
+              {s.error && !s.status && <small className="ad-error">{s.error}</small>}
             </div>
           </div>
         )}

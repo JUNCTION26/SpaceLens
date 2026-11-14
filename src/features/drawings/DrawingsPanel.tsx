@@ -513,8 +513,7 @@ export function DrawingsPanel() {
         <div className="drawings-empty">
           <label className="drawings-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void openBlob(f, f.name); }}>
             <Icon name="file" size={20} />
-            <b>Drop a PDF or image</b>
-            <span className="muted">or click to choose a plan</span>
+            <b>Drop a plan</b>
             <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
           </label>
           {loading && <p className="muted">{loading}…</p>}

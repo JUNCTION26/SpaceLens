@@ -131,7 +131,7 @@ export function CapturePanel() {
     const keep = addRoom && hasRooms ? model : undefined;
     const next = buildModel([draft], { name: 'My room', ceilingM: ceilingCm / 100, sourceLabel: source, keep });
     dispatch({ type: 'REPLACE_MODEL', model: next });
-    toast(keep ? 'Room added' : 'Room created', 'ok');
+    
     const measured = draft.walls.filter((w) => w.status === 'verified').length;
     setSummary({ areaM2: Math.abs(signedArea(draft.polygon)), measured, estimated: draft.walls.length - measured, errCm, openings: draft.openings.length });
   };
@@ -172,10 +172,7 @@ export function CapturePanel() {
   const restart = () => { setSummary(null); setStage('photo'); setCalKey((k) => k + 1); };
   const aiBox = sub !== 'draw' && shot && (
     <div className="row capture-wrap">
-      {hasGemini()
-        ? <button className="btn btn-sm" disabled={aiBusy} onClick={askGemini}>{aiBusy ? 'Detecting...' : 'Auto-detect'}</button>
-        : <NoKeyPrompt compact />}
-      {aiNote && <span className="chip chip-ai">{aiNote}</span>}
+      {hasGemini() && <button className="btn btn-sm" disabled={aiBusy} onClick={askGemini}>{aiBusy ? <span className="intent-spin" aria-label="Working" /> : 'Auto-detect'}</button>}
     </div>
   );
 
@@ -187,7 +184,7 @@ export function CapturePanel() {
         {METHODS.map((m) => (
           <button key={m.id} className="capture-method" onClick={() => setSub(m.id)}>
             <Icon name={m.icon} size={20} />
-            <span><b>{m.title}</b><small>{m.line}</small></span>
+            <span title={m.line}><b>{m.title}</b></span>
             <Icon name="chevronRight" size={14} className="capture-chev" />
           </button>
         ))}

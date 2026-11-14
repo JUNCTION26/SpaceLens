@@ -167,11 +167,10 @@ export function IntentPanel() {
         <div className="intent-composer-bar">
           <MicButton onText={(t) => setText((v) => (v ? `${v} ${t}` : t))} />
           <button className="btn btn-primary btn-sm intent-send" disabled={compiling || !text.trim()} onClick={() => compile()} aria-label="Design it">
-            {compiling ? 'Reading...' : busy ? 'Designing...' : <Icon name="send" size={14} />}
+            {compiling || busy ? <span className="intent-spin" aria-label="Working" /> : <Icon name="send" size={14} />}
           </button>
         </div>
       </div>
-      {meta?.error && <CompilerBadge meta={meta} />}
       {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
       {req && (
@@ -226,19 +225,12 @@ export function IntentPanel() {
 
       {req && candidates.length > 0 && (
         <div className="intent-chat">
-          {thread.map((t, i) => (
-            <div key={i} className="intent-turn">
-              <div className="intent-ask">{t.ask}</div>
-              <div className="intent-diff muted" title={t.reply}>{t.diff.length > 0 ? t.diff.slice(0, 3).join(' · ') : 'No change'}</div>
-              {t.meta.error && <CompilerBadge meta={t.meta} />}
-            </div>
-          ))}
           <div className="intent-follow">
             <input aria-label="Refine" value={follow} disabled={refining} placeholder="Cozier, cheaper..."
               onChange={(e) => setFollow(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void refine(follow); }} />
             <MicButton onText={(t) => setFollow(t)} />
             <button className="btn btn-sm btn-primary intent-send" aria-label="Send refinement" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>
-              {refining ? '...' : <Icon name="send" size={14} />}
+              {refining ? <span className="intent-spin" aria-label="Working" /> : <Icon name="send" size={14} />}
             </button>
           </div>
         </div>
@@ -305,16 +297,15 @@ export function IntentPanel() {
 
 const STATUS_ICON: Record<Stage['status'], string> = { running: '', done: 'check', skipped: 'minus', failed: 'alert' };
 
-/** One quiet line while the design runs: the current step and Stop. Nothing stays behind afterwards. */
+/** While the design runs: a thin progress bar and a stop button. Results simply appear. */
 function StageList({ stages, running, onStop }: { stages: Stage[]; running: boolean; onStop: () => void }) {
   if (!running) return null;
-  const now = stages.find((x) => x.status === 'running');
-  const done = stages.filter((x) => x.status === 'done').length;
+  const done = stages.filter((x) => x.status !== 'running' && x.status !== undefined).length;
+  const pct = stages.length ? Math.max(8, Math.round((done / stages.length) * 100)) : 8;
   return (
-    <div className="intent-stages intent-stage-line" role="status" aria-live="polite" aria-busy={running}>
-      <span className="intent-stage-mark"><i aria-hidden="true" /></span>
-      <span className="intent-stage-label" title={now?.label}>{`Step ${Math.min(done + 1, stages.length)} of ${stages.length}`}</span>
-      <button className="btn btn-ghost btn-sm" onClick={onStop}>Stop</button>
+    <div className="intent-progress" role="progressbar" aria-label="Designing" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+      <span className="intent-track"><i style={{ width: `${pct}%` }} /></span>
+      <button className="icon-btn" onClick={onStop} aria-label="Stop" title="Stop"><Icon name="x" size={14} /></button>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
-import { bounds, fmtM2, fmtSek, itemCorners } from '../../core/geometry';
+import { bounds, fmtSek, itemCorners } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
@@ -9,6 +9,7 @@ import { useReports } from '../design/reportStore';
 import { DecisionsPanel, shortLabel } from '../design/DecisionsPanel';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
+import { Icon } from '../../ui/icons';
 import { showLayouts } from './progress';
 import './layout.css';
 
@@ -136,13 +137,12 @@ export function DesignPanel() {
     <div className="panel layout-panel">
       {stale && (
         <div className="layout-stale">
-          <span className="chip chip-warn">Outdated</span>
           <button className="btn btn-sm" disabled={busy || !req} onClick={() => void regenerate()}>Regenerate</button>
         </div>
       )}
       <div className="layout-toolbar">
         <span />
-        {(current || busy) && <span className="layout-progress" role="status" title={current?.label}><i aria-hidden="true" />Working</span>}
+        {(current || busy) && <span className="layout-progress" role="status" aria-label="Working"><i aria-hidden="true" /></span>}
         <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
       </div>
       {compare && (
@@ -156,7 +156,7 @@ export function DesignPanel() {
           {candidates.map((c) => (
             <figure key={c.id} className={c.id === activeId ? 'on' : ''} onClick={() => useStore.getState().previewCandidate(c.id)}>
               <Thumb model={model} cand={c} scale={scale} />
-              <figcaption>{shortLabel(c.name)}<br />{fmtM2(c.metrics.openAreaM2)} free</figcaption>
+              <figcaption>{shortLabel(c.name)}</figcaption>
             </figure>
           ))}
         </div>
@@ -185,7 +185,7 @@ export function DesignPanel() {
                     </button>
                   )}
                   {appliedId === c.id
-                    ? <span className="chip chip-ok">Applied</span>
+                    ? <button className="btn btn-sm" disabled aria-label="Applied"><Icon name="check" size={14} /></button>
                     : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>}
                 </div>
                 {rep && c.id === activeId && <DecisionsPanel report={rep} />}

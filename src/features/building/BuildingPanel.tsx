@@ -191,7 +191,7 @@ export function BuildingPanel() {
 
   const setup = (<>
       <section className="panel">
-        <h3>Shell</h3>
+        <details className="bld-sub"><summary>Shell · {shellM2.toFixed(0)} m²</summary>
         <div className="seg" role="group" aria-label="Shell shape">
           <button className={kind === 'rect' ? 'on' : ''} onClick={() => setKind('rect')}>Rectangle</button>
           <button className={kind === 'L' ? 'on' : ''} onClick={() => setKind('L')}>L-shape</button>
@@ -226,7 +226,7 @@ export function BuildingPanel() {
             ))}
           </fieldset>
         )}
-        <div className="muted bld-small">{shellM2.toFixed(0)} m²</div>
+        </details>
       </section>
 
       <section className="panel">
@@ -239,7 +239,7 @@ export function BuildingPanel() {
         </div>
         <div className="row bld-brief">
           <input value={brief} onChange={(e) => setBrief(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') readBrief(); }} placeholder="Describe it" aria-label="Describe the building" />
-          <button className="btn btn-sm" onClick={readBrief} disabled={reading || !brief.trim()}>{reading ? 'Reading…' : 'Read'}</button>
+          <button className="btn btn-sm" onClick={readBrief} disabled={reading || !brief.trim()}>Read</button>
         </div>
         <details className="bld-sub">
         <summary>{prog.rooms.length} rooms · {progM2.toFixed(0)} m²</summary>
@@ -271,7 +271,7 @@ export function BuildingPanel() {
 
       <section className="panel">
         <h3>Plans</h3>
-        <button className="btn btn-primary" onClick={() => propose()} disabled={planning || !prog.rooms.length}><Icon name="layout" /> {planning ? 'Planning…' : plans.length ? 'Plan again' : 'Propose plans'}</button>
+        <button className="btn btn-primary" onClick={() => propose()} disabled={planning || !prog.rooms.length}>{planning ? <span className="intent-spin" aria-label="Working" /> : <Icon name="layout" />} {plans.length ? 'Plan again' : 'Propose plans'}</button>
         {error && <p className="bld-error" role="alert">{error}</p>}
         <div className="bld-cards">
           {plans.map((p) => <PlanCard key={p.id} plan={p} onUse={() => use(p)} />)}
@@ -286,20 +286,13 @@ export function BuildingPanel() {
         <section className="panel">
           <h3>Your plan</h3>
           <div className="row bld-actions">
-            <button className="btn btn-primary" onClick={furnish} disabled={furnishing}><Icon name="sofa" /> {furnishing ? 'Furnishing…' : 'Furnish'}</button>
+            <button className="btn btn-primary" onClick={furnish} disabled={furnishing}>{furnishing ? <span className="intent-spin" aria-label="Working" /> : <Icon name="sofa" />} Furnish</button>
             <button className="btn" onClick={walkThrough}><Icon name="walk" /> Walk</button>
           </div>
-          {progress.some((p) => furnishing || p.status === 'failed' || p.status === 'skipped') && (
-            <ul className="list bld-progress">
-              {progress.filter((p) => furnishing || p.status === 'failed' || p.status === 'skipped').map((p) => (
-                <li key={p.spaceId}>
-                  <span className="bld-grow">{p.name}</span>
-                  <span className={`chip${p.status === 'done' ? ' chip-ok' : p.status === 'failed' ? ' chip-bad' : ''}`} title={p.message}>
-                    {p.status === 'done' ? plural(p.items ?? 0, 'item') : p.status === 'running' ? 'Working…' : p.status === 'skipped' ? (p.message ?? 'Skipped') : p.status === 'failed' ? 'No fit' : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {!furnishing && progress.some((p) => p.status === 'failed') && (
+            <span className="chip chip-warn" title={progress.filter((p) => p.status === 'failed').map((p) => p.name).join(', ')}>
+              {progress.filter((p) => p.status === 'failed').length} no fit
+            </span>
           )}
           {bill && (
             <details className="bld-sub">
