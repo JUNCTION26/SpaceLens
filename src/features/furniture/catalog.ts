@@ -59,6 +59,16 @@ const ROWS: Row[] = [
   ['sideboard', 'Sideboard', 'dresser', 1.6, 0.45, 0.8, c(0.5), 3990, '#8a6744', 'walnut veneer', ['storage', 'dining', 'living']],
   ['waiting-chair', 'Waiting chair', 'armchair', 0.6, 0.62, 0.8, c(0.45), 1690, '#58738a', 'vinyl', ['clinic', 'accessible']],
   ['bar-stool', 'Bar stool', 'stool', 0.4, 0.4, 0.75, c(0.4), 790, '#3a3a3a', 'steel', ['cafe']],
+  ['kitchen-island', 'Kitchen island', 'counter', 1.8, 0.9, 0.91, c(1.0, 1.0, 0.9, 0.9), 12990, '#e8e4dc', 'oak top', ['dining', 'kitchen']],
+  ['dining-bench', 'Dining bench 160', 'bench', 1.6, 0.35, 0.45, c(0.6), 1990, '#a07a52', 'oak', ['dining']],
+  ['bunk-bed', 'Bunk bed 90x200', 'bunk-bed', 0.97, 2.06, 1.6, c(0.7, 0, 0.6, 0), 3990, '#d8c7a8', 'pine', ['sleep', 'kids']],
+  ['office-pod', 'Office pod', 'office-pod', 1.0, 1.0, 2.2, c(0.9), 89900, '#55606b', 'felt', ['work']],
+  ['reception-desk', 'Reception desk', 'reception-desk', 1.8, 0.8, 1.1, c(1.0, 0.9, 0, 0), 14990, '#ece9e3', 'oak top', ['clinic', 'work', 'cafe']],
+  ['display-shelf', 'Display shelf', 'bookshelf', 1.2, 0.4, 1.8, c(0.8), 3490, '#3a3a3a', 'steel and wood', ['cafe', 'storage']],
+  ['desk-accessible', 'Wheelchair-friendly desk', 'desk', 1.6, 0.8, 0.76, c(1.5, 0, 0.3, 0.3), 4990, '#d8c7a8', 'birch', ['work', 'accessible']],
+  ['shoe-bench', 'Shoe cabinet with seat', 'storage-cabinet', 0.9, 0.35, 0.5, c(0.6), 1490, '#c4a27c', 'oak veneer', ['storage']],
+  ['room-divider', 'Room divider', 'room-divider', 1.6, 0.05, 1.7, c(0.3, 0.3), 2490, '#d9cdb8', 'linen', ['living', 'work', 'clinic']],
+  ['bar-stool-wood', 'Bar stool, wood', 'stool', 0.42, 0.42, 0.76, c(0.45), 990, '#a07a52', 'oak', ['cafe', 'kitchen']],
 ];
 
 export const CATALOG: CatalogEntry[] = ROWS.map(([id, name, category, w, d, h, clearance, priceSek, color, material, tags, extra]) => ({
@@ -74,6 +84,7 @@ const KEYWORDS: Array<[string, string]> = [
   ['sofa bed', 'sofa-bed'], ['sofabed', 'sofa-bed'], ['bäddsoffa', 'sofa-bed'], ['standing desk', 'desk-standing'],
   ['monitor desk', 'desk-monitor'], ['office chair', 'office-chair'], ['desk chair', 'desk-chair'], ['dining table', 'dining-4'],
   ['coffee table', 'coffee-table'], ['cafe table', 'cafe-4'], ['tv', 'tv-unit'], ['treatment', 'treatment-bed'],
+  ['kitchen island', 'kitchen-island'], ['island', 'kitchen-island'], ['dining bench', 'dining-bench'], ['bunk', 'bunk-bed'], ['pod', 'office-pod'], ['phone booth', 'office-pod'], ['reception', 'reception-desk'], ['display', 'display-shelf'], ['wheelchair', 'desk-accessible'], ['shoe', 'shoe-cabinet'], ['divider', 'room-divider'], ['screen', 'room-divider'],
   ['double bed', 'bed-double'], ['single bed', 'bed-single'], ['filing', 'filing-cabinet'], ['crib', 'crib'], ['cot', 'crib'],
   ['toy', 'toy-storage'], ['bookshelf', 'bookshelf'], ['bookcase', 'bookshelf'], ['shelf', 'bookshelf'], ['shelves', 'bookshelf'],
   ['wardrobe', 'wardrobe-100'], ['closet', 'wardrobe-100'], ['dresser', 'dresser'], ['drawers', 'dresser'], ['nightstand', 'nightstand'],
@@ -110,4 +121,17 @@ export function makeOwnItem(name: string, category: string, w: number, d: number
     clearance: base ? { ...base.clearance } : c(0.5), locked: false, owned: true, priceSek: 0, priceStatus: 'owned',
     color: base?.color ?? '#9aa3ad', material: base?.material, sourceKind: 'user-measured',
   };
+}
+
+/** Colour and material options shown as swatches. */
+export interface Variant { color: string; material: string }
+const WOODS: Variant[] = [{ color: '#d8c7a8', material: 'birch' }, { color: '#b08a5a', material: 'oak' }, { color: '#6e4f36', material: 'walnut' }, { color: '#f2efe9', material: 'white laminate' }, { color: '#2f2f2f', material: 'black laminate' }];
+const FABRICS: Variant[] = [{ color: '#6d7f8f', material: 'fabric' }, { color: '#b7a58f', material: 'linen' }, { color: '#4f6b55', material: 'velvet' }, { color: '#8c4a3b', material: 'leather' }, { color: '#3b3f46', material: 'fabric' }];
+const METALS: Variant[] = [{ color: '#2f3a44', material: 'vinyl' }, { color: '#b8bec4', material: 'steel' }, { color: '#3a3a3a', material: 'steel' }, { color: '#e2e2e2', material: 'steel' }];
+const SOFT = new Set(['sofa', 'sofa-bed', 'armchair', 'rug', 'office-pod', 'room-divider', 'office-chair']);
+const METAL = new Set(['filing-cabinet', 'treatment-bed', 'stool']);
+export function variantsFor(e: { color: string; material?: string; category: string }): Variant[] {
+  const base = SOFT.has(e.category) ? FABRICS : METAL.has(e.category) ? METALS : WOODS;
+  const own = { color: e.color, material: e.material ?? '' };
+  return [own, ...base.filter((v) => v.color.toLowerCase() !== own.color.toLowerCase())].slice(0, 5);
 }

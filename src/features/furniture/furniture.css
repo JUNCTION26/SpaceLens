@@ -17,3 +17,18 @@
 .furniture-line { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; padding: 4px 0; }
 .furniture-price { font-family: var(--mono); text-align: right; min-width: 70px; }
 .furniture-total { margin: 8px 0; }
+.furniture-card { cursor: grab; transition: border-color .15s; }
+.furniture-card:hover { border-color: var(--accent); }
+.furniture-card:active { cursor: grabbing; }
+.furniture-fp { width: 36px; height: 36px; flex: none; color: var(--text); background: var(--panel-2); border-radius: 8px; }
+.furniture-swatches { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.furniture-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; padding: 0; }
+.furniture-dot.furniture-on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--bg) inset; }
+.furniture-group { margin-bottom: 6px; }
+.furniture-ghead { justify-content: space-between; font-size: 12px; text-transform: capitalize; font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.furniture-split { justify-content: space-between; font-size: 12px; }
+.furniture-bar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; margin-bottom: 6px; }
+.furniture-bar-fill { display: block; height: 100%; transition: width .3s; }
+.furniture-bar-fill.ok { background: #3fb67a; }
+.furniture-bar-fill.warn { background: #e0a43a; }
+.furniture-bar-fill.bad { background: #e05a4f; }

@@ -11,15 +11,54 @@ const shade = (hex: string, f: number) => {
   return f >= 0 ? col.lerp(new THREE.Color('#ffffff'), f) : col.multiplyScalar(1 + f);
 };
 
-function makeMats(color: string, selected: boolean, ghost: boolean): Mats {
-  const m = (c: THREE.Color | string, rough = 0.75, metal = 0): Mat => {
-    const mat = new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+// Shared procedural textures, created once per page and never disposed with items.
+let woodTex: THREE.CanvasTexture | null = null, fabricTex: THREE.CanvasTexture | null = null;
+function canvasTex(draw: (g: CanvasRenderingContext2D, n: number) => void): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const n = 256, cv = document.createElement('canvas'); cv.width = cv.height = n;
+  const g = cv.getContext('2d'); if (!g) return null;
+  draw(g, n);
+  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function wood() {
+  return woodTex ??= canvasTex((g, n) => {
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, n, n);
+    for (let i = 0; i < 70; i++) {
+      const y = Math.random() * n, a = 0.04 + Math.random() * 0.1;
+      g.strokeStyle = `rgba(60,35,15,${a})`; g.lineWidth = 0.5 + Math.random() * 2; g.beginPath();
+      for (let x = 0; x <= n; x += 8) g.lineTo(x, y + Math.sin(x / 40 + i) * 3);
+      g.stroke();
+    }
+  });
+}
+function fabric() {
+  return fabricTex ??= canvasTex((g, n) => {
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, n, n);
+    for (let i = 0; i < n; i += 2) { g.fillStyle = `rgba(0,0,0,${0.03 + (i % 4) * 0.01})`; g.fillRect(i, 0, 1, n); g.fillRect(0, i, n, 1); }
+  });
+}
+type Kind = 'wood' | 'fabric' | 'metal' | 'plain';
+export function materialKind(material = ''): Kind {
+  const t = material.toLowerCase();
+  if (/oak|birch|pine|beech|walnut|wood|veneer/.test(t)) return 'wood';
+  if (/fabric|linen|wool|velvet|felt|upholster|mesh/.test(t)) return 'fabric';
+  if (/steel|metal|chrome/.test(t) && !/wood/.test(t)) return 'metal';
+  return 'plain';
+}
+
+function makeMats(color: string, selected: boolean, ghost: boolean, material?: string): Mats {
+  const kind = materialKind(material);
+  const m = (c: THREE.Color | string, rough = 0.75, metal = 0, map?: THREE.Texture | null): Mat => {
+    const mat = new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal, map: map ?? null });
     if (ghost) { mat.transparent = true; mat.opacity = 0.35; mat.depthWrite = false; }
     if (selected) { mat.emissive = new THREE.Color('#4da3ff'); mat.emissiveIntensity = 0.35; }
     return mat;
   };
   return {
-    main: m(color), dark: m(shade(color, -0.35)), soft: m(shade(color, 0.25), 0.95), white: m('#f3f1ec', 0.9),
+    main: kind === 'wood' ? m(color, 0.6, 0, wood()) : kind === 'fabric' ? m(color, 0.98, 0, fabric()) : kind === 'metal' ? m(color, 0.35, 0.6) : m(color, 0.55),
+    dark: m(shade(color, -0.35), kind === 'metal' ? 0.4 : 0.7, kind === 'metal' ? 0.5 : 0),
+    soft: m(shade(color, 0.25), 0.95, 0, kind === 'fabric' ? fabric() : null), white: m('#f3f1ec', 0.9),
     metal: m('#8a8f96', 0.35, 0.7), green: m('#4f7d4a', 0.9), pot: m('#b9a48d', 0.8), glow: m('#fff3d6', 0.4),
     book: ['#8c3b3b', '#2f5d7c', '#c9a227', '#3e6b48', '#6b4a7a'].map((c) => m(c, 0.8)),
   };
@@ -204,6 +243,50 @@ function Stool({ w, h, m, shadow }: P) {
   </>);
 }
 
+function BunkBed({ w, d, h, m, shadow }: P) {
+  const post = 0.06;
+  return (<>
+    {[-1, 1].flatMap((sx) => [-1, 1].map((sz) => <B key={`${sx}${sz}`} s={[post, h, post]} p={[sx * (w / 2 - post / 2), h / 2, sz * (d / 2 - post / 2)]} mat={m.main} shadow={shadow} r={0.01} />))}
+    {[0.25, h * 0.62].map((y) => (<group key={y}>
+      <B s={[w - 0.04, 0.05, d - 0.04]} p={[0, y, 0]} mat={m.main} shadow={shadow} />
+      <B s={[w - 0.08, 0.15, d - 0.1]} p={[0, y + 0.1, 0]} mat={m.white} shadow={shadow} r={0.04} />
+      <B s={[Math.min(0.6, w * 0.6), 0.1, 0.35]} p={[0, y + 0.22, -d / 2 + 0.28]} mat={m.white} shadow={shadow} r={0.04} />
+    </group>))}
+    {[-1, 1].map((sz) => <B key={sz} s={[w, 0.12, 0.03]} p={[0, h - 0.1, sz * (d / 2 - 0.02)]} mat={m.main} shadow={shadow} />)}
+    <B s={[0.03, 0.12, d * 0.6]} p={[w / 2 - 0.02, h - 0.1, -d * 0.18]} mat={m.main} shadow={shadow} />
+    {Array.from({ length: 4 }, (_, i) => <B key={`l${i}`} s={[0.03, 0.03, 0.4]} p={[w / 2 + 0.01, 0.35 + i * (h * 0.62 - 0.1) / 4, d * 0.32]} mat={m.dark} shadow={shadow} />)}
+  </>);
+}
+
+function Pod({ w, d, h, m, shadow }: P) {
+  return (<>
+    <B s={[w, 0.08, d]} p={[0, 0.04, 0]} mat={m.dark} shadow={shadow} r={0.02} />
+    <B s={[w, 0.1, d]} p={[0, h - 0.05, 0]} mat={m.dark} shadow={shadow} r={0.02} />
+    <B s={[w, h - 0.18, 0.06]} p={[0, h / 2, -d / 2 + 0.03]} mat={m.main} shadow={shadow} />
+    {[-1, 1].map((sx) => <B key={sx} s={[0.06, h - 0.18, d]} p={[sx * (w / 2 - 0.03), h / 2, 0]} mat={m.main} shadow={shadow} />)}
+    <mesh position={[0, h / 2, d / 2 - 0.02]}><boxGeometry args={[w - 0.12, h - 0.2, 0.012]} /><meshStandardMaterial color="#cfe3ee" transparent opacity={0.25} roughness={0.05} depthWrite={false} /></mesh>
+    <B s={[w * 0.7, 0.03, 0.4]} p={[0, 0.74, -d / 2 + 0.26]} mat={m.white} shadow={shadow} />
+    <B s={[0.4, 0.45, 0.4]} p={[0, 0.27, 0.05]} mat={m.soft} shadow={shadow} r={0.06} />
+  </>);
+}
+
+function Reception({ w, d, h, m, shadow }: P) {
+  return (<>
+    <B s={[w, h, 0.06]} p={[0, h / 2, d / 2 - 0.03]} mat={m.main} shadow={shadow} r={0.02} />
+    <B s={[w + 0.04, 0.03, 0.3]} p={[0, h + 0.015, d / 2 - 0.12]} mat={m.dark} shadow={shadow} />
+    <B s={[w, 0.03, d - 0.06]} p={[0, 0.74, -0.03]} mat={m.white} shadow={shadow} />
+    {[-1, 1].map((sx) => <B key={sx} s={[0.04, 0.74, d - 0.06]} p={[sx * (w / 2 - 0.02), 0.37, -0.03]} mat={m.main} shadow={shadow} />)}
+  </>);
+}
+
+function Divider({ w, d, h, m, shadow }: P) {
+  const n = Math.max(2, Math.round(w / 0.45)), pw = w / n;
+  return <>{Array.from({ length: n }, (_, i) => (<group key={i} position={[-w / 2 + pw * (i + 0.5), 0, (i % 2 ? 1 : -1) * d * 0.2]}>
+    <B s={[pw - 0.02, h - 0.06, Math.max(0.02, d * 0.5)]} p={[0, 0.06 + (h - 0.06) / 2, 0]} mat={m.main} shadow={shadow} r={0.008} />
+    <B s={[0.03, 0.06, 0.03]} p={[0, 0.03, 0]} mat={m.dark} shadow={shadow} />
+  </group>))}</>;
+}
+
 function Body(props: P & { category: string; catalogId: string }) {
   const { category, catalogId } = props;
   switch (category) {
@@ -225,6 +308,10 @@ function Body(props: P & { category: string; catalogId: string }) {
     case 'toy-storage': return <Cabinet {...props} drawers={2} legs={0.03} />;
     case 'tv-unit': return <Cabinet {...props} legs={0.1} />;
     case 'counter': return <Counter {...props} />;
+    case 'bunk-bed': return <BunkBed {...props} />;
+    case 'office-pod': return <Pod {...props} />;
+    case 'reception-desk': return <Reception {...props} />;
+    case 'room-divider': return <Divider {...props} />;
     case 'treatment-bed': return <TreatmentBed {...props} />;
     case 'stool': return <Stool {...props} />;
     case 'plant': return <Plant {...props} />;
@@ -235,7 +322,7 @@ function Body(props: P & { category: string; catalogId: string }) {
 }
 
 function FurnitureMeshImpl({ item, selected, ghost }: { item: FurnitureItem; selected?: boolean; ghost?: boolean }) {
-  const mats = useMemo(() => makeMats(item.color, !!selected, !!ghost), [item.color, selected, ghost]);
+  const mats = useMemo(() => makeMats(item.color, !!selected, !!ghost, item.material), [item.color, selected, ghost, item.material]);
   useEffect(() => () => { Object.values(mats).flat().forEach((x) => (x as Mat).dispose()); }, [mats]);
   const shadow = !ghost;
   return (
