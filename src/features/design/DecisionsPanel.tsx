@@ -50,7 +50,7 @@ function ItemRow({ f, model, relations, verdicts, verdict, names, walls, fixes }
           </li>
         ))}
         {verdicts.map((v) => (
-          <li key={v.ruleId} className={v.pass ? 'is-pass' : 'is-fail'}>
+          <li key={`${v.ruleId}:${v.itemIds.join(',')}`} className={v.pass ? 'is-pass' : 'is-fail'}>
             <Icon name={v.pass ? 'check' : 'alert'} size={11} /> <span className="dec-kind">{v.name}</span> {v.message}
           </li>
         ))}
@@ -93,7 +93,7 @@ export function DecisionsPanel({ model, candidate, report }: { model: SpaceModel
             <h4 className="dec-h">Needs attention</h4>
             <ul className="dec-weak">
               {weak.map((v) => (
-                <li key={v.ruleId} className={v.pass ? '' : `is-${v.severity}`}>
+                <li key={`${v.ruleId}:${v.itemIds.join(',')}`} className={v.pass ? '' : `is-${v.severity}`}>
                   <div><strong>{v.name}</strong> <span className="muted">{v.message}</span></div>
                   {fixHint(v) && <div className="dec-fix">{fixHint(v)}</div>}
                 </li>
