@@ -203,7 +203,7 @@ button.brand:hover { background: var(--hover); }
 .sidebar.collapsed .sidebar-foot { flex-direction: column; }
 
 .panel-col { min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); overflow: hidden; }
-.panel-col-head { flex: none; padding: var(--s4) var(--s5) var(--s3); }
+.panel-col-head { flex: none; padding: var(--s4) var(--s5) var(--s2); }
 .panel-col-head h1 { font-size: var(--fs-lg); font-weight: var(--fw-strong); }
 .panel-col-head p { margin-top: 2px; font-size: var(--fs-sm); color: var(--muted); }
 .side-body { flex: 1; overflow: auto; min-height: 0; padding: var(--s2) var(--s5) var(--s5); }
