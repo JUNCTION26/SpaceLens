@@ -5,40 +5,24 @@ export interface GeminiPart { text?: string; inlineData?: { mimeType: string; da
 export const hasGemini = () => Boolean(getState().settings.geminiKey);
 
 /**
- * Calls the Gemini API directly from the browser with the key the user pasted into Settings.
- * The key never leaves the user's browser except to Google. Returns parsed JSON when
- * `json` is true. Throws on any failure so callers can fall back to local logic.
+ * One Gemini call through the shared router: the fastest healthy model, fall-through when a model
+ * is busy or out of quota, and a plain message on failure. The key stays in this browser and goes only
+ * to Google. Returns parsed JSON when `json` or `schema` is set. Throws an Error whose message is
+ * safe to show (never raw API text), with `.reason` set, so callers can fall back to local logic.
  */
-export async function gemini<T = string>(parts: GeminiPart[], opts: { json?: boolean; schema?: object; system?: string; timeoutMs?: number } = {}): Promise<T> {
-  const { geminiKey, geminiModel } = getState().settings;
-  if (!geminiKey) throw new Error('No Gemini key set');
+export async function gemini<T = string>(parts: GeminiPart[], opts: { json?: boolean; schema?: object; system?: string; timeoutMs?: number; task?: 'fast' | 'smart' | 'vision' } = {}): Promise<T> {
+  const { ai, classify } = await import('./ai');
+  const hasImage = parts.some((p) => p.inlineData);
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 60000);
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 120000);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
-      {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-        body: JSON.stringify({
-          ...(opts.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
-          contents: [{ role: 'user', parts }],
-          generationConfig: {
-            temperature: 0.2,
-            ...(opts.json ? { responseMimeType: 'application/json' } : {}),
-            ...(opts.schema ? { responseSchema: opts.schema } : {}),
-          },
-        }),
-      },
-    );
-    if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = await res.json();
-    const text: string = data?.candidates?.[0]?.content?.parts?.map((p: GeminiPart) => p.text ?? '').join('') ?? '';
-    usage.calls += 1;
-    usage.inputTokens += data?.usageMetadata?.promptTokenCount ?? 0;
-    usage.outputTokens += data?.usageMetadata?.candidatesTokenCount ?? 0;
-    return (opts.json ? JSON.parse(text) : text) as T;
+    const r = await ai<T>({ task: opts.task ?? (hasImage ? 'vision' : 'smart'), parts, system: opts.system, schema: opts.schema, json: opts.json, signal: ctrl.signal });
+    // Features that show "model used" read this setting.
+    if (getState().settings.geminiModel !== r.model) getState().setSettings({ geminiModel: r.model });
+    return r.data;
+  } catch (e) {
+    const p = classify(e);
+    throw Object.assign(new Error(p.message), { reason: p.reason });
   } finally {
     clearTimeout(timer);
   }
