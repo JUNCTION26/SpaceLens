@@ -26,7 +26,7 @@ export const lastPlanBuild = () => lastPlan;
 /** Reads the sample PDF, finds walls, doors and rooms, and opens the building in 3D. */
 export async function startPlan(): Promise<boolean> {
   const st = useStore.getState();
-  st.setBusy('Reading the floor plan');
+  st.setBusy('Reading plan');
   try {
     const [{ loadPdf }, { drawingToBuilding }] = await Promise.all([import('../drawings/drawingIndex'), import('../drawings/toBuilding')]);
     const res = await fetch(`${import.meta.env.BASE_URL}samples/stoa/${SAMPLE_PLAN.file}`);
@@ -43,14 +43,13 @@ export async function startPlan(): Promise<boolean> {
       rooms: rep.rooms.length, verified: rep.verified, withPrinted: rep.withPrintedArea, medianErrorPct: rep.medianAreaErrorPct,
       examples: rep.rooms.filter((r) => r.printedArea).slice(0, 3).map((r) => ({ name: r.name, printed: r.printedArea, computed: r.computedArea })),
     };
-    const agree = rep.medianAreaErrorPct != null ? ` Printed and measured areas differ by ${rep.medianAreaErrorPct.toFixed(1)}% on average.` : '';
-    notify(`${rep.rooms.length} rooms built from a real floor plan.${agree}`, {
-      tone: 'ok', ttl: 9000, actions: [{ label: 'See the plan', run: () => useStore.getState().setView('split') }, { label: 'Furnish a room', run: () => void startRoomIn() }],
+    notify(`${rep.rooms.length} rooms built`, {
+      tone: 'ok', ttl: 9000, actions: [{ label: 'See plan', run: () => useStore.getState().setView('split') }, { label: 'Furnish', run: () => void startRoomIn() }],
     });
     return true;
   } catch (e) {
     console.error(e);
-    notify('The sample plan could not be read on this device.', { tone: 'warn', actions: [{ label: 'Plan a villa instead', primary: true, run: () => void startVilla() }, { label: 'Open Drawings', run: () => useUi.getState().openSection('drawings') }] });
+    notify('Plan not read', { tone: 'warn', actions: [{ label: 'Try villa', primary: true, run: () => void startVilla() }, { label: 'Drawings', run: () => useUi.getState().openSection('drawings') }] });
     return false;
   } finally { useStore.getState().setBusy(null); }
 }
@@ -58,7 +57,7 @@ export async function startPlan(): Promise<boolean> {
 /** Plans a three-bedroom villa on a 10 x 12 m plot, furnishes every room and shows it in 3D. */
 export async function startVilla(): Promise<boolean> {
   const st = useStore.getState();
-  st.setBusy('Planning a villa');
+  st.setBusy('Planning villa');
   try {
     const { loadDemo } = await import('../building/demo');
     const ok = await withTimeout(loadDemo('villa', true), 30000);
@@ -68,11 +67,11 @@ export async function startVilla(): Promise<boolean> {
     s.setMode('design'); s.setView('3d');
     useUi.getState().openSection('building');
     const m = useStore.getState().model;
-    notify(`A ${m.spaces.length}-room villa, planned and furnished.`, { tone: 'ok', ttl: 8000, actions: [{ label: 'Walk through', run: () => useUi.getState().openSection('walk') }, { label: 'See the plan', run: () => useStore.getState().setView('split') }] });
+    notify(`Villa ready, ${m.spaces.length} rooms`, { tone: 'ok', ttl: 8000, actions: [{ label: 'Walk', run: () => useUi.getState().openSection('walk') }, { label: 'See plan', run: () => useStore.getState().setView('split') }] });
     return true;
   } catch (e) {
     console.error(e);
-    notify('The villa planner took too long on this device.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void startVilla() }, { label: 'Design a room instead', run: () => void startRoom() }] });
+    notify('Villa took too long', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void startVilla() }, { label: 'Try a room', run: () => void startRoom() }] });
     return false;
   } finally { useStore.getState().setBusy(null); }
 }
