@@ -146,19 +146,27 @@ try {
       page = await launch({ width: w, height: h });
       pageSize = `${w}x${h}`;
     }
-    await page.goto(`${base}?coach=0&${s.q}`, 800);
-    await sleep(s.wait ?? 3500);
-    if (s.after) { await page.evaluate(s.after).catch(() => {}); await sleep(800); }
-    await page.settled(20000);
-    const m = await page.evaluate(METRICS).catch(() => ({ controls: -1, texts: -1, words: -1, overlays: -1 }));
-    await page.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))').catch(() => {});
-    const shot = await page.send('Page.captureScreenshot', { format: 'png' }, 120000).catch(() => null);
-    const errors = page.takeProblems().map((p) => `[${p.kind}] ${p.text.slice(0, 160)}`);
-    const row = { name: s.name, q: s.q, size: pageSize, ...m, errors, critic: null };
-    rows.push(row);
-    if (shot) {
-      writeFileSync(join(out, `${s.name}.png`), Buffer.from(shot.data, 'base64'));
-      pending.push(critique(shot.data, `${s.name} (${pageSize})`).then((c) => { row.critic = c; }));
+    const run = async () => {
+      await page.goto(`${base}?coach=0&${s.q}`, 800);
+      await sleep(s.wait ?? 3500);
+      if (s.after) { await page.evaluate(s.after).catch(() => {}); await sleep(800); }
+      await page.settled(20000);
+      const m = await page.evaluate(METRICS).catch(() => ({ controls: -1, texts: -1, words: -1, overlays: -1 }));
+      await page.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))').catch(() => {});
+      const shot = await page.send('Page.captureScreenshot', { format: 'png' }, 120000).catch(() => null);
+      const errors = page.takeProblems().map((p) => `[${p.kind}] ${p.text.slice(0, 160)}`);
+      const row = { name: s.name, q: s.q, size: pageSize, ...m, errors, critic: null };
+      rows.push(row);
+      if (shot) {
+        writeFileSync(join(out, `${s.name}.png`), Buffer.from(shot.data, 'base64'));
+        pending.push(critique(shot.data, `${s.name} (${pageSize})`).then((c) => { row.critic = c; }));
+      }
+    };
+    // A screen that hangs (a stuck 3D page) is recorded as such and the browser is replaced.
+    const timedOut = await Promise.race([run().then(() => false).catch((e) => { process.stderr.write(`! ${s.name}: ${e.message}\n`); return false; }), sleep(Number(flag('--timeout', '90000'))).then(() => true)]);
+    if (timedOut) {
+      rows.push({ name: s.name, q: s.q, size: pageSize, controls: -1, texts: -1, words: -1, overlays: -1, longest: -1, panelWords: -1, longText: '', errors: ['[hang] screen did not finish in time'], critic: null });
+      await page.close(); page = null; pageSize = '';
     }
     process.stderr.write(`. ${s.name}\n`);
   }
