@@ -545,6 +545,8 @@ export const RULES: DesignRule[] = [
     id: 'bed-headboard', name: 'Headboard on a wall', severity: 'strong', source: 'Bedroom planning practice',
     evaluate: (L, v) => L.items.filter(isBed).map((a) => {
       const g = a.back?.gap ?? 9;
+      // A single bed with its long side on the wall (daybed) keeps a narrow room open.
+      if (g > 0.05 && !isDouble(a) && Math.min(sideFree(L, a, 'left'), sideFree(L, a, 'right')) <= 0.05) return v([a.f.id], 0.8, `${a.f.name} runs along the wall, daybed style, keeping the narrow floor open.`);
       return v([a.f.id], g <= 0.05 ? 1 : band(g, 0, 0.05, 0.5), g <= 0.05 ? `The headboard of ${lc(a.f.name)} rests on a solid wall.` : `The headboard floats ${cm(Math.min(g, 9))} off the wall.`);
     }),
   }),
@@ -668,7 +670,7 @@ export const RULES: DesignRule[] = [
     }),
   }),
   rule({
-    id: 'seats-even', name: 'Seats evenly spaced', severity: 'preference', source: 'Symmetry around a table',
+    id: 'seats-even', name: 'Seats spread round the table', severity: 'strong', source: 'Two face each other; more share the long sides, then the ends',
     evaluate: (L, v) => L.items.filter((a) => isHostCategory(a.f.category)).flatMap((h) => {
       const seats = seatsOfHost(L, h);
       if (seats.length < 2) return [];
@@ -1102,7 +1104,10 @@ export const RULES: DesignRule[] = [
         }
       }
       let dead = 0, sx = 0, sy = 0;
-      for (let i = 0; i < n; i++) if (g.clr[i] > 0.03 && reach[i] < 0) { dead++; sx += i % g.cols; sy += Math.floor(i / g.cols); }
+      // Pockets between a table and its chairs belong to the dining group, not to the dead floor.
+      const group = L.items.filter((a) => a.solid && (isHostCategory(a.f.category) || L.hostOf.has(a.f.id)) && a.f.category !== 'desk');
+      const inGroup = (i: number) => { const p = { x: g.ox + ((i % g.cols) + 0.5) * g.cell, y: g.oy + (Math.floor(i / g.cols) + 0.5) * g.cell }; return group.some((a) => distPointRect(p, a.rect) < 0.4); };
+      for (let i = 0; i < n; i++) if (g.clr[i] > 0.03 && reach[i] < 0 && !inGroup(i)) { dead++; sx += i % g.cols; sy += Math.floor(i / g.cols); }
       const area = dead * g.cell * g.cell;
       if (area < 0.05) return [v([], 1, 'Every bit of free floor can be reached.')];
       const c = { x: g.ox + (sx / dead + 0.5) * g.cell, y: g.oy + (sy / dead + 0.5) * g.cell };
@@ -1147,6 +1152,25 @@ export const RULES: DesignRule[] = [
           : c > -0.2 ? v([a.f.id, door.id], 0.6, `The entrance is off to the side of ${lc(a.f.name)}.`)
             : v([a.f.id, door.id], 0.1, `Whoever sits at ${lc(a.f.name)} has their back to the entrance; visitors arrive behind them.`);
       });
+    },
+  }),
+  rule({
+    id: 'service-aisle', name: 'Service aisle to every table', severity: 'strong', source: '60 cm from the counter to each table', costly: true,
+    evaluate: (L, v) => {
+      const counter = of(L, 'counter')[0];
+      const tables = L.items.filter((a) => a.solid && /^(table|cafe-table)$/.test(a.f.category));
+      if (!counter || !tables.length) return [];
+      const start = toPlanOf(counter.f, 0, counter.f.d / 2 + 0.45);
+      const g = floorGrid(L, 0.1, [start]);
+      const best = widestFrom(g, start);
+      let worst = 9, worstT: AItem | null = null;
+      for (const t of tables) {
+        // Serve from beside any of its chairs, or the table's open edge.
+        const pts = [...seatsOfHost(L, t).map((s) => toPlanOf(s.f, 0, -s.f.d / 2 - 0.3)), ...[0, 1, 2, 3].map((k) => toPlanOf(t.f, [0, 0, 1, -1][k] * (t.f.w / 2 + 0.35), [1, -1, 0, 0][k] * (t.f.d / 2 + 0.35)))];
+        const w = Math.max(0, ...pts.map((p) => 2 * bestNear(g, best, p, 0.3)));
+        if (w < worst) { worst = w; worstT = t; }
+      }
+      return [v([counter.f.id, ...(worstT ? [worstT.f.id] : [])], band(worst, 0.6, 9, 0.25), worst >= 0.6 ? `Staff reach every table from the counter along a ${cm(Math.min(worst, 2))}${worst >= 2 ? '+' : ''} aisle.` : `From the counter, one table is only reachable through ${cm(worst)}; a service aisle wants 60 cm.`)];
     },
   }),
   rule({
