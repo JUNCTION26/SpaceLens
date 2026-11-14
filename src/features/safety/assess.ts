@@ -99,6 +99,8 @@ export interface SafetyFinding {
   at: Vec2;
   /** Route to draw when the finding is shown. */
   route?: Vec2[];
+  /** The measured width at `at`, when the finding is about a width. */
+  measureM?: number;
   fix?: SafetyFix;
 }
 
@@ -277,7 +279,12 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
   if (anyBusy) for (let i = 0; i < N; i++) ratio2[i] = stand(i) ? (g.door[i] >= 0 ? 10 : (g.dist[i] + tol) / (cfg.pinchWidthM / 2)) : 0;
   const W2 = anyBusy ? widest(g, sources, ratio2) : null;
 
-  const widthFindings = new Map<string, { width: number; need: number; at: Vec2; rooms: Set<string>; blockers: FurnitureItem[]; route: Vec2[]; kind: 'route-width' | 'pinch'; people: number }>();
+  const widthFindings = new Map<string, { width: number; need: number; at: Vec2; rooms: Set<string>; blockers: FurnitureItem[]; sides: string; route: Vec2[]; kind: 'route-width' | 'pinch'; people: number }>();
+  const byId = new Map(furniture.map((f) => [f.id, f]));
+  const sidesOf = (wa: ReturnType<typeof widthAt>) => {
+    const names = [wa.near, wa.far].map((sg) => (sg?.itemId ? label(byId.get(sg.itemId)!) : 'the wall'));
+    return names[0] === names[1] ? (names[0] === 'the wall' ? 'between walls' : `beside ${names[0]}`) : `between ${names[0]} and ${names[1]}`;
+  };
   const pathFrom = (i: number) => smooth(g, chain(F, i).map((c) => centre(g, c)), cfg.squeezeM / 2 - tol);
 
   model.spaces.forEach((s, k) => {
@@ -294,7 +301,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
       for (let j = 0; j < trapped.length; j += 3) for (const f of blockersAt(g, centre(g, trapped[j]), furniture, g.dist[trapped[j]] + 0.08)) near.add(f);
       findings.push({
         id: `trapped:${s.id}`, kind: 'trapped', area: 'fire', severity: 'critical', title: `Part of ${s.name} has no way out`,
-        message: `About ${(trapped.length * cellA).toFixed(1)} m² of ${s.name} is cut off from every exit${near.size ? ` by ${[...near].map(label).join(', ')}` : ''}; nobody there can get out without climbing over furniture.`,
+        message: `About ${(trapped.length * cellA).toFixed(1)} m² of ${s.name} is cut off from every exit${near.size ? ` by ${[...near].map(label).join(', ')}` : ''}.`,
         itemIds: [...near].map((f) => f.id), at,
       });
     }
@@ -310,11 +317,17 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
     const lengthM = pathLength(pts);
     const exitDoor = g.doors[g.door[F.src[far]]];
     const ck = W.choke[far];
-    const wAt = ck >= 0 ? widthAt(g, centre(g, ck)).width : null;
+    // Narrowest point on the way out: each door passed, plus the bottleneck if it is not where you start.
+    let wAt: number | null = null, wAtP: Vec2 | null = null;
+    const take = (w: number, p: Vec2) => { if (wAt == null || w < wAt) { wAt = w; wAtP = p; } };
+    const passed = new Set<number>();
+    for (const c of chain(F, far)) if (g.door[c] >= 0) passed.add(g.door[c]);
+    for (const k2 of passed) take(g.doors[k2].widthM, g.doors[k2].c);
+    if (ck >= 0 && dist(centre(g, ck), centre(g, far)) > 1 && g.door[ck] < 0) take(widthAt(g, centre(g, ck)).width, centre(g, ck));
     const exitsReachable = perExit.length ? perExit.filter((f) => Number.isFinite(f.len[far])).length : 1;
     egress.push({
       spaceId: s.id, name: s.name, exitId: exitDoor?.id ?? null, from: centre(g, far), pathPoints: pts, lengthM,
-      narrowestM: wAt, narrowestAt: ck >= 0 ? centre(g, ck) : null,
+      narrowestM: wAt, narrowestAt: wAtP,
       travelTimeS: lengthM / cfg.walkSpeedMS, travelTimeSlowS: lengthM / cfg.slowSpeedMS, exitsReachable, people,
     });
 
@@ -330,7 +343,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
       const ids = new Set<string>([wa.near?.itemId, wa.far?.itemId].filter((x): x is string => !!x));
       const bl = furniture.filter((f) => ids.has(f.id) || blockersAt(g, p, [f], g.dist[c] + 0.06).length);
       const prev = widthFindings.get(key);
-      if (prev) { prev.rooms.add(s.name); prev.people += people; } else widthFindings.set(key, { width: wa.width, need, at: p, rooms: new Set([s.name]), blockers: bl, route: pathFrom(worst), kind: 'route-width', people });
+      if (prev) { prev.rooms.add(s.name); prev.people += people; } else widthFindings.set(key, { width: wa.width, need, at: p, rooms: new Set([s.name]), blockers: bl, sides: sidesOf(wa), route: pathFrom(worst), kind: 'route-width', people });
     }
     // Pinch points for busier rooms.
     if (W2 && people >= cfg.pinchOccupancy && W2.B[far] < 1 && W.B[far] >= 1) {
@@ -342,7 +355,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
         if (bl.length && wa.width < cfg.pinchWidthM - 0.005 && wa.width >= cfg.routeWidthM - 0.005) {
           const key = `p${Math.round(p.x / 0.3)}_${Math.round(p.y / 0.3)}`;
           const prev = widthFindings.get(key);
-          if (prev) { prev.rooms.add(s.name); prev.people += people; } else widthFindings.set(key, { width: wa.width, need: cfg.pinchWidthM, at: p, rooms: new Set([s.name]), blockers: bl, route: pts, kind: 'pinch', people });
+          if (prev) { prev.rooms.add(s.name); prev.people += people; } else widthFindings.set(key, { width: wa.width, need: cfg.pinchWidthM, at: p, rooms: new Set([s.name]), blockers: bl, sides: sidesOf(wa), route: pts, kind: 'pinch', people });
         }
       }
     }
@@ -356,7 +369,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
     } else if (exitsReachable < 2 && lengthM > cfg.singleDirectionM) {
       findings.push({
         id: `single:${s.id}`, kind: 'single-direction', area: 'fire', severity: 'important', title: `Only one way out of ${s.name}, and it is far`,
-        message: `The far side of ${s.name} is ${m1(lengthM)} from the only reachable exit (guide: ${cfg.singleDirectionM} m when there is just one direction to escape). A second exit or a shorter route would fix it.`,
+        message: `The far side of ${s.name} is ${m1(lengthM)} from the only reachable exit (guide: ${cfg.singleDirectionM} m when there is just one direction to escape).`,
         itemIds: [], at: centre(g, far), route: pts,
       });
     }
@@ -364,7 +377,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
     if (people >= cfg.twoExitsOccupancy && exitsReachable < 2) {
       findings.push({
         id: `two-exits:${s.id}`, kind: 'two-exits', area: 'fire', severity: 'advice', title: `Plan a second way out of ${s.name}`,
-        message: `About ${people} people (${occupancy.rooms[k]?.basis ?? 'estimate'}) share one exit. From ${cfg.twoExitsOccupancy} people up, one blocked door would trap everyone; a second exit well apart from the first is the usual answer.`,
+        message: `About ${people} people (${occupancy.rooms[k]?.basis ?? 'estimate'}) share one exit. Above ${cfg.twoExitsOccupancy} people, add a second exit well apart from the first.`,
         itemIds: [], at: exitDoor ? exitDoor.c : centroid(s.polygon),
       });
     }
@@ -372,19 +385,19 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
 
   for (const [key, w] of widthFindings) {
     const rooms = [...w.rooms].join(' and ');
-    const between = w.blockers.length ? ` beside ${w.blockers.map(label).join(' and ')}` : ' between walls';
+    const between = ` ${w.sides}`;
     if (w.kind === 'route-width') {
       const severity: Severity = w.width < cfg.squeezeM + 0.1 ? 'critical' : 'important';
       findings.push({
         id: `width:${key}`, kind: 'route-width', area: 'fire', severity, title: `Escape route narrows to ${cm(w.width)}`,
         message: `The way out from ${rooms} squeezes to ${cm(w.width)}${between}. Keep at least ${cm(w.need)} clear${w.need === cfg.routeWidthM ? ` (${cm(cfg.doorWidthM)} at doors)` : ' at doors'}.`,
-        itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route,
+        itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route, measureM: w.width,
       });
     } else {
       findings.push({
         id: `pinch:${key}`, kind: 'pinch', area: 'fire', severity: 'advice', title: `Pinch point of ${cm(w.width)} on the way out`,
         message: `About ${w.people} people from ${rooms} pass a ${cm(w.width)} gap${between}. For a group this size ${cm(cfg.pinchWidthM)} lets two lines move side by side.`,
-        itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route,
+        itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route, measureM: w.width,
       });
     }
   }
@@ -408,7 +421,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
     if (inSwing.length) {
       findings.push({
         id: `door-swing:${d.id}`, kind: 'door-swing', area: 'fire', severity: 'important', title: `${d.label} cannot open fully`,
-        message: `${inSwing.map(label).join(', ')} ${inSwing.length === 1 ? 'is' : 'are'} inside the ${cm(d.widthM)} arc the door sweeps. A door that only half opens halves the way out.`,
+        message: `${inSwing.map(label).join(', ')} ${inSwing.length === 1 ? 'is' : 'are'} inside the ${cm(d.widthM)} arc the door sweeps.`,
         itemIds: inSwing.map((f) => f.id), at: add(d.c, mul(d.opening.swing === 'in' ? d.inward : d.outward, d.widthM / 2)),
       });
     }
@@ -428,7 +441,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
         const dd = polySegDist(it.poly, d.a, d.b);
         findings.push({
           id: `exit-clear:${d.id}:${it.f.id}`, kind: 'exit-clearance', area: 'fire', severity: 'advice', title: `${label(it.f)} is close to the exit`,
-          message: `${label(it.f)} is ${cm(dd)} from ${d.label}. Keep ${cm(cfg.exitClearM)} clear so nothing tips into the doorway in a rush.`,
+          message: `${label(it.f)} is ${cm(dd)} from ${d.label}. Keep ${cm(cfg.exitClearM)} clear.`,
           itemIds: [it.f.id], at: d.c,
         });
       }
@@ -500,6 +513,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
   for (let i = 0; i < N; i++) if (Number.isFinite(DF.len[i]) && DF.len[i] > thr) cand.push(i);
   cand.sort((a, b) => DF.len[b] - DF.len[a]);
   const handled = new Uint8Array(N);
+  const seatPts = furniture.flatMap((f) => seatPositions(f, furniture));
   let tests = 0;
   for (const c of cand) {
     if (handled[c] || tests++ > 25) continue;
@@ -523,6 +537,10 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
       continue;
     }
     for (const i of q) handled[i] = 1;
+    // Only aisles people use count: wide enough to be a walkway, or someone sits or works in it.
+    const inRegion = new Set(q);
+    const used = q.some((i) => g.dist[i] + tol >= cfg.routeWidthM / 2) || seatPts.some((p) => inRegion.has(cellAt(g, p)));
+    if (!used) continue;
     const len = DF.len[c];
     const route = ch.map((i) => centre(g, i));
     const ids = new Set<string>();
@@ -533,7 +551,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
       findings.push({
         id: `dead-end:${sp?.id ?? 'x'}:${Math.round(route[0].x * 2)}_${Math.round(route[0].y * 2)}`, kind: 'dead-end', area: 'fire', severity: 'important',
         title: `Dead end of ${m1(len)}${sp ? ` in ${sp.name}` : ''}`,
-        message: `This aisle${sidesBy.length ? ` along ${sidesBy.slice(0, 3).map(label).join(', ')}${sidesBy.length > 3 ? ' and others' : ''}` : ''} only opens at one end, so anyone at the far end must walk ${m1(len)} back before they can choose a direction (guide: ${cfg.deadEndM} m). Open the far end or shorten the run.`,
+        message: `This aisle${sidesBy.length ? ` along ${sidesBy.slice(0, 3).map(label).join(', ')}${sidesBy.length > 3 ? ' and others' : ''}` : ''} only opens at one end: ${m1(len)} back to a choice of direction (guide: ${cfg.deadEndM} m).`,
         itemIds: [...ids], at: route[0], route,
       });
     }
@@ -549,6 +567,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
 
   // Wheelchair reach: room beside beds, desks, tables, sofas and fixtures.
   const IMPORTANT = /bed|desk|table|sofa|toilet|wc|sink|basin|bath|shower|counter|kitchen|stove|oven|fridge|wardrobe/i;
+  const noReach = new Map<number, Array<{ f: FurnitureItem; nearest: number }>>();
   const wcRooms = new Set(model.spaces.map((s, k) => k).filter((k) => { for (let i = 0; i < N; i++) if (g.room[i] === k && Number.isFinite(FW.len[i])) return true; return false; }));
   for (const it of g.items) {
     const f = it.f;
@@ -575,13 +594,19 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
         seen[j] = 1; q.push(j);
       }
     }
-    if (!ok) {
-      findings.push({
-        id: `wc-reach:${f.id}`, kind: 'wc-reach', area: 'access', severity: 'advice', title: `No wheelchair space beside ${label(f)}`,
-        message: `There is no ${cm(cfg.besideM)} wide spot next to ${label(f)} that a wheelchair can reach${Number.isFinite(nearest) ? `; the closest it gets is ${cm(Math.max(0, nearest - cfg.wheelchairRouteM / 2))} from its edge` : ''}.`,
-        itemIds: [f.id], at: { x: f.x, y: f.y },
-      });
-    }
+    if (!ok) (noReach.get(r) ?? noReach.set(r, []).get(r)!).push({ f, nearest });
+  }
+  for (const [r, list] of noReach) {
+    const sp = model.spaces[r];
+    const one = list.length === 1;
+    const closest = Math.min(...list.map((x) => x.nearest));
+    const names = list.slice(0, 4).map((x) => label(x.f)).join(', ') + (list.length > 4 ? ` and ${list.length - 4} more` : '');
+    findings.push({
+      id: `wc-reach:${sp.id}`, kind: 'wc-reach', area: 'access', severity: 'advice',
+      title: one ? `No wheelchair space beside ${label(list[0].f)}` : `No wheelchair space beside ${list.length} items in ${sp.name}`,
+      message: `There is no ${cm(cfg.besideM)} wide spot a wheelchair can reach next to ${names}${Number.isFinite(closest) ? `; the closest it gets is ${cm(Math.max(0, closest - cfg.wheelchairRouteM / 2))} from an edge` : ''}.`,
+      itemIds: list.map((x) => x.f.id), at: { x: list[0].f.x, y: list[0].f.y },
+    });
   }
 }
 
@@ -820,9 +845,8 @@ export function assessSafety(model: SpaceModel, furniture: FurnitureItem[], opts
   const nC = findings.filter((f) => f.severity === 'critical').length, nI = findings.filter((f) => f.severity === 'important').length, nA = findings.length - nC - nI;
   const score = Math.max(0, Math.min(100, 100 - 25 * nC - 10 * nI - 2 * nA));
   const fireFix = findings.filter((f) => f.area === 'fire' && f.severity !== 'advice').length;
-  const where = model.spaces.length > 1 ? 'these rooms are' : 'this room is';
   const headline = fireFix
-    ? `${fireFix} ${fireFix === 1 ? 'thing' : 'things'} to fix before ${where} safe to escape`
+    ? `${fireFix} ${fireFix === 1 ? 'thing' : 'things'} to fix on the escape ${model.spaces.length > 1 ? 'routes' : 'route'}`
     : findings.some((f) => f.severity !== 'advice')
       ? `Escape routes look clear; ${nC + nI} accessibility ${nC + nI === 1 ? 'issue' : 'issues'} to fix`
       : nA ? `No blocking problems found; ${nA} ${nA === 1 ? 'suggestion' : 'suggestions'}` : 'No problems found with these assumptions';
