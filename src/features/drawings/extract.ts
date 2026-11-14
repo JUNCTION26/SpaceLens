@@ -286,7 +286,7 @@ function findDoors(paths: VPath[], rMin: number, rMax: number, wallStyles: Set<s
 // ---------------------------------------------------------------------------------------------
 // Windows: thin rectangles whose two short ends sit against wall material (a frame in a wall gap).
 
-function findWindows(paths: VPath[], grid: Grid, wallT: number, wallTMax: number, wallStyles: Set<string>, minLen: number, doors: Door[]): WindowGeom[] {
+function findWindows(paths: VPath[], grid: Grid, wallT: number, maxDepth: number, wallStyles: Set<string>, minLen: number, doors: Door[]): WindowGeom[] {
   const cands: WindowGeom[] = [];
   const nearDoor = (q: P) => doors.some((d) => dist(q, d.tip) < d.widthPt * 0.15 || dist(q, d.hinge) < d.widthPt * 0.15);
   for (const p of paths) {
@@ -297,7 +297,7 @@ function findWindows(paths: VPath[], grid: Grid, wallT: number, wallTMax: number
       if (pts.length !== 4) continue;
       const e0 = dist(pts[0], pts[1]), e1 = dist(pts[1], pts[2]);
       const [long, short] = e0 >= e1 ? [e0, e1] : [e1, e0];
-      if (long < minLen || short > Math.max(wallT * 2.5, wallTMax * 1.6) || short < wallT * 0.15 || long < short * 2.2) continue;
+      if (long < minLen || short > maxDepth || short < wallT * 0.15 || long < short * 2.2) continue;
       if (pts.some(nearDoor)) continue; // an open door leaf, not a window
       // centre line along the long axis
       const mid = (u: P, v: P) => ({ x: (u.x + v.x) / 2, y: (u.y + v.y) / 2 });
@@ -609,7 +609,10 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
 
   // 4. doors and windows close the wall gaps
   const doorR = mPerPt ? [0.45 / mPerPt, 1.4 / mPerPt] : [wallT * 3, wallT * 14];
-  const doors = findDoors(pp.paths, doorR[0], doorR[1], wall.styles, grid, wallT);
+  // swings away from the walls (a legend symbol, a north arrow) are not doors
+  const inPlan = (q: P) => q.x > bb.x0 - wallT && q.x < bb.x1 + wallT && q.y > bb.y0 - wallT && q.y < bb.y1 + wallT;
+  const doors = findDoors(pp.paths, doorR[0], doorR[1], wall.styles, grid, wallT)
+    .filter((d) => inPlan(d.hinge) && inPlan(d.jamb) && (grid.blockedNear(d.hinge, wallT) || grid.blockedNear(d.jamb, wallT)));
   for (const d of doors) {
     // the hinge line sits on the wall face on the swing side: fill the band behind it, away from the leaf
     const L = dist(d.hinge, d.tip) || 1;
@@ -626,7 +629,7 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
     const t = seen ? Math.max(cell * 2, k * cell) : wallT;
     grid.fillSegment({ x: d.hinge.x + bx * t / 2, y: d.hinge.y + by * t / 2 }, { x: d.jamb.x + bx * t / 2, y: d.jamb.y + by * t / 2 }, t, 2);
   }
-  const windows = findWindows(pp.paths, grid, wallT, wall.thick90, wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
+  const windows = findWindows(pp.paths, grid, wallT, Math.max(wallT * 2.5, wall.thick90 * 1.6, mPerPt ? 0.8 / mPerPt : 0), wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
   for (const w of windows) grid.fillSegment(w.a, w.b, Math.max(w.depthPt, wallT * 0.5), 2);
 
   // 5. rooms: fill from every printed room number, then any other enclosed space
