@@ -39,3 +39,6 @@
 .furniture-status { font-size: 12px; opacity: .55; }
 .furniture-price { text-align: right; min-width: 64px; font-variant-numeric: tabular-nums; }
 .furniture-foot { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+
+.furniture-empty { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px 0; }
+.furniture-empty p { margin: 0; }

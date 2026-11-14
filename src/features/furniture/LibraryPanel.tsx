@@ -6,6 +6,8 @@ import { CATALOG, CATEGORIES, makeItem, makeOwnItem, variantsFor } from './catal
 import type { CatalogEntry } from './catalog';
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { Icon } from '../../ui/icons';
+import { notify } from '../../ui/notify';
+import { useUi } from '../../ui/uiStore';
 import './furniture.css';
 
 const cm = (m: number) => Math.round(m * 100);
@@ -89,7 +91,14 @@ export function LibraryPanel() {
       ...groups.flatMap(([, items]) => items.map((f) => [label(f.category), f.name, cm(f.w), cm(f.d), cm(f.h), f.material ?? '', f.owned ? 'owned' : 'to buy', f.owned ? 0 : f.priceSek])),
       ['', 'Total', '', '', '', '', '', total]];
     const csv = rows.map((r) => r.map(esc).join(',')).join('\n');
-    navigator.clipboard?.writeText(csv).then(() => toast('CSV copied'), () => toast('Could not copy'));
+    const download = () => {
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'shopping-list.csv'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    if (!navigator.clipboard) { download(); return; }
+    navigator.clipboard.writeText(csv).then(() => toast('Shopping list copied', 'ok'),
+      () => notify('The browser blocked copying.', { tone: 'warn', actions: [{ label: 'Download CSV', primary: true, run: download }] }));
   };
   const ownValid = own.name.trim() && [own.w, own.d, own.h].every((v) => Number(v) > 0 && Number(v) < 1000);
 
@@ -137,7 +146,7 @@ export function LibraryPanel() {
             <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { locked: !sel.locked } })}>{sel.locked ? 'Unlock' : 'Lock'}</button>
             <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: sel.owned ? { owned: false, priceStatus: 'estimated' } : { owned: true, priceStatus: 'owned' } })}>{sel.owned ? 'Not owned' : 'I own this'}</button>
             <button className="btn btn-sm" onClick={() => setPrice(sel)}>Set price</button>
-            <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); select(null); }} aria-label="Remove"><Icon name="trash" size={14} /></button>
+            <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); select(null); notify(`${sel.name} removed.`, { tone: 'ok', actions: [{ label: 'Undo', run: () => useStore.getState().undo() }] }); }} aria-label={`Remove ${sel.name}`} title="Remove (Delete)"><Icon name="trash" size={14} /></button>
           </div>
         </section>
       )}
@@ -153,7 +162,15 @@ export function LibraryPanel() {
             <span className="furniture-meta">{fmtSek(e.priceSek)}</span>
           </button>
         ))}
-        {list.length === 0 && <p className="muted">No matches.</p>}
+        {list.length === 0 && (
+          <div className="furniture-empty">
+            <p className="muted">Nothing matches{q ? ` "${q}"` : ''}{fits ? ' that fits this room' : ''}.</p>
+            <div className="row">
+              <button className="btn btn-sm" onClick={() => { setQ(''); setCat(null); setFits(false); }}>Show all</button>
+              {q && <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('create')}>Make it with Create object</button>}
+            </div>
+          </div>
+        )}
       </div>
 
       {own.open ? (
@@ -180,7 +197,7 @@ export function LibraryPanel() {
         <section className="furniture-bill">
           <button className="furniture-summary" aria-expanded={billOpen} onClick={() => setBillOpen(!billOpen)}>
             <Icon name={billOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-            <span>{model.furniture.length} items</span>
+            <span>{model.furniture.length} {model.furniture.length === 1 ? 'item' : 'items'}</span>
             <span className={`furniture-sum ${tone}`}>{fmtSek(total)}{budget ? ` / ${fmtSek(budget)}` : ''}</span>
           </button>
           {budget != null && budget > 0 && (
