@@ -10,3 +10,20 @@
 .sim-ok { color: var(--ok); margin: 0; }
 .sim-bad { color: var(--bad); margin: 0; }
 .sim-stats { display: grid; gap: 4px; }
+.sim-profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.sim-profile, .sim-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font-size: 12px; }
+.sim-profile.on, .sim-item.on { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+.sim-icon { font-size: 28px; line-height: 1; }
+.sim-verdict { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; border-radius: 8px; border-left: 4px solid; animation: sim-in .3s ease-out; }
+.sim-verdict.ok { border-color: var(--ok); }
+.sim-verdict.bad { border-color: var(--bad); }
+.sim-verdict.ok strong { color: var(--ok); }
+.sim-verdict.bad strong { color: var(--bad); }
+.sim-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; }
+.sim-shape { display: block; border: 1.5px solid currentColor; border-radius: 2px; margin: 4px 0; }
+.sim-item-name { text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.sim-more summary { cursor: pointer; }
+.sim-spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: sim-rot .8s linear infinite; vertical-align: -2px; }
+@keyframes sim-rot { to { transform: rotate(360deg); } }
+@keyframes sim-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .sim-verdict, .sim-spin { animation: none; } }
