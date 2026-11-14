@@ -11,7 +11,7 @@ function perRule(verdicts: RuleVerdict[]): Array<{ id: string; severity: RuleVer
     m.set(v.ruleId, e);
   }
   // Blend mean and worst: one cramped chair should show even among eleven good ones.
-  return [...m.entries()].map(([id, e]) => ({ id, severity: e.severity, score: 0.7 * (e.sum / e.n) + 0.3 * e.min }));
+  return [...m.entries()].map(([id, e]) => ({ id, severity: e.severity, score: 0.5 * (e.sum / e.n) + 0.5 * e.min }));
 }
 
 /** 0..100. Weighted by severity; any broken hard rule caps the score at 35. */
