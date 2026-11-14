@@ -3,7 +3,7 @@
 // without any model involved. English plus basic Swedish.
 
 import type { MaterialId } from '../../core/types';
-import { findColors, findTheme, type Theme } from './palette';
+import { colorDistance, findColors, findTheme, type Theme } from './palette';
 
 export type TemplateId = 'desk' | 'table' | 'sofa' | 'chair' | 'bed' | 'shelf' | 'cabinet' | 'bench' | 'lamp' | 'rug' | 'special';
 
@@ -248,6 +248,12 @@ export function parseRequest(text: string): ParsedRequest {
     out.colors.push(c);
   }
   out.theme = findTheme(t);
+  // "pink Barbie": the theme's own shade of a named colour wins (hot pink, not a pale pink).
+  if (out.theme) out.colors = out.colors.map((c) => {
+    // Palettes are listed most dominant first, so the first close shade wins.
+    const hex = out.theme!.palette.find((h) => colorDistance(h, c.hex) < 45);
+    return hex ? { word: c.word, hex } : c;
+  });
   for (const [re, f] of FEATURE_WORDS) if (re.test(t)) out.features.push(f);
   if (/\b(right|höger|högra)\b/.test(t)) out.side = 'right';
   else if (/\b(left|vänster|vänstra)\b/.test(t)) out.side = 'left';
@@ -275,7 +281,7 @@ export function resolveSize(p: ParsedRequest, fallback?: { w: number; d: number;
   if (!fallback && p.seats && k && k.template === 'table') ({ w, d } = tableSizeForSeats(p.seats, p.round));
   if (!fallback && p.seats && k && k.template === 'sofa' && k.id === 'sofa') w = Math.max(1.4, p.seats * 0.65 + 0.3);
   if (!fallback && p.round && k && (k.template === 'table' || k.template === 'rug')) { const m = Math.max(w, d) > 1.6 && k.template === 'table' ? 1.2 : Math.min(w, d); w = d = m; }
-  if (!fallback && p.low && k) h = round3(h * (k.template === 'cabinet' || k.template === 'shelf' ? 0.55 : 0.8));
+  if (!fallback && p.low && k) h = round3(h * (k.template === 'shelf' ? 0.55 : k.template === 'cabinet' ? 0.78 : 0.8));
   if (!fallback && p.tall && k && (k.template === 'shelf' || k.template === 'cabinet' || k.template === 'lamp')) h = round3(Math.max(h, k.template === 'lamp' ? 1.8 : 2.0));
   if (p.w !== undefined) w = p.w;
   if (p.d !== undefined) d = p.d;

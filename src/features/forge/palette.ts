@@ -55,7 +55,7 @@ export interface Theme {
 }
 
 export const THEMES: Array<[RegExp, Theme]> = [
-  [/\bbarbie|dream ?house|doll ?house\b/, { id: 'barbie', palette: ['#e0218a', '#ffffff', '#ff8fc7'], materials: ['plastic', 'velvet'], brief: 'Barbie: hot pink #e0218a dominant (frame, headboard, body), crisp white #ffffff trim, light pink #ff8fc7 accents, glossy lacquer (plastic material with the colour), hearts, scallops and gold details. Fun, bold, toy-like proportions, nothing beige.' }],
+  [/\bbarbie|dream ?house|doll ?house\b/, { id: 'barbie', palette: ['#e0218a', '#ffffff', '#ff8fc7'], materials: ['plastic', 'velvet'], brief: 'Barbie: hot pink #e0218a dominant (frame, headboard, body), crisp white #ffffff trim, light pink #ff8fc7 accents, glossy lacquer (plastic material with the colour), hearts, scallops and gold details; a bed gets a white canopy with pink drapes and a heart headboard. Fun, bold, toy-like proportions, nothing beige.' }],
   [/\bprincess|fairy ?tale|royal\b/, { id: 'princess', palette: ['#f4a6c6', '#fff4f8', '#c9a24c'], materials: ['velvet', 'linen', 'brass'], brief: 'Princess: blush pink #f4a6c6 and white #fff4f8 with gold, a canopy with drapes, arched or crown headboard, scallops and finials.' }],
   [/\bindustrial|loft|factory\b/, { id: 'industrial', palette: ['#1c1c1e', '#a0703f'], materials: ['black-metal', 'oak'], brief: 'Industrial: black metal #1c1c1e frame (square tube, visible joints) with warm oak or reclaimed wood, no ornament.' }],
   [/\bscandi|scandinavian|nordic|ikea\b/, { id: 'scandi', palette: ['#e3cfae', '#f4f2ee', '#b8bcc0'], materials: ['birch', 'oak', 'white-laminate', 'wool'], brief: 'Scandinavian: light birch or oak, white, light grey wool, slim tapered legs, soft rounded edges, calm and simple.' }],

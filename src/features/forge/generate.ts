@@ -16,6 +16,7 @@ import type { ObjectPart, ObjectSpec } from '../../core/types';
 import { coerceKit } from './kits';
 import { KIT_EXAMPLES, type KitExample } from './kitExamples';
 import { fitSpec } from './fit';
+import { critique } from './critique';
 import { fixAxes } from './orient';
 import { kindById, parseEdit, parseRequest, resolveSize, type ParsedRequest } from './parseRequest';
 import { enforceColors } from './recolor';
@@ -63,7 +64,7 @@ const BUDGET = { lean: '6 to 16 items', rich: '10 to 28 items' } as const;
 
 const KIT_GUIDE = `KITS (code expands each into detailed, correctly joined parts inside its box; use them wherever they fit):
 - legs: count 4|6|3; style square|round|tapered|splayed|turned|hairpin|bun|sled|trestle|panel. Box = the leg zone under the body.
-- casters: five-star chair base with castors and gas lift. Box = base footprint, height up to the seat.
+- casters: five-star office or gaming chair base with castors and gas lift (chairs only; beds and trolleys get small cylinder wheels). Box = base footprint, height up to the seat.
 - pedestal: centre column with base for round tables; style column|tulip|cross|turned|drum.
 - frame: rails along the box edges; style top|apron|base|full|sides; radius = rail thickness / 2.
 - carcass: cabinet body (sides, top, bottom, back, plinth) with an open front; count = bays; style plinth|legs.
@@ -108,6 +109,22 @@ export function pickExamples(prompt: string, parsed: ParsedRequest, n = 2): KitE
   return scored.slice(0, n).map((x) => x.e);
 }
 
+/** Words in the request that call for a particular kit. */
+const HINTS: Array<[RegExp, string]> = [
+  [/curved|curve|crescent|semi.?circ|rounded sofa/, 'arc kits for the curved body (base, back, cushions share one width and curve depth)'],
+  [/canopy|four.?poster|princess|barbie|dream bed/, 'a canopy kit over the bed'],
+  [/heart/, 'heart outlines (headboard style heart, bedding style heart)'],
+  [/slide/, 'a slide kit'], [/ladder/, 'a ladder kit'], [/drawer|pedestal/, 'a drawers kit inside a carcass'],
+  [/sliding door/, 'a doors kit with style sliding'], [/fold|murphy|wall bed|drop.?down|pull.?down/, 'the wallbed kit'],
+  [/grand piano|baby grand/, 'a plan kit style piano for the case and lid, a keyboard kit, three legs'],
+  [/\bpiano\b/, 'a keyboard kit'], [/bookcase|bookshelf|shelving|library/, 'a bookcase kit with books'],
+  [/gaming chair|office chair|desk chair|swivel/, 'a casters kit'], [/pedestal|round.*table|table.*round/, 'a pedestal kit'],
+  [/arcade/, 'an extrude side profile mirrored, a screen kit, joystick and buttons'], [/cot\b|crib/, 'slats kits on all four sides'],
+  [/booth|pod/, 'glass doors kit and felt panels'],
+  [/standing desk|sit.?stand|height.?adjust/, 'two T-shaped lifting legs (legs kit style trestle in black-metal) and a small control panel'],
+  [/hospital|care bed/, 'a raised back section, side rails (slats kit style horizontal), head and foot panels and four small cylinder wheels'],
+];
+
 function requestLines(parsed: ParsedRequest, target: Size): string {
   const said = (['w', 'd', 'h'] as const).filter((k) => parsed[k] !== undefined);
   const lines = [`Target size: w ${target.w} m, d ${target.d} m, h ${target.h} m.`];
@@ -119,6 +136,8 @@ function requestLines(parsed: ParsedRequest, target: Size): string {
   if (counts.length) lines.push(`Exactly: ${counts.map(([k, v]) => `${v} ${k}`).join(', ')}.`);
   if (parsed.features.length) lines.push(`Must include: ${parsed.features.join(', ')}${parsed.side ? ` (on the ${parsed.side}, +x is right)` : ''}.`);
   if (parsed.seats) lines.push(`Seats ${parsed.seats} people.`);
+  const hints = HINTS.filter(([re]) => re.test(parsed.text.toLowerCase())).map(([, h]) => h);
+  if (hints.length) lines.push(`Use: ${hints.join('; ')}.`);
   return lines.join('\n');
 }
 
@@ -175,6 +194,15 @@ export function repairItems(raw: unknown, parsed: ParsedRequest): string[] {
       hb.kit = 'headboard'; hb.style = style; delete hb.shape; fixes.push(`${style} headboard`);
     }
   }
+  // A plain part named like a kit becomes that kit ("Pedestal base" on a round table).
+  for (const it of items) {
+    if (kitOf(it)) continue;
+    const name = String(it.name ?? '').toLowerCase();
+    if (/pedestal|centre column|center column/.test(name) && /table/.test(text)) { it.kit = 'pedestal'; it.style = it.style ?? (/brass|steel|chrome/.test(String(it.material)) ? 'tulip' : 'column'); delete it.shape; fixes.push('pedestal kit'); }
+    else if (/canopy/.test(name) && !/drape|top|rail/.test(name)) { it.kit = 'canopy'; delete it.shape; fixes.push('canopy kit'); }
+  }
+  // Sliding doors asked for: doors kits slide.
+  if (/sliding|slide-?by|bypass/.test(text) && /door/.test(text)) for (const it of items) if (kitOf(it) === 'doors' && !/slid/.test(String(it.style ?? ''))) { it.style = `sliding ${String(it.style ?? '')}`.trim(); fixes.push('sliding doors'); }
   // Reception desks bulge toward the visitor.
   if (/reception|front desk|counter/.test(text)) for (const it of items) if (kitOf(it) === 'arc' && !it.style) { it.style = 'convex'; fixes.push('convex curve'); }
   return fixes;
@@ -198,7 +226,7 @@ export function finalSize(parsed: ParsedRequest, raw: Size, fallback: Size): Siz
   for (const key of keys) {
     if (parsed[key] !== undefined) { out[key] = parsed[key]!; continue; }
     const v = raw[key] * k;
-    out[key] = ok(v) ? Math.round(Math.min(fallback[key] * 2.6, Math.max(fallback[key] * 0.45, v)) * 1000) / 1000 : fallback[key];
+    out[key] = ok(v) ? Math.round(Math.min(fallback[key] * 1.7, Math.max(fallback[key] * 0.6, v)) * 1000) / 1000 : fallback[key];
   }
   if (parsed.round && parsed.w !== undefined && parsed.d === undefined) out.d = parsed.w;
   return out;
@@ -237,6 +265,8 @@ export function finish(raw: unknown, parsed: ParsedRequest, want: Want): Finishe
   const stated = { w: parsed.w !== undefined, d: parsed.d !== undefined, h: parsed.h !== undefined };
   const turned = fixAxes(norm, want.size, stated);
   if (turned.fixed) { norm = turned.spec; fixes.push(`axes ${turned.fixed}`); }
+  const checked = critique(norm);
+  norm = checked.spec; fixes.push(...checked.fixes);
   const fp = specFootprint(norm);
   const size = finalSize(parsed, { w: fp.w, d: fp.d, h: fp.h }, want.size);
   const fitted = fitSpec(norm, size);

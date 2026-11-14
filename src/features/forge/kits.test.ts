@@ -117,3 +117,21 @@ describe('axis repair', () => {
     expect(fixAxes(s, { w: 1.4, d: 0.7, h: 0.74 }).fixed).toBeUndefined();
   });
 });
+
+describe('self-check', () => {
+  const P = (name: string, size: [number, number, number], pos: [number, number, number]) => ({ name, shape: 'box' as const, size, pos, material: 'oak' as const });
+  it('drops a lone rod poking far out and lifts a body that swallows its legs', async () => {
+    const { critique } = await import('./critique');
+    const base: ObjectSpec = { id: 't', name: 't', prompt: 't', size: { w: 1, d: 1, h: 1 }, semantics: { category: 'x', role: 'decor', wallBacked: false, frontClearanceM: 0, sideClearanceM: 0, pairsWith: [], faces: 'none', tall: false, description: '' }, model: 'x', latencyMs: 0, createdAt: 0,
+      parts: [P('Body', [1.5, 1.0, 1.8], [0, 0.5, 0]), P('Leg 1', [0.06, 0.6, 0.06], [-0.6, 0.3, 0.7]), P('Leg 2', [0.06, 0.6, 0.06], [0.6, 0.3, 0.7]), P('Leg 3', [0.06, 0.6, 0.06], [0, 0.3, -0.7]), P('Lid', [1.5, 0.02, 1.8], [0, 1.01, 0]), P('Rail', [0.03, 3.0, 0.03], [0, 2.4, 0])] };
+    const r = critique(base);
+    expect(r.spec.parts.some((p) => p.name === 'Rail')).toBe(false);
+    const body = r.spec.parts.find((p) => p.name === 'Body')!;
+    expect(body.pos[1] - body.size[1] / 2).toBeCloseTo(0.6, 3);
+  });
+  it('keeps canopy posts, which reach up together', async () => {
+    const { strayRods } = await import('./critique');
+    const parts = [P('Bed', [1, 0.5, 2], [0, 0.25, 0]), P('Mattress', [0.9, 0.2, 1.9], [0, 0.6, 0]), ...[[-0.5, -1], [0.5, -1], [-0.5, 1], [0.5, 1]].map(([x, z], i) => P(`Post ${i}`, [0.04, 2, 0.04], [x, 1, z]))];
+    expect(strayRods(parts)).toEqual([]);
+  });
+});

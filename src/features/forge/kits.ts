@@ -544,8 +544,8 @@ function arc(c: Ctx, w: number, h: number, d: number) {
 
 function plan(c: Ctx, w: number, h: number, d: number) {
   const { item } = c;
-  const prof = item.profile && item.profile.length >= 3 ? item.profile.map(([x, z]) => [x, -z] as Pt) : (presetProfile(item.style) ?? presetProfile('rounded')!).map(([x, y]) => [x, y] as Pt);
-  // Presets have y = 1 at the front: in plan that is +z, so the outline's y runs along -z after rotation.
+  const prof = item.profile && item.profile.length >= 3 ? item.profile.map(([x, z]) => [x, -z] as Pt) : (presetProfile(item.style) ?? presetProfile('rounded')!).map(([x, y]) => [x, -y] as Pt);
+  // Presets have y = 1 at the front (+z); after the rotation local y runs along -z, hence the sign flip.
   c.parts.push(P(item.name, 'extrude', [w, d, h], [0, h / 2, 0], item.material, { color: item.color, profile: prof, rot: [-Math.PI / 2, 0, 0], radius: SOFT.has(item.material) ? Math.min(0.03, h * 0.2) : undefined }));
 }
 

@@ -85,7 +85,7 @@ describe('rules templates', () => {
     const barbie = rulesObject('pink Barbie dream bed 90x200 with heart headboard');
     expect(barbie.parts.some((p) => /canopy/i.test(p.name))).toBe(true);
     expect(barbie.parts.some((p) => p.color === '#f27cb0' || p.color === '#e0218a')).toBe(true);
-    expect(rulesObject('gaming chair black and red').parts.some((p) => p.color === '#c62828')).toBe(true);
+    expect(rulesObject('gaming chair black and red').parts.some((p) => p.color === '#d0021b' || p.color === '#c62828')).toBe(true);
     expect(rulesObject('kids bunk bed with slide').parts.some((p) => /chute/i.test(p.name))).toBe(true);
     expect(rulesObject('grand piano').parts.some((p) => /black key/i.test(p.name))).toBe(true);
     expect(rulesObject('arcade machine').parts.some((p) => /joystick/i.test(p.name))).toBe(true);
