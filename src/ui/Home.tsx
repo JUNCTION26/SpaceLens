@@ -98,7 +98,7 @@ export function Home() {
       <main className="home-hero">
         <div className="home-copy">
           <h1>Measure a room.<br />Design it. Walk through it.</h1>
-          <p className="home-pitch">Fit out an office, decide the walls of a new house, or plan a dream bedroom, with every size checked.</p>
+          <p className="home-pitch">For offices, new homes and dream bedrooms. Every size checked.</p>
           <div className="home-cta">
             {recent
               ? <button className="btn btn-primary btn-xl" onClick={() => setMode('design')}>Continue {recent}<Icon name="chevronRight" /></button>
@@ -106,7 +106,7 @@ export function Home() {
             <button className="btn btn-ghost btn-xl" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}><Icon name="play" />Watch demo</button>
           </div>
           <div className="home-start" role="group" aria-labelledby="home-start-label">
-            <div className="home-start-head" id="home-start-label">Start from your own space</div>
+            <div className="home-start-head" id="home-start-label">Start from your space</div>
             {OPTIONS.map((o) => (
               <button key={o.kind} className="home-row" onClick={() => openCapture(o.kind)}>
                 <Icon name={o.icon} size={16} /><span>{o.title}</span><Icon name="chevronRight" size={14} className="home-row-go" />
