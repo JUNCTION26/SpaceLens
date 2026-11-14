@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { RoundedBox, useGLTF } from '@react-three/drei';
 import { modelSpecFor, modelUrl, type ModelSpec } from './assets';
 import type { FurnitureItem } from '../../core/types';
+import { GeneratedMesh } from '../forge/GeneratedMesh';
+import { fitSpec } from '../forge/fit';
 
 type Mat = THREE.MeshStandardMaterial;
 interface Mats { main: Mat; dark: Mat; soft: Mat; white: Mat; metal: Mat; green: Mat; pot: Mat; book: Mat[]; glow: Mat }
@@ -354,7 +356,31 @@ function ModelBody({ spec, item, selected, ghost }: { spec: ModelSpec; item: Fur
   return <primitive object={obj} />;
 }
 
-function FurnitureMeshImpl({ item, selected, ghost }: { item: FurnitureItem; selected?: boolean; ghost?: boolean }) {
+/** A generated object, refitted to the item's exact size whenever either changes. */
+function CustomBody({ item, selected, ghost, open }: { item: FurnitureItem; selected: boolean; ghost: boolean; open?: number }) {
+  const spec = item.custom!;
+  const fitted = useMemo(() => fitSpec(spec, { w: item.w, d: item.d, h: item.h }), [spec, item.w, item.d, item.h]);
+  return <GeneratedMesh spec={fitted} selected={selected} ghost={ghost} open={open} />;
+}
+
+function FurnitureMeshImpl({ item, selected, ghost, open }: { item: FurnitureItem; selected?: boolean; ghost?: boolean; open?: number }) {
+  if (item.custom) {
+    return (
+      <group position={[item.x, 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
+        <CustomBody item={item} selected={!!selected} ghost={!!ghost} open={open} />
+        {selected && (
+          <lineSegments position={[0, item.h / 2, 0]}>
+            <edgesGeometry args={[new THREE.BoxGeometry(item.w + 0.04, item.h + 0.04, item.d + 0.04)]} />
+            <lineBasicMaterial color="#4da3ff" />
+          </lineSegments>
+        )}
+      </group>
+    );
+  }
+  return <StockFurniture item={item} selected={selected} ghost={ghost} />;
+}
+
+function StockFurniture({ item, selected, ghost }: { item: FurnitureItem; selected?: boolean; ghost?: boolean }) {
   const mats = useMemo(() => makeMats(item.color, !!selected, !!ghost, item.material), [item.color, selected, ghost, item.material]);
   useEffect(() => () => { Object.values(mats).flat().forEach((x) => (x as Mat).dispose()); }, [mats]);
   const shadow = !ghost;
