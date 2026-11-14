@@ -1,0 +1,11 @@
+.vision { display: flex; flex-direction: column; }
+.vision-row { border-bottom: 1px solid var(--line); }
+.vision-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 2px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.vision-head:hover { color: var(--text); }
+.vision-title { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.vision-title .muted { font-size: 12px; }
+.vision-body { display: flex; flex-direction: column; gap: 8px; padding: 0 2px 12px 28px; }
+.vision-body p { margin: 0; }
+.vision-body ul { margin: 0; padding-left: 18px; }
+.vision-body .btn { align-self: flex-start; }
+.vision-result { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }

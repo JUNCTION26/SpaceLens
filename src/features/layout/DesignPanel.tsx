@@ -69,7 +69,7 @@ export function DesignPanel() {
             ))}
             {req && <button className="btn btn-primary btn-sm" disabled={busy} onClick={regenerate}>Try again</button>}
           </div>
-        ) : <p className="muted">No layouts yet. Describe what you need in the Request tab.</p>}
+        ) : <p className="muted">No layouts yet.</p>}
       </div>
     );
   }
@@ -83,20 +83,26 @@ export function DesignPanel() {
       {stale && (
         <div className="layout-stale">
           <span>Room changed since these were made.</span>
-          <button className="btn btn-sm btn-primary" disabled={busy || !req} onClick={regenerate}>Regenerate</button>
+          <button className="btn btn-sm" disabled={busy || !req} onClick={regenerate}>Regenerate</button>
         </div>
       )}
-      <div className="row">
-        <button className="btn btn-sm btn-ghost" onClick={() => setCompare((c) => !c)}>{compare ? 'Hide compare' : 'Compare'}</button>
-        {pins.length === 2 && <button className="btn btn-sm" disabled={busy} onClick={combine}>Combine</button>}
+      <div className="layout-toolbar">
+        <span className="muted">{candidates.length} layout{candidates.length > 1 ? 's' : ''}</span>
         {busy && <span className="muted">Working...</span>}
+        <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
       </div>
+      {compare && (
+        <div className="layout-combine muted">
+          <span>Pick two to combine ({pins.length}/2)</span>
+          <button className="btn btn-sm" disabled={busy || pins.length !== 2} onClick={combine}>Combine</button>
+        </div>
+      )}
       {compare && sp && (
         <div className="layout-compare">
           {candidates.map((c) => (
             <figure key={c.id} className={c.id === activeId ? 'on' : ''} onClick={() => useStore.getState().previewCandidate(c.id)}>
               <Thumb model={model} cand={c} scale={scale} />
-              <figcaption>{c.name}</figcaption>
+              <figcaption>{c.name}<br />{fmtM2(c.metrics.openAreaM2)} open{c.metrics.routeLenM != null && ` · route ${c.metrics.routeLenM.toFixed(1)} m`}</figcaption>
             </figure>
           ))}
         </div>
@@ -104,25 +110,28 @@ export function DesignPanel() {
       <div className="layout-cards">
         {candidates.map((c) => {
           const passed = c.checks.filter((r) => r.result === 'pass').length;
+          const failed = c.checks.filter((r) => r.result === 'fail').length;
+          const tone = failed > 0 ? 'chip-bad' : passed < c.checks.length ? 'chip-warn' : 'chip-ok';
           const nowFail = recheck.get(c.id) ?? 0;
           return (
-            <div key={c.id} className={`card${c.id === activeId ? ' on' : ''}`} onClick={() => useStore.getState().previewCandidate(c.id)}>
-              <div className="layout-card-head">
-                <strong>{c.name}</strong>
-                <span className="chip chip-ok">{passed}/{c.checks.length} checks</span>
-                {nowFail > 0 && <span className="chip chip-bad">{nowFail} now fail</span>}
-              </div>
-              <div className="muted">{c.summary}</div>
-              <div className="layout-stats">
-                <span>{fmtSek(c.metrics.costSek)}</span>
-                <span>{fmtM2(c.metrics.openAreaM2)} open</span>
-                {c.metrics.routeLenM != null && <span>Route {c.metrics.routeLenM.toFixed(1)} m</span>}
-              </div>
-              <div className="row">
-                <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>
-                <button className={`btn btn-sm btn-ghost${pins.includes(c.id) ? ' layout-pinned' : ''}`} aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
-                  {pins.includes(c.id) ? 'Pinned' : 'Pin'}
-                </button>
+            <div key={c.id} className={`layout-card${c.id === activeId ? ' on' : ''}`} onClick={() => useStore.getState().previewCandidate(c.id)}>
+              {sp && <Thumb model={model} cand={c} scale={scale * 0.6} />}
+              <div className="layout-card-body">
+                <div className="layout-card-head">
+                  <strong>{c.name}</strong>
+                  <span className={`chip ${tone}`}>{passed}/{c.checks.length} checks</span>
+                  {nowFail > 0 && <span className="chip chip-bad">{nowFail} now fail</span>}
+                </div>
+                <div className="muted layout-reason" title={c.summary}>{c.summary}</div>
+                <div className="layout-foot">
+                  <span>{fmtSek(c.metrics.costSek)}</span>
+                  {compare && (
+                    <button className="btn btn-sm btn-ghost" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
+                      {pins.includes(c.id) ? 'Picked' : 'Pick'}
+                    </button>
+                  )}
+                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>
+                </div>
               </div>
             </div>
           );

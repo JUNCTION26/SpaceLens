@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Icon } from '../../ui/icons';
+import './vision.css';
 import { useStore, getState } from '../../core/store';
 import { gemini, fileToInlineData, hasGemini, usage, type GeminiPart } from '../../core/gemini';
 import type { Requirements } from '../../core/types';
@@ -68,23 +70,22 @@ function FurnitureFromPhoto() {
   );
 
   return (
-    <section className="card">
-      <h3>Furniture from photo</h3>
-      <p className="muted small">Put an A4 sheet next to it for scale, or type a size you know.</p>
-      <input placeholder="Known size, e.g. 200 cm wide" value={known} onChange={(e) => setKnown(e.target.value)} />
+    <div className="vision-body">
+      <p className="muted small">An A4 sheet or a known size sets the scale.</p>
+      <input placeholder="Known size, e.g. 200 cm" value={known} onChange={(e) => setKnown(e.target.value)} />
       <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {est && (
-        <div className="card">
+        <div className="vision-result">
           <p className="small"><strong>Estimate, check with a tape</strong> · {Math.round(est.confidence * 100)}% sure</p>
           <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')}
           <p className="muted small">{est.reasoning}</p>
-          <button className="btn primary" onClick={add}>Add as owned</button>
+          <button className="btn btn-primary" onClick={add}>Add as owned</button>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -129,9 +130,8 @@ function StyleMatch() {
   };
 
   return (
-    <section className="card">
-      <h3>Style from photo</h3>
-      <PhotoInput label={busy ? 'Looking...' : 'Choose inspiration photo'} onFile={run} />
+    <div className="vision-body">
+      <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {res && (
         <div>
@@ -139,10 +139,10 @@ function StyleMatch() {
           <div style={{ display: 'flex', gap: 4 }}>{res.palette.map((h) => <span key={h} title={h} aria-label={h} style={{ width: 28, height: 28, borderRadius: 4, background: h, border: '1px solid #0003' }} />)}</div>
           {res.materials.length > 0 && <p className="muted small">{res.materials.join(', ')}</p>}
           <ul className="small">{res.suggestedItems.map((s, i) => <li key={i}><strong>{CATALOG.find((c) => c.id === s.catalogId)?.name ?? s.catalogId}</strong>: {s.why}</li>)}</ul>
-          <button className="btn primary" onClick={use}>Use this style</button>
+          <button className="btn btn-primary" onClick={use}>Use this style</button>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -182,14 +182,13 @@ function RoomCheck() {
   };
 
   return (
-    <section className="card">
-      <h3>Compare with photo</h3>
-      <PhotoInput label={busy ? 'Comparing...' : 'Choose room photo'} onFile={run} />
+    <div className="vision-body">
+      <PhotoInput label={busy ? 'Comparing...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
-      {issues && (issues.length === 0 ? <p className="small">No clear differences found.</p> : (
+      {issues && (issues.length === 0 ? <p className="small">No differences found.</p> : (
         <ul className="small">{issues.map((x, i) => <li key={i}><strong>{x.kind}</strong>: {x.detail} <span className="muted">{x.suggestion}</span></li>)}</ul>
       ))}
-    </section>
+    </div>
   );
 }
 
@@ -198,16 +197,33 @@ export function VisionPanel() {
   if (!hasGemini()) {
     return (
       <div className="panel">
-        <h3>Inspire needs a Gemini key</h3>
-        <p className="muted">Add a Gemini key in Settings to use these.</p>
+        <p className="muted">Add a Gemini key in Settings.</p>
       </div>
     );
   }
+  return <VisionTools />;
+}
+
+const TOOLS: Array<{ id: string; title: string; hint: string; icon: string; body: () => ReactNode }> = [
+  { id: 'furniture', title: 'Furniture from photo', hint: 'Measure an item and add it', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
+  { id: 'style', title: 'Style from photo', hint: 'Match a look you like', icon: 'palette', body: () => <StyleMatch /> },
+  { id: 'check', title: 'Compare with photo', hint: 'Spot differences from the model', icon: 'camera', body: () => <RoomCheck /> },
+];
+
+function VisionTools() {
+  const [open, setOpen] = useState<string | null>(null);
   return (
-    <div className="panel">
-      <FurnitureFromPhoto />
-      <StyleMatch />
-      <RoomCheck />
+    <div className="panel vision">
+      {TOOLS.map((t) => (
+        <div key={t.id} className={`vision-row${open === t.id ? ' on' : ''}`}>
+          <button className="vision-head" aria-expanded={open === t.id} onClick={() => setOpen((o) => (o === t.id ? null : t.id))}>
+            <Icon name={t.icon} size={16} />
+            <span className="vision-title">{t.title}<span className="muted">{t.hint}</span></span>
+            <Icon name={open === t.id ? 'chevronDown' : 'chevronRight'} size={14} />
+          </button>
+          {open === t.id && t.body()}
+        </div>
+      ))}
     </div>
   );
 }

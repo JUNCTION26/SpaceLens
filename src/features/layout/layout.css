@@ -1,13 +1,21 @@
 .layout-panel { display: flex; flex-direction: column; gap: 10px; }
-.layout-stale { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: 8px; }
+.layout-stale { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0 6px 10px; border-left: 2px solid var(--warn); font-size: 12px; color: var(--muted); }
+.layout-toolbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.layout-toolbar > button { margin-left: auto; }
+.layout-combine { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .layout-compare { display: flex; flex-wrap: wrap; gap: 8px; }
 .layout-compare figure { margin: 0; padding: 4px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .layout-compare figure.on { border-color: var(--accent); }
-.layout-compare figcaption { font-size: 12px; color: var(--muted); text-align: center; }
+.layout-compare figcaption { font-size: 11px; color: var(--muted); text-align: center; }
 .layout-cards { display: flex; flex-direction: column; gap: 8px; }
-.layout-cards .card { cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.layout-card { display: flex; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+.layout-card:hover { border-color: color-mix(in srgb, var(--text) 25%, var(--line)); }
+.layout-card.on { border-color: var(--accent); }
+.layout-thumb { flex: none; }
+.layout-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .layout-card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.layout-card-head strong { flex: 1; }
-.layout-stats { display: flex; gap: 12px; font-size: 13px; }
-.layout-pinned { border-color: var(--accent); color: var(--accent); }
+.layout-card-head strong { flex: 1; font-weight: 600; }
+.layout-reason { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.layout-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.layout-foot > span { flex: 1; font-variant-numeric: tabular-nums; }
 .layout-infeasible { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }

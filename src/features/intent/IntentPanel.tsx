@@ -5,6 +5,7 @@ import { CATALOG } from '../furniture/catalog';
 import { generateLayouts } from '../layout/solver';
 import { useUi } from '../../ui/uiStore';
 import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
+import { Icon } from '../../ui/icons';
 import './intent.css';
 
 const EXAMPLES = [
@@ -26,6 +27,7 @@ export function IntentPanel() {
   const [meta, setMeta] = useState<CompileMeta | null>(null);
   const [follow, setFollow] = useState('');
   const [refining, setRefining] = useState(false);
+  const [adjust, setAdjust] = useState(false);
   const [thread, setThread] = useState<Array<{ ask: string; reply: string; diff: string[]; meta: CompileMeta }>>([]);
   const compileRef = useRef<(t?: string) => Promise<void>>(async () => {});
 
@@ -104,24 +106,45 @@ export function IntentPanel() {
   };
   const setItem = (idx: number, p: Partial<Requirements['items'][number]>) => req && patch({ items: req.items.map((it, i) => (i === idx ? { ...it, ...p } : it)) });
 
+  const itemName = (it: Requirements['items'][number]) => it.keepExistingId
+    ? `${model.furniture.find((f) => f.id === it.keepExistingId)?.name ?? it.catalogId} (kept)`
+    : CATALOG.find((c) => c.id === it.catalogId)?.name ?? it.catalogId;
+  const summary = req ? [
+    req.purpose || null,
+    `${req.people} ${req.people === 1 ? 'person' : 'people'}`,
+    req.budgetSek != null ? `${req.budgetSek} kr` : null,
+    ...req.items.map((it) => `${it.qty > 1 ? `${it.qty} ` : ''}${itemName(it)}`),
+    `${Math.round(req.minRouteWidthM * 100)} cm route`,
+  ].filter(Boolean).join(' · ') : '';
+
   return (
     <div className="intent">
-      <label className="field">
-        <span>What do you want?</span>
-        <textarea className="intent-text" rows={3} value={text} onChange={(e) => setText(e.target.value)}
+      <div className="intent-composer">
+        <textarea className="intent-text" rows={3} value={text} aria-label="Describe your space" onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void compile(); } }}
-          placeholder="Home office for two, under 12 000 kr" />
-      </label>
-      <MicButton onText={(t) => setText((v) => (v ? `${v} ${t}` : t))} />
-      <div className="intent-examples">
-        {EXAMPLES.map((ex) => <button key={ex} className="chip" onClick={() => setText(ex)}>{ex}</button>)}
+          placeholder="Describe the room you want" />
+        <div className="intent-composer-bar">
+          <MicButton onText={(t) => setText((v) => (v ? `${v} ${t}` : t))} />
+          <button className="btn btn-primary btn-sm intent-send" disabled={compiling || !text.trim()} onClick={() => compile()} aria-label="Design it">
+            {compiling ? 'Reading...' : busy ? 'Designing...' : <Icon name="send" size={14} />}
+          </button>
+        </div>
       </div>
-      <button className="btn btn-primary" disabled={compiling || !text.trim()} onClick={() => compile()}>
-        {compiling ? 'Reading...' : busy ? 'Designing...' : 'Design it'}
-      </button>
+      {!req && (
+        <div className="intent-examples">
+          {EXAMPLES.map((ex) => <button key={ex} className="intent-example" onClick={() => setText(ex)}>{ex}</button>)}
+        </div>
+      )}
       {meta?.error && <CompilerBadge meta={meta} />}
 
       {req && (
+        <div className="intent-summary">
+          <span className="intent-summary-text">{summary}</span>
+          <button className="btn btn-ghost btn-sm" aria-expanded={adjust} onClick={() => setAdjust((a) => !a)}>{adjust ? 'Done' : 'Adjust'}</button>
+        </div>
+      )}
+
+      {req && adjust && (
         <div className="intent-chips" aria-label="Program">
           <input className="chip intent-chip-in" aria-label="Purpose" value={req.purpose} placeholder="Purpose" onChange={(e) => patch({ purpose: e.target.value })} />
           <span className="chip intent-step">
@@ -136,7 +159,7 @@ export function IntentPanel() {
           {req.items.map((it, i) => (
             <span className="chip intent-step" key={i}>
               {!it.keepExistingId && <button aria-label="Fewer" onClick={() => (it.qty > 1 ? setItem(i, { qty: it.qty - 1 }) : patch({ items: req.items.filter((_, j) => j !== i) }))}>-</button>}
-              {it.qty > 1 ? `${it.qty} ` : ''}{it.keepExistingId ? `${model.furniture.find((f) => f.id === it.keepExistingId)?.name ?? it.catalogId} (kept)` : CATALOG.find((c) => c.id === it.catalogId)?.name ?? it.catalogId}
+              {it.qty > 1 ? `${it.qty} ` : ''}{itemName(it)}
               {!it.keepExistingId && <button aria-label="More" onClick={() => setItem(i, { qty: Math.min(20, it.qty + 1) })}>+</button>}
             </span>
           ))}
@@ -153,28 +176,42 @@ export function IntentPanel() {
         </div>
       )}
 
+      {triedGen && candidates.length === 0 && infeasibility && (
+        <div className="intent-infeasible">
+          <strong>No layout fits</strong>
+          <ul>{infeasibility.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+          <div className="row">
+            {infeasibility.relaxations.map((rx) => (
+              <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)}>{rx.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {req && candidates.length > 0 && (
-        <div className="intent-chat card">
+        <div className="intent-chat">
           {thread.map((t, i) => (
             <div key={i} className="intent-turn">
               <div className="intent-ask">{t.ask}</div>
               <div>{t.reply}</div>
-              {t.diff.length > 0 ? <div className="intent-diff">{t.diff.map((d) => <span key={d} className="chip">{d}</span>)}</div> : <div className="muted">Nothing changed.</div>}
+              {t.diff.length > 0 ? <div className="intent-diff muted">{t.diff.join(' · ')}</div> : <div className="muted">Nothing changed.</div>}
               {t.meta.error && <CompilerBadge meta={t.meta} />}
             </div>
           ))}
-          <div className="row intent-follow">
-            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Make it cozier, add a reading chair, cheaper"
+          <div className="intent-follow">
+            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Refine, e.g. cozier or cheaper"
               onChange={(e) => setFollow(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void refine(follow); }} />
             <MicButton onText={(t) => setFollow(t)} />
-            <button className="btn btn-sm btn-primary" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>{refining ? '...' : 'Send'}</button>
+            <button className="btn btn-sm btn-primary intent-send" aria-label="Send refinement" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>
+              {refining ? '...' : <Icon name="send" size={14} />}
+            </button>
           </div>
         </div>
       )}
 
       {req && (
         <details className="intent-details">
-        <summary>Edit details</summary>
+        <summary>More options</summary>
         <div className="intent-form card">
           {req.questions.length > 0 && (
             <ul className="intent-questions">{req.questions.map((q) => <li key={q}>{q}</li>)}</ul>
@@ -228,17 +265,6 @@ export function IntentPanel() {
 
           {req.notes.length > 0 && <ul className="intent-notes muted">{req.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
 
-          {triedGen && candidates.length === 0 && infeasibility && (
-            <div className="intent-infeasible">
-              <strong>No layout fits</strong>
-              <ul>{infeasibility.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
-              <div className="row">
-                {infeasibility.relaxations.map((rx) => (
-                  <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)}>{rx.label}</button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
         </details>
       )}
@@ -276,6 +302,6 @@ function MicButton({ onText }: { onText: (t: string) => void }) {
     r.onerror = () => setOn(false);
     rec.current = r; setOn(true); r.start();
   };
-  return <button className={`btn btn-sm intent-mic ${on ? 'chip-ok' : ''}`} aria-pressed={on} aria-label={on ? 'Stop voice input' : 'Speak your request'} onClick={toggle}>{on ? 'Listening...' : 'Speak'}</button>;
+  return <button className={`btn btn-ghost btn-sm intent-mic${on ? ' on' : ''}`} aria-pressed={on} aria-label={on ? 'Stop voice input' : 'Speak your request'} title={on ? 'Listening' : 'Speak'} onClick={toggle}><Icon name="mic" size={14} /></button>;
 }
 

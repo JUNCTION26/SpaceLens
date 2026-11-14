@@ -1,7 +1,14 @@
 .intent { display: flex; flex-direction: column; gap: 10px; }
-.intent-text { width: 100%; resize: vertical; min-height: 84px; font: inherit; }
-.intent-examples { display: flex; flex-wrap: wrap; gap: 6px; }
-.intent-examples .chip { cursor: pointer; text-align: left; white-space: normal; }
+.intent-composer { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.intent-composer:focus-within { border-color: var(--accent); }
+.intent-text { width: 100%; resize: vertical; min-height: 84px; font: inherit; border: 0; background: transparent; outline: none; padding: 10px 12px 0; box-shadow: none; }
+.intent-composer-bar { display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding: 6px; }
+.intent-send { min-width: 30px; display: inline-flex; align-items: center; justify-content: center; }
+.intent-example { background: none; border: 0; padding: 2px 0; text-align: left; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.intent-example:hover { color: var(--text); }
+.intent-summary { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.intent-summary-text { flex: 1; min-width: 0; }
+.intent-examples { display: flex; flex-direction: column; gap: 2px; }
 .intent-form { display: flex; flex-direction: column; gap: 8px; }
 .intent-head { justify-content: space-between; align-items: center; }
 .intent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -29,6 +36,7 @@
 .intent-turn { display: flex; flex-direction: column; gap: 4px; }
 .intent-ask { align-self: flex-end; font-weight: 600; }
 .intent-diff { display: flex; flex-wrap: wrap; gap: 4px; }
-.intent-follow { gap: 6px; }
+.intent-follow { display: flex; gap: 4px; align-items: center; border-top: 1px solid var(--line); padding-top: 8px; }
 .intent-follow input { flex: 1; min-width: 0; }
-.intent-mic { align-self: flex-start; }
+.intent-mic { display: inline-flex; align-items: center; }
+.intent-mic.on { color: var(--accent); }
