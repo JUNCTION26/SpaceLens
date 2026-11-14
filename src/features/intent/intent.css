@@ -16,3 +16,19 @@
 .intent-notes { margin: 0; padding-left: 18px; font-size: 12px; }
 .intent-infeasible { border: 1px solid var(--bad); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .intent-infeasible ul { margin: 0; padding-left: 18px; }
+
+.intent-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.intent-chip-in { min-width: 0; width: 9em; font: inherit; }
+.intent-chip-num { width: 5em; font: inherit; background: transparent; border: 0; color: inherit; }
+.intent-step { display: inline-flex; align-items: center; gap: 4px; }
+.intent-step button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font: inherit; }
+.intent-badge { font-size: 11px; color: var(--muted); }
+.intent-badge-warn { color: var(--warn); }
+.intent-details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.intent-chat { display: flex; flex-direction: column; gap: 8px; }
+.intent-turn { display: flex; flex-direction: column; gap: 4px; }
+.intent-ask { align-self: flex-end; font-weight: 600; }
+.intent-diff { display: flex; flex-wrap: wrap; gap: 4px; }
+.intent-follow { gap: 6px; }
+.intent-follow input { flex: 1; min-width: 0; }
+.intent-mic { align-self: flex-start; }

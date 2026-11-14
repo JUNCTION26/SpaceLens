@@ -93,7 +93,7 @@ function parsePeople(t: string): number | null {
   return null;
 }
 
-function addItem(items: RequirementItem[], keys: string[], qty: number, notes: string[], label: string) {
+export function addItem(items: RequirementItem[], keys: string[], qty: number, notes: string[], label: string) {
   const c = matchCatalog(keys);
   if (!c) { notes.push(`No catalog item for "${label}", skipped.`); return; }
   const ex = items.find((i) => i.catalogId === c.id && !i.keepExistingId);
@@ -171,10 +171,30 @@ export function compileRules(text: string, model: SpaceModel): Requirements {
   if (!items.length) questions.push('Which furniture do you need?');
   if (peopleParsed == null && ['office', 'cafe', 'dining', 'clinic'].includes(purpose)) questions.push('How many people will use it?');
 
-  return { purpose, people, budgetSek, items, routeTargets, minRouteWidthM, style, lockedIds, notes, questions, compiledBy: 'rules' };
+  const out: Requirements = { purpose, people, budgetSek, items, routeTargets, minRouteWidthM, style, lockedIds, notes, questions, compiledBy: 'rules' };
+  return ensurePerPerson(out, model);
 }
 
-const SCHEMA = {
+/** A kept desk or chair covers one person; add new ones so every person has one. */
+export function ensurePerPerson(r: Requirements, model: SpaceModel): Requirements {
+  if (r.people <= 1) return r;
+  const items = r.items.map((i) => ({ ...i }));
+  for (const kept of r.items.filter((i) => i.keepExistingId)) {
+    const cat = `${model.furniture.find((f) => f.id === kept.keepExistingId)?.category ?? ''} ${CATALOG.find((c) => c.id === kept.catalogId)?.category ?? ''}`.toLowerCase();
+    const kind = /desk/.test(cat) ? 'desk' : /chair/.test(cat) && !/arm/.test(cat) ? 'chair' : '';
+    if (!kind) continue;
+    const c = CATALOG.find((x) => x.id === kept.catalogId) ?? matchCatalog([kind]);
+    if (!c) continue;
+    const total = items.filter((i) => i.catalogId === c.id || i.catalogId === kept.catalogId).reduce((s, i) => s + i.qty, 0);
+    const need = r.people - total;
+    if (need <= 0) continue;
+    const free = items.find((i) => i.catalogId === c.id && !i.keepExistingId);
+    if (free) free.qty += need; else items.push({ catalogId: c.id, qty: need });
+  }
+  return { ...r, items };
+}
+
+export const SCHEMA = {
   type: 'OBJECT',
   properties: {
     purpose: { type: 'STRING' },
@@ -190,7 +210,7 @@ const SCHEMA = {
   required: ['purpose', 'people', 'items', 'routeTargets', 'minRouteWidthM', 'style', 'notes', 'questions'],
 };
 
-function roomSummary(model: SpaceModel): string {
+export function roomSummary(model: SpaceModel): string {
   const lines: string[] = [];
   for (const s of model.spaces) {
     lines.push(`Space ${s.id} "${s.name}": area ${area(s.polygon).toFixed(1)} m2, walls ${s.polygon.map((_, i) => wallLength(s, i).toFixed(2)).join(', ')} m`);
@@ -240,7 +260,7 @@ export async function compileIntent(text: string, model: SpaceModel): Promise<Re
       const catalog = CATALOG.map((c) => `${c.id}: ${c.name} ${Math.round(c.w * 100)}x${Math.round(c.d * 100)} cm`).join('\n');
       const prompt = `Turn this furnishing request into a spatial program.\nRequest: """${text}"""\n\nRoom:\n${roomSummary(model)}\n\nCatalog (use only these ids):\n${catalog}\n\nRules: budgetSek in Swedish kronor or null if not stated. minRouteWidthM in metres. To keep existing furniture, add an item with its catalogId, qty 1 and keepExistingId. Add questions only for real ambiguity.`;
       const raw = await gemini<Partial<Requirements>>([{ text: prompt }], { json: true, schema: SCHEMA, system: 'You are a careful interior space planner. Output only JSON matching the schema.' });
-      return validate(raw, model, text);
+      return ensurePerPerson(validate(raw, model, text), model);
     } catch (e) {
       const r = compileRules(text, model);
       r.notes.unshift(`Gemini failed, used rules (${(e as Error).message.slice(0, 60)}).`);
