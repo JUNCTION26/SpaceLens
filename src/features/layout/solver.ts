@@ -6,7 +6,7 @@ import {
 import { CATALOG, catalogEntry, makeItem } from '../furniture/catalog';
 import { validateLayout } from '../referee/validate';
 
-export interface SolveOptions { variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number) => void }
+export interface SolveOptions { variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number, bestOpenM2?: number) => void }
 
 const WALL_TOL = 0.02;
 const WALL_BACKED = new Set(['bed', 'sofa', 'sofa-bed', 'storage', 'wardrobe', 'shelf', 'desk', 'dresser', 'bookcase', 'tv']);
@@ -349,7 +349,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
   if (!model.spaces.length) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] } };
   const ctx = makeCtx(model, req);
   const n = Math.min(opts.variants ?? 4, VARIANTS.length), seed0 = opts.seed ?? 1;
-  const per = (opts.timeBudgetMs ?? 2400) / n;
+  const per = (opts.timeBudgetMs ?? 1800) / n;
   const out: LayoutCandidate[] = [];
   for (let v = 0; v < n; v++) {
     const vr = VARIANTS[v], cheap = vr.w.cost > 0;
@@ -369,7 +369,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
       }
     }
     if (cand) out.push(cand);
-    opts.onProgress?.((v + 1) / n);
+    opts.onProgress?.((v + 1) / n, out.length ? Math.max(...out.map((o) => o.metrics.openAreaM2)) : undefined);
   }
   summarize(out);
   return { candidates: out, infeasibility: out.length ? null : explainInfeasible(model, req) };
