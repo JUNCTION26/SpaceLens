@@ -5,13 +5,14 @@ import { aiReady } from '../../core/ai';
 import { getState } from '../../core/store';
 import type { DesignReport, FurnitureItem, Infeasibility, LayoutCandidate, Requirements, RuleVerdict, SpaceModel } from '../../core/types';
 import { catalogEntry, makeItem } from '../furniture/catalog';
-import { uid } from '../../core/geometry';
+import { pointInPolygon, uid } from '../../core/geometry';
 import { explainInfeasible } from '../layout/solver';
 import { applyFixes, critique, type Critique } from './critic';
 import { planConcepts, type Concept } from './planner';
 import { evaluateRules } from './rules';
 import { designScore } from './score';
 import { solveProgram } from './solve';
+import { mergeFurniture, subModelFor } from '../building/submodel';
 
 export type StageStatus = 'running' | 'done' | 'skipped' | 'failed';
 export interface Stage { id: string; label: string; status: StageStatus; ms?: number; model?: string; detail?: string }
@@ -25,6 +26,12 @@ export interface DesignOpts {
   brief?: string;
   /** Set false to skip the second opinion. */
   critic?: boolean;
+  /**
+   * Room to design in a building with several rooms. The room is cut out as its own model, so the
+   * planner, solver, rules and critic all see one room; each candidate's furniture comes back in
+   * building coordinates with every other room's furniture kept as it was.
+   */
+  spaceId?: string;
 }
 
 export type FullReport = DesignReport & { critique?: Critique; conceptName?: string; idea?: string; revised?: boolean; designScore: number; finalScore: number };
@@ -79,7 +86,38 @@ const now = () => performance.now();
 
 type SolveOut = Awaited<ReturnType<typeof solveProgram>>;
 
+/**
+ * The room a request is about in a building: the selected room, the room of the selected item or
+ * wall, else the first room. Null for a single-room model.
+ */
+export function activeSpaceId(model: SpaceModel): string | null {
+  if (model.spaces.length < 2) return null;
+  const sel = getState().selection;
+  if (sel?.kind === 'space' && model.spaces.some((s) => s.id === sel.id)) return sel.id;
+  if (sel?.kind === 'wall' || sel?.kind === 'opening') {
+    const id = sel.kind === 'wall' ? sel.id.slice(0, sel.id.lastIndexOf(':')) : model.openings.find((o) => o.id === sel.id)?.spaceId;
+    if (id && model.spaces.some((s) => s.id === id)) return id;
+  }
+  if (sel?.kind === 'furniture') {
+    const f = model.furniture.find((x) => x.id === sel.id);
+    const s = f && model.spaces.find((sp) => pointInPolygon(f, sp.polygon));
+    if (s) return s.id;
+  }
+  return model.spaces[0].id;
+}
+
 export async function designRoom(model: SpaceModel, req: Requirements, opts: DesignOpts = {}): Promise<DesignResult> {
+  const spaceId = opts.spaceId ?? activeSpaceId(model);
+  if (spaceId && model.spaces.length > 1) {
+    const sub = subModelFor(model, spaceId);
+    if (!sub) return { candidates: [], reports: [], infeasibility: { reasons: ['That room is not in this plan'], relaxations: [] }, stages: [] };
+    const res = await designOneRoom(sub.model, req, { ...opts, spaceId: undefined });
+    return { ...res, candidates: res.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) };
+  }
+  return designOneRoom(model, req, opts);
+}
+
+async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignOpts): Promise<DesignResult> {
   const stages: Stage[] = [];
   const emit = () => opts.onStage?.(stages.map((s) => ({ ...s })));
   const start = (id: string, label: string, model?: string) => { const t0 = now(); stages.push({ id, label, status: 'running', model }); emit(); return t0; };

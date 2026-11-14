@@ -81,4 +81,25 @@ describe('designRoom', () => {
     const items = buildDesignItems({ ...model, furniture: [own] }, { ...req, items: [] });
     expect(items.map((f) => f.id)).toEqual(['mine']);
   });
+
+  it('designs one room of a building and keeps the other rooms as they were', async () => {
+    ready = false;
+    const w = { thicknessM: 0.1, sourceKind: 'manual' as const, status: 'verified' as const };
+    const half = { ...w, thicknessM: 0.05 };
+    const kept = { ...buildDesignItems(model, { ...req, items: [{ catalogId: 'desk', qty: 1 }] })[0], id: 'keep', x: 1, y: 1 };
+    const building: SpaceModel = {
+      ...model, furniture: [kept],
+      spaces: [
+        { id: 'A', name: 'Hall', polygon: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }], walls: [w, half, w, w] },
+        { id: 'B', name: 'Study', polygon: [{ x: 4, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 3 }, { x: 4, y: 3 }], walls: [w, w, w, half] },
+      ],
+    };
+    const res = await designRoom(building, req, { variants: 1, spaceId: 'B' });
+    const f = res.candidates[0].furniture;
+    expect(f.find((x) => x.id === 'keep')).toMatchObject({ x: 1, y: 1 });
+    const placed = f.filter((x) => x.id !== 'keep');
+    expect(placed.length).toBe(2);
+    // the mock solver puts items at x = 0.5 + i in the cut-out room, which starts just past the shared wall
+    expect(placed.every((x) => x.x > 4 && x.x < 8)).toBe(true);
+  });
 });

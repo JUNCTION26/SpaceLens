@@ -3,7 +3,7 @@ import { area, pointInPolygon } from '../../core/geometry';
 import { makeItem } from '../furniture/catalog';
 import { toSpaceModel } from './assemble';
 import { buildingRoutes, roomGraph } from './connectivity';
-import { furnishBuilding, mergeFurniture, subModelFor } from './furnish';
+import { buildingBill, defaultBrief, furnishBuilding, mergeFurniture, subModelFor } from './furnish';
 import { lShell, planBuilding, rectShell, type BuildingPlan } from './partition';
 import { officeProgramme, programmeFromRules, villaProgramme } from './programme';
 import { rArea } from './rects';
@@ -168,9 +168,14 @@ describe('furnishing a floor', () => {
       compile: async () => ({ purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' }),
       solve: async (sub) => { const p = sub.spaces[0].polygon; const c = { x: (Math.min(...p.map((q) => q.x)) + Math.max(...p.map((q) => q.x))) / 2, y: 1 }; return [{ ...makeItem('lamp'), ...c }]; },
     });
-    const bedrooms = model.spaces.filter((s) => s.purpose === 'bedroom' || s.purpose === 'living' || s.purpose === 'kitchen');
-    expect(seen.sort()).toEqual(bedrooms.map((s) => s.id).sort());
+    const briefed = model.spaces.filter((s) => defaultBrief(s) !== null);
+    expect(briefed.map((s) => s.purpose)).toEqual(expect.arrayContaining(['bedroom', 'living', 'kitchen']));
+    expect(seen.sort()).toEqual(briefed.map((s) => s.id).sort());
     for (const f of res.furniture) expect(model.spaces.some((s) => pointInPolygon(f, s.polygon))).toBe(true);
-    expect(res.rooms.find((r) => r.spaceId === 'hall')!.status).toBe('skipped');
+    expect(res.rooms.find((r) => r.spaceId === 'room-bath')?.status ?? 'skipped').toBe('skipped');
+    const bill = buildingBill(model, res.furniture);
+    expect(bill.items).toBe(res.furniture.length);
+    expect(bill.lines[0].qty).toBe(res.furniture.length);
+    expect(bill.byRoom.length).toBe(briefed.length);
   });
 });
