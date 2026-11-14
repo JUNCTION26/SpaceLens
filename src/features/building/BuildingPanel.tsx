@@ -3,7 +3,7 @@ import { useStore } from '../../core/store';
 import type { Vec2 } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { toSpaceModel } from './assemble';
-import { fmtSek } from '../../core/geometry';
+import { fmtSek, signedArea } from '../../core/geometry';
 import type { SpaceModel } from '../../core/types';
 import { wallEdges } from '../sim/walls';
 import { buildingBill, furnishBuilding, type RoomProgress } from './furnish';
@@ -341,9 +341,18 @@ export function BuildingPanel() {
           </details>
         </section>
       )}
-      {usedPlan ? (
+      {!usedPlan && model.spaces.length > 1 && (
+        <section className="panel">
+          <h3>Your plan</h3>
+          <div className="muted bld-small">{model.spaces.length} rooms · {model.spaces.reduce((t, sp) => t + Math.abs(signedArea(sp.polygon)), 0).toFixed(0)} m²</div>
+          <div className="row bld-actions">
+            <button className="btn btn-primary" onClick={walkThrough}><Icon name="walk" /> Walk</button>
+          </div>
+        </section>
+      )}
+      {usedPlan || model.spaces.length > 1 ? (
         <details className="bld-sub bld-edit">
-          <summary>Edit plan</summary>
+          <summary>{usedPlan ? 'Edit plan' : 'New plan'}</summary>
           {setup}
         </details>
       ) : setup}
