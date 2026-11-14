@@ -270,7 +270,7 @@ export function StorePanel() {
                 </span>
                 {rate && c.price !== null && (
                   <label className="shop-rate">
-                    ≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')} <span className="chip chip-warn">converted, check</span>
+                    ≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')} <span className="chip chip-warn">Converted</span>
                     <span className="muted">1 {c.currency} =</span>
                     <input inputMode="decimal" value={rate.rate} aria-label={`SEK per ${c.currency}`}
                       onChange={(e) => { const n = parseFloat(e.target.value.replace(',', '.')); if (Number.isFinite(n) && n > 0) setRates((m) => ({ ...m, [c.currency]: { rate: n, source: 'your rate' } })); }} />
@@ -279,8 +279,8 @@ export function StorePanel() {
                 )}
                 {(c.issues.length > 0 || c.note) && (
                   <span className="shop-notes">
-                    {c.issues.map((i) => <span key={i} className="chip chip-warn">{i}</span>)}
-                    {c.note && <small className="muted">{c.note}</small>}
+                    {c.issues.length > 0 && <span className="chip chip-warn" title={[...c.issues, c.note].filter(Boolean).join('. ')}>{c.issues.length} {c.issues.length === 1 ? 'issue' : 'issues'}</span>}
+                    
                   </span>
                 )}
 
@@ -325,7 +325,7 @@ export function StorePanel() {
                 </div>
                 {tips === c.key && (() => {
                   const n = negotiationNotes(c, cards, rateMap());
-                  return <div className="shop-tips"><p className="shop-fine">{n.label}</p><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></div>;
+                  return <details className="shop-tips"><summary className="shop-fine">{n.label}</summary><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></details>;
                 })()}
               </div>
             </li>

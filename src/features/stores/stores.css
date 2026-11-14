@@ -43,3 +43,5 @@
 .shop-verdict h4 { font-size: 12px; color: var(--muted); font-weight: 600; }
 .shop-verdict ul, .shop-tips ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
 .shop-verdict summary { cursor: pointer; font-weight: 550; }
+
+.shop-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
