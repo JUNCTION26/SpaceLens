@@ -190,13 +190,13 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
             <button className="btn btn-sm" onClick={() => setSegs([...segs, { len: 100, turn: 90 }])}>Add wall</button>
             <span className={`chip ${closure < 0.01 ? 'chip-ok' : closure < 0.05 ? 'chip-warn' : 'chip-bad'}`}>Gap at the end: {fmt(closure)}</span>
           </div>
-          {closure >= 0.01 && <p className="muted">A closing wall is added and marked as estimated.</p>}
+          {closure >= 0.01 && <p className="muted">Last wall estimated</p>}
         </div>
       )}
 
       <details className="capture-more" open={!doorOk || !winOk || undefined}>
         <summary>More options</summary>
-        <p className="muted capture-small">Tap a wall in the preview to place a door or window.</p>
+        <p className="muted capture-small">Tap a wall to add</p>
       <div className="capture-grid">
           <Num label="Ceiling" unit={unit} value={ceilingCm} onChange={setCeilingCm} />
           <Num label="Wall thickness" unit={unit} value={thick} onChange={setThick} />
@@ -209,7 +209,7 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
             <Num label="Centre from wall start" unit={unit} value={door.offset} onChange={(n) => setDoor({ ...door, offset: n })} />
             <Num label="Width" unit={unit} value={door.width} onChange={(n) => setDoor({ ...door, width: n })} />
           </div>}
-          {!doorOk && <p className="chip chip-bad">Door doesn't fit on that wall.</p>}
+          {!doorOk && <p className="chip chip-bad">Door does not fit</p>}
         </fieldset>
   
         <fieldset className="capture-fs">
@@ -221,7 +221,7 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
             <Num label="Sill height" unit={unit} value={win.sill} onChange={(n) => setWin({ ...win, sill: n })} />
             <Num label="Height" unit={unit} value={win.height} onChange={(n) => setWin({ ...win, height: n })} />
           </div>}
-          {!winOk && <p className="chip chip-bad">Window doesn't fit on that wall.</p>}
+          {!winOk && <p className="chip chip-bad">Window does not fit</p>}
         </fieldset>
       </details>
 

@@ -13,9 +13,9 @@ import './capture.css';
 
 type Sub = 'scan' | 'photos' | 'draw';
 const METHODS: { id: Sub; title: string; line: string; icon: string }[] = [
-  { id: 'draw', title: 'Draw with measurements', line: 'Pick a shape and type wall lengths.', icon: 'ruler' },
-  { id: 'photos', title: 'Photo + A4 sheet', line: 'One floor photo with an A4 sheet as scale.', icon: 'image' },
-  { id: 'scan', title: 'Live camera', line: 'Capture frames from your phone camera.', icon: 'camera' },
+  { id: 'draw', title: 'Draw by hand', line: 'Type wall lengths', icon: 'ruler' },
+  { id: 'photos', title: 'Photo', line: 'With an A4 sheet', icon: 'image' },
+  { id: 'scan', title: 'Camera', line: 'Phone camera', icon: 'camera' },
 ];
 interface Shot { url: string; label: string }
 
@@ -67,7 +67,7 @@ function ScanMode({ shots, setShots }: { shots: Shot[]; setShots: (f: (s: Shot[]
     setShots((s) => [...s, { url, label: `Scan frame ${s.length + 1}` }]);
   };
 
-  if (!secure) return <p className="chip chip-warn capture-msg">The camera needs a secure page (https or localhost). Open SpaceLens over https on your phone, or use Photos.</p>;
+  if (!secure) return <p className="chip chip-warn capture-msg">Camera needs https. Use Photo instead.</p>;
   return (
     <div className="capture-scan">
       <div className="capture-video">
@@ -102,7 +102,7 @@ function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => voi
         <div><b>{s.estimated}</b><span>Walls estimated</span></div>
         <div><b>{s.errCm == null ? 'n/a' : `${Math.abs(s.errCm).toFixed(1)} cm`}</b><span>Tape check error</span></div>
       </div>
-      {s.openings > 0 && <p className="muted">{s.openings} door or window{s.openings === 1 ? '' : 's'} added.</p>}
+      {s.openings > 0 && <p className="muted">{s.openings} openings</p>}
       <button className="btn btn-primary capture-big" onClick={onDesign}>Design this room</button>
       <button className="btn btn-ghost" onClick={onAgain}>Capture another</button>
     </div>
@@ -131,7 +131,7 @@ export function CapturePanel() {
     const keep = addRoom && hasRooms ? model : undefined;
     const next = buildModel([draft], { name: 'My room', ceilingM: ceilingCm / 100, sourceLabel: source, keep });
     dispatch({ type: 'REPLACE_MODEL', model: next });
-    toast(keep ? 'Room added. Join rooms by placing a doorway by hand.' : 'Room created', 'ok');
+    toast(keep ? 'Room added' : 'Room created', 'ok');
     const measured = draft.walls.filter((w) => w.status === 'verified').length;
     setSummary({ areaM2: Math.abs(signedArea(draft.polygon)), measured, estimated: draft.walls.length - measured, errCm, openings: draft.openings.length });
   };
@@ -164,7 +164,7 @@ export function CapturePanel() {
       setAiNote(`${room.length} corners${ref ? ', A4 sheet' : ''}, ${openings.length} openings`);
       setStage('cal');
     } catch (e) {
-      toast(`Auto-detect failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
+      console.warn(e); toast('Auto-detect failed', 'error');
     } finally { setAiBusy(false); }
   };
 
@@ -198,16 +198,16 @@ export function CapturePanel() {
   return (
     <div className="panel capture">
       <div className="row capture-head">
-        <button className="btn btn-sm btn-ghost" onClick={() => { setSub(null); setStage('photo'); }}><Icon name="chevronLeft" size={14} /> Methods</button>
+        <button className="btn btn-sm btn-ghost" onClick={() => { setSub(null); setStage('photo'); }}><Icon name="chevronLeft" size={14} /> Back</button>
         <span className="capture-title">{METHODS.find((m) => m.id === sub)?.title}</span>
       </div>
 
-      {hasRooms && <label className="row capture-check"><input type="checkbox" checked={addRoom} onChange={(e) => setAddRoom(e.target.checked)} /> Add as another room</label>}
+      {hasRooms && <label className="row capture-check"><input type="checkbox" checked={addRoom} onChange={(e) => setAddRoom(e.target.checked)} /> Add as new room</label>}
 
       {sub === 'draw' && <><DrawRoom ceilingCm={ceilingCm} setCeilingCm={setCeilingCm} onCreate={(d) => create(d, 'Measured by hand')} /></>}
 
       {sub !== 'draw' && (stage === 'photo' || !shot) && (
-        <Stepper step={0} hint="Photo of the floor with an A4 sheet on it."
+        <Stepper step={0} hint="Floor photo with A4 sheet"
           onNext={() => setStage('cal')} nextOk={!!shot}>
           {sub === 'scan' && <ScanMode shots={shots} setShots={(f) => setShots((s) => { const n = f(s); if (pick < 0 && n.length) setPick(0); return n; })} />}
           {sub === 'photos' && (
