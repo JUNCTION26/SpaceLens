@@ -1,74 +1,58 @@
-import { useState } from 'react';
 import { Icon } from './icons';
-import { NAV, useUi, type NavItem } from './uiStore';
+import { GROUPS, NAV, useUi, type NavItem } from './uiStore';
+import { useStore } from '../core/store';
 
-const GROUPS = [...new Set(NAV.map((n) => n.group))];
-/** Phone tab bar: most used sections; the rest sit under More. */
-const PRIMARY = ['capture', 'describe', 'layouts', 'walk', 'export'];
-
+/** One slim rail: five destinations, each opening its last-used section. */
 export function Sidebar({ active }: { active: NavItem }) {
-  const collapsed = useUi((s) => s.navCollapsed);
-  const toggle = useUi((s) => s.toggleNav);
-  const open = useUi((s) => s.openSection);
+  const openGroup = useUi((s) => s.openGroup);
+  const setSettingsOpen = useUi((s) => s.setSettingsOpen);
+  const online = useStore((s) => Boolean(s.settings.geminiKey));
   return (
-    <nav className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-label="Sections">
+    <nav className="sidebar" aria-label="Sections">
       <div className="sidebar-scroll">
         {GROUPS.map((g) => (
-          <div key={g} className="nav-group">
-            <div className="nav-label">{g}</div>
-            {NAV.filter((n) => n.group === g).map((n) => (
-              <button key={n.key} data-nav={n.key} className={`nav-item${n.key === active.key ? ' on' : ''}`} aria-current={n.key === active.key ? 'page' : undefined}
-                title={collapsed ? n.label : n.hint} onClick={() => open(n.key)}>
-                <Icon name={n.icon} size={16} /><span>{n.label}</span>
-              </button>
-            ))}
-          </div>
+          <button key={g.key} data-group={g.key} className={`rail-item${g.key === active.group ? ' on' : ''}`}
+            aria-current={g.key === active.group ? 'page' : undefined} onClick={() => openGroup(g.key)}>
+            <Icon name={g.icon} size={20} /><span>{g.key}</span>
+          </button>
         ))}
       </div>
       <div className="sidebar-foot">
-        <button className="nav-link" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))} title="Guided demo">
-          <Icon name="play" size={14} /><span>Guided demo</span>
+        <button className="icon-btn" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))} title="Guided demo" aria-label="Guided demo">
+          <Icon name="play" size={16} />
         </button>
-        <button className="icon-btn nav-collapse" onClick={toggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-          <Icon name="panelLeft" size={16} />
+        <button className="icon-btn rail-settings" onClick={() => setSettingsOpen(true)} title={online ? 'Settings · Gemini' : 'Settings · Offline'} aria-label={`Settings, ${online ? 'Gemini on' : 'offline'}`}>
+          <Icon name="settings" size={16} /><i className={online ? 'ok' : ''} aria-hidden="true" />
         </button>
       </div>
     </nav>
   );
 }
 
-export function MobileNav({ active }: { active: NavItem }) {
+/** Second level: a quiet segmented control inside the panel. Hidden when a group has one section. */
+export function SectionTabs({ active }: { active: NavItem }) {
   const open = useUi((s) => s.openSection);
-  const [more, setMore] = useState(false);
-  const primary = NAV.filter((n) => PRIMARY.includes(n.key));
-  const rest = NAV.filter((n) => !PRIMARY.includes(n.key));
-  const inRest = rest.some((n) => n.key === active.key);
+  const items = NAV.filter((n) => n.group === active.group);
+  if (items.length < 2) return null;
   return (
-    <>
-      {more && (
-        <div className="mobile-more" role="menu" onClick={() => setMore(false)}>
-          <div className="mobile-more-sheet" onClick={(e) => e.stopPropagation()}>
-            {rest.map((n) => (
-              <button key={n.key} role="menuitem" className={`nav-item${n.key === active.key ? ' on' : ''}`} onClick={() => { open(n.key); setMore(false); }}>
-                <Icon name={n.icon} size={18} /><span>{n.label}</span>
-              </button>
-            ))}
-            <button role="menuitem" className="nav-item" onClick={() => { setMore(false); window.dispatchEvent(new Event('spacelens:demo')); }}>
-              <Icon name="play" size={18} /><span>Guided demo</span>
-            </button>
-          </div>
-        </div>
-      )}
-      <nav className="mobile-tabs" aria-label="Sections">
-        {primary.map((n) => (
-          <button key={n.key} className={n.key === active.key ? 'on' : ''} aria-current={n.key === active.key ? 'page' : undefined} onClick={() => { open(n.key); setMore(false); }}>
-            <Icon name={n.icon} size={20} /><span>{n.label.split(' ')[0]}</span>
-          </button>
-        ))}
-        <button className={inRest || more ? 'on' : ''} aria-expanded={more} onClick={() => setMore(!more)}>
-          <Icon name="more" size={20} /><span>More</span>
+    <div className="seg section-seg" role="tablist" aria-label={active.group}>
+      {items.map((n) => (
+        <button key={n.key} role="tab" data-nav={n.key} aria-selected={n.key === active.key} className={n.key === active.key ? 'on' : ''}
+          title={n.hint} onClick={() => open(n.key)}>{n.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function MobileNav({ active }: { active: NavItem }) {
+  const openGroup = useUi((s) => s.openGroup);
+  return (
+    <nav className="mobile-tabs" aria-label="Sections">
+      {GROUPS.map((g) => (
+        <button key={g.key} className={g.key === active.group ? 'on' : ''} aria-current={g.key === active.group ? 'page' : undefined} onClick={() => openGroup(g.key)}>
+          <Icon name={g.icon} size={20} /><span>{g.key}</span>
         </button>
-      </nav>
-    </>
+      ))}
+    </nav>
   );
 }

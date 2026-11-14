@@ -20,7 +20,7 @@ import { Toasts } from './ui/Toasts';
 import { useTheme } from './ui/theme';
 import { Settings } from './ui/Settings';
 import { applyDeepLink, resolveNav, useUi } from './ui/uiStore';
-import { Sidebar, MobileNav } from './ui/Sidebar';
+import { Sidebar, MobileNav, SectionTabs } from './ui/Sidebar';
 import { Icon } from './ui/icons';
 import { CommandPalette } from './features/command/CommandPalette';
 import { DemoRunner } from './features/demo/DemoRunner';
@@ -34,7 +34,7 @@ applyDeepLink();
 const MODE_KEYS: Mode[] = ['capture', 'design', 'experience', 'deliver'];
 const SHORTCUTS: Array<[string, string]> = [
   ['Ctrl/Cmd + K', 'Search commands'],
-  ['1 to 4', 'Jump to section group'],
+  ['1 to 4', 'Jump to a section'],
   ['Ctrl/Cmd + Z', 'Undo'],
   ['Ctrl/Cmd + Y', 'Redo'],
   ['?', 'Show shortcuts'],
@@ -109,7 +109,7 @@ function ChecksPill() {
     <div className="checks-float">
       <button className={`status-pill${worst ? ` ${worst}` : ''}${celebrate ? ' is-cleared' : ''}${fixingAll ? ' is-busy' : ''}`} aria-expanded={open} aria-haspopup="dialog"
         onClick={() => setOpen(!open)} title="Checks">
-        <i aria-hidden="true" />{fixingAll ? 'Fixing' : fails ? `${fails} to fix` : 'All clear'}
+        <i aria-hidden="true" />{fixingAll ? 'Fixing' : fails ? `${fails} to fix` : 'All good'}
       </button>
       {open && <div className="checks-pop" role="dialog" aria-label="Checks"><ChecksPanel /></div>}
     </div>
@@ -151,7 +151,6 @@ function Workspace() {
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
   const tab = useUi((s) => s.tabByMode);
-  const collapsed = useUi((s) => s.navCollapsed);
   const setMode = useStore((s) => s.setMode);
   const [help, setHelp] = useState(false);
 
@@ -185,17 +184,18 @@ function Workspace() {
   );
 
   return (
-    <div className={`app${collapsed ? ' nav-collapsed' : ''}`}>
-      <TopBar center={<>{viewSwitch}<ChecksPill /></>} />
-      <div className={`workspace${collapsed ? ' nav-collapsed' : ''}`}>
+    <div className="app">
+      <TopBar status={<ChecksPill />} />
+      <div className="workspace">
         <Sidebar active={active} />
         <section className="panel-col" aria-label={active.label}>
-          <header className="panel-col-head"><h1>{active.label}</h1></header>
+          <header className="panel-col-head"><h1>{active.group}</h1><SectionTabs active={active} /></header>
           <div className="side-body"><ErrorBoundary scope="area" label={active.label} key={active.key}><Suspense fallback={<PanelSkeleton />}><Panel /></Suspense></ErrorBoundary></div>
         </section>
         <main className={`stage stage-${shown}`}>
           {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><ErrorBoundary scope="area" label="The plan"><PlanView /></ErrorBoundary></section>}
           {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></ErrorBoundary></section>}
+          {viewSwitch && <div className="stage-tools">{viewSwitch}</div>}
           {AgentDock ? <Suspense fallback={null}><AgentDock overlay={false} /></Suspense> : <VoiceAdd />}
           <InspectorSheet />
         </main>

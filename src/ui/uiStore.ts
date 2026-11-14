@@ -8,20 +8,25 @@ type WorkMode = 'capture' | 'design' | 'experience' | 'deliver';
 
 export interface NavItem { key: string; label: string; icon: string; mode: WorkMode; group: string; hint: string }
 const ALL_NAV: NavItem[] = [
-  { key: 'capture', label: 'Capture', icon: 'camera', mode: 'capture', group: 'Space', hint: 'Measure the room by photo, camera or drawing.' },
-  { key: 'building', label: 'Building', icon: 'grid', mode: 'capture', group: 'Space', hint: 'Plan the walls across a whole floor.' },
-  { key: 'drawings', label: 'Drawings', icon: 'file', mode: 'capture', group: 'Space', hint: 'Import plans and ask questions about them.' },
-  { key: 'describe', label: 'Describe', icon: 'sparkles', mode: 'design', group: 'Design', hint: 'Say who uses the space and how.' },
-  { key: 'layouts', label: 'Layouts', icon: 'layout', mode: 'design', group: 'Design', hint: 'Compare layouts that fit the room.' },
-  { key: 'furniture', label: 'Furniture', icon: 'sofa', mode: 'design', group: 'Design', hint: 'Browse pieces and drag them onto the plan.' },
-  { key: 'create', label: 'Create object', icon: 'cube', mode: 'design', group: 'Design', hint: 'Make a custom piece from a description.' },
-  { key: 'shop', label: 'Shop', icon: 'search', mode: 'design', group: 'Design', hint: 'Find real products that fit.' },
-  { key: 'inspire', label: 'Inspire', icon: 'palette', mode: 'design', group: 'Design', hint: 'Take a style from a photo.' },
-  { key: 'budget', label: 'Budget', icon: 'check', mode: 'design', group: 'Design', hint: 'Keep the shopping list inside the budget.' },
-  { key: 'walk', label: 'Walk & test', icon: 'walk', mode: 'experience', group: 'Experience', hint: 'Walk through and test every route.' },
-  { key: 'safety', label: 'Safety', icon: 'shield', mode: 'experience', group: 'Experience', hint: 'Check exits, reach and hazards.' },
-  { key: 'export', label: 'Export', icon: 'download', mode: 'deliver', group: 'Deliver', hint: 'Plans, images and a shopping list.' },
-  { key: 'render', label: 'Render', icon: 'image', mode: 'deliver', group: 'Deliver', hint: 'Make a picture of the finished room.' },
+  { key: 'capture', label: 'Measure', icon: 'camera', mode: 'capture', group: 'Space', hint: 'Measure the room' },
+  { key: 'drawings', label: 'Drawings', icon: 'file', mode: 'capture', group: 'Space', hint: 'Import a plan' },
+  { key: 'building', label: 'Floor', icon: 'grid', mode: 'capture', group: 'Space', hint: 'Plan a whole floor' },
+  { key: 'describe', label: 'Describe', icon: 'sparkles', mode: 'design', group: 'Design', hint: 'Say what you need' },
+  { key: 'layouts', label: 'Layouts', icon: 'layout', mode: 'design', group: 'Design', hint: 'Compare layouts' },
+  { key: 'inspire', label: 'Style', icon: 'palette', mode: 'design', group: 'Design', hint: 'Style from a photo' },
+  { key: 'furniture', label: 'Library', icon: 'sofa', mode: 'design', group: 'Furnish', hint: 'Add furniture' },
+  { key: 'create', label: 'Create', icon: 'cube', mode: 'design', group: 'Furnish', hint: 'Make a custom piece' },
+  { key: 'shop', label: 'Shop', icon: 'search', mode: 'design', group: 'Furnish', hint: 'Find real products' },
+  { key: 'budget', label: 'Budget', icon: 'check', mode: 'design', group: 'Furnish', hint: 'Stay on budget' },
+  { key: 'walk', label: 'Walk', icon: 'walk', mode: 'experience', group: 'Review', hint: 'Walk through' },
+  { key: 'safety', label: 'Safety', icon: 'shield', mode: 'experience', group: 'Review', hint: 'Exits and hazards' },
+  { key: 'export', label: 'Export', icon: 'download', mode: 'deliver', group: 'Share', hint: 'Plans and lists' },
+  { key: 'render', label: 'Render', icon: 'image', mode: 'deliver', group: 'Share', hint: 'Picture of the room' },
+];
+/** Top-level destinations in the sidebar; each holds a few sections shown as a segmented control. */
+export const GROUPS: Array<{ key: string; icon: string }> = [
+  { key: 'Space', icon: 'ruler' }, { key: 'Design', icon: 'sparkles' }, { key: 'Furnish', icon: 'sofa' },
+  { key: 'Review', icon: 'walk' }, { key: 'Share', icon: 'share' },
 ];
 /** Every workspace section, in sidebar order. Optional sections appear once their panel exists. */
 export const NAV: NavItem[] = ALL_NAV.filter((n) => !(n.key in OPTIONAL_PANELS) || OPTIONAL_PANELS[n.key]);
@@ -42,6 +47,9 @@ interface UiState {
   inspectorOpen: boolean;
   mobilePane: 'side' | 'inspector';
   navCollapsed: boolean;
+  /** Last section opened in each sidebar group, so a group reopens where the person left it. */
+  lastByGroup: Record<string, string>;
+  openGroup: (group: string) => void;
   setTab: (mode: string, key: string) => void;
   openSection: (key: string) => void;
   openCapture: (kind: CaptureKind) => void;
@@ -58,10 +66,15 @@ export const useUi = create<UiState>((set, get) => ({
   inspectorOpen: true,
   mobilePane: 'side',
   navCollapsed: readCollapsed(),
+  lastByGroup: {},
+  openGroup: (group) => {
+    const key = get().lastByGroup[group] ?? NAV.find((n) => n.group === group)?.key;
+    if (key) get().openSection(key);
+  },
   setTab: (mode, key) => set({ tabByMode: { ...get().tabByMode, [mode]: resolveNav(mode, key).key } }),
   openSection: (key) => {
     const n = NAV.find((x) => x.key === (ALIAS[key] ?? key)) ?? NAV[0];
-    set({ mobilePane: 'side', tabByMode: { ...get().tabByMode, [n.mode]: n.key } });
+    set({ mobilePane: 'side', tabByMode: { ...get().tabByMode, [n.mode]: n.key }, lastByGroup: { ...get().lastByGroup, [n.group]: n.key } });
     useStore.getState().setMode(n.mode);
   },
   openCapture: (kind) => {

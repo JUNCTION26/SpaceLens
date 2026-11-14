@@ -26,7 +26,7 @@
   --ease: cubic-bezier(.2, .7, .2, 1); --dur: 120ms;
   --glow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
-  --top-h: 48px; --nav-w: 200px; --nav-w-collapsed: 52px; --panel-w: 344px;
+  --top-h: 48px; --nav-w: 76px; --nav-w-collapsed: 76px; --panel-w: 344px;
 }
 :root[data-theme='light'] {
   --bg: #f6f6f7; --panel: #ffffff; --panel-2: #f3f3f4; --raised: #ffffff;
@@ -306,10 +306,31 @@ button.brand:hover { background: var(--hover); }
 .demo-caption .demo-sub { color: var(--muted); min-height: 18px; }
 .workspace.nav-collapsed ~ .demo-caption, .app.nav-collapsed .demo-caption { left: calc(var(--nav-w-collapsed) + var(--panel-w) + (100vw - var(--nav-w-collapsed) - var(--panel-w)) / 2); }
 
-@media (max-width: 1100px) { :root { --panel-w: 312px; --nav-w: 184px; } }
+@media (max-width: 1100px) { :root { --panel-w: 312px; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
 
 /* Respect reduced motion everywhere: keep state changes, drop the movement. */
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* Slim rail: five destinations, icon over a one-word label */
+.sidebar-scroll { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s1); }
+.rail-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 56px; border: 0; border-radius: var(--radius); background: transparent; color: var(--muted); font-size: 11px; font-weight: var(--fw-strong); }
+.rail-item svg { width: 20px; height: 20px; }
+.rail-item:hover { color: var(--text); background: var(--hover); }
+.rail-item.on { color: var(--text); background: var(--press); }
+.rail-item.on svg { color: var(--accent); }
+.sidebar-foot { flex-direction: column; justify-content: center; border-top: 0; padding-bottom: var(--s3); }
+.rail-settings { position: relative; }
+.rail-settings i { position: absolute; right: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.rail-settings i.ok { background: var(--ok); }
+/* Panel header: group title and its sections */
+.panel-col-head { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s5) var(--s5) var(--s3); }
+.panel-col-head h1 { font-size: 20px; letter-spacing: -0.02em; }
+.section-seg { align-self: stretch; }
+.section-seg button { flex: 1; min-height: 28px; }
+/* The one floating toolbar on the canvas */
+.stage-tools { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9; }
+.stage-tools .seg { background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--shadow); }
+.topbar .project-name { font-weight: var(--fw-strong); color: var(--text); }
