@@ -70,8 +70,9 @@ const METRICS = `(() => {
     texts++; words += n2;
     if (n.parentElement.closest('.panel-col, .inspector-sheet, .checks-pop')) panelWords += n2;
     // A text block is the nearest block-level ancestor: words across inline children count together.
+    // Drawing labels inside an SVG are separate labels, not one paragraph.
     let b = n.parentElement;
-    while (b && b !== document.body && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
+    if (!n.parentElement.closest('svg')) while (b && b !== document.body && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
     if (!b.matches('button, [role=button], a, label, option, select')) blocks.set(b, (blocks.get(b) ?? 0) + n2);
   }
   for (const [b, c] of blocks) if (c > longest) { longest = c; longText = (b.innerText || '').replace(/\\s+/g, ' ').slice(0, 90); }
@@ -129,7 +130,8 @@ async function critique(png, screen) {
           lastError = `${res.status} ${(await res.text()).slice(0, 160)}`;
           if (res.status === 400) break;
           // An exhausted daily quota will not recover within this run: move to the next model.
-          if (res.status === 429 && /quota/i.test(lastError)) { firstModel = Math.max(firstModel, mi + 1); break; }
+          // Per-minute limits clear after a pause; a daily quota does not, so after three pauses try the next model.
+          if (res.status === 429) { if (attempt >= 2) { firstModel = Math.max(firstModel, mi + 1); break; } await sleep(20000); continue; }
           await sleep(4000 * (attempt + 1)); continue;
         }
         const j = await res.json();
@@ -143,6 +145,7 @@ async function critique(png, screen) {
 }
 
 const rows = [];
+let queue = Promise.resolve();
 const pending = [];
 let page = null, pageSize = '';
 try {
@@ -170,7 +173,9 @@ try {
       rows.push(row);
       if (shot) {
         writeFileSync(join(out, `${s.name}.png`), Buffer.from(shot.data, 'base64'));
-        pending.push(critique(shot.data, `${s.name} (${pageSize})`).then((c) => { row.critic = c; }));
+        // One request at a time keeps the free tier's per-minute limit happy.
+      queue = queue.then(() => critique(shot.data, `${s.name} (${pageSize})`)).then((c) => { row.critic = c; });
+      pending.push(queue);
       }
     };
     // A screen that hangs (a stuck 3D page) is recorded as such and the browser is replaced.
