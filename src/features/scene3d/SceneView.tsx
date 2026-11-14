@@ -329,6 +329,22 @@ function Furniture({ items, ghost, interactive, onFocus }: { items: FurnitureIte
   );
 }
 
+const ghostMat = new THREE.MeshBasicMaterial({ color: '#9aa4b2', transparent: true, opacity: 0.12, depthWrite: false });
+
+/** The layout before a preview, drawn as see-through outlines so it never reads as real furniture. */
+function GhostBoxes({ items }: { items: FurnitureItem[] }) {
+  return (
+    <group>
+      {items.map((it) => (
+        <mesh key={it.id} position={[it.x, it.h / 2, it.y]} rotation={[0, -it.rotation, 0]} material={ghostMat} raycast={() => null}>
+          <boxGeometry args={[it.w, it.h, it.d]} />
+          <Edges color="#8a94a3" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /* ---------- Overlays ---------- */
 
 function Routes() {
@@ -574,6 +590,40 @@ function CameraRig({ mode, eye, room, walk, req, onRoom, onTourEnd }: {
   return null;
 }
 
+/** Test handle: the live camera pose for browser scripts (window.__spacelens3d). */
+function DevHandle({ mode, extra }: { mode: string; extra: MutableRefObject<Record<string, unknown>> }) {
+  const get = useThree((s) => s.get);
+  useEffect(() => {
+    const w = window as unknown as { __spacelens3d?: unknown };
+    const r = (v: THREE.Vector3) => [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+    w.__spacelens3d = {
+      get pose() {
+        const s = get();
+        const c = s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean } | null;
+        const t = c?.target ?? new THREE.Vector3();
+        return { p: r(s.camera.position), t: r(t), dist: +s.camera.position.distanceTo(t).toFixed(3), enabled: c?.enabled ?? null, frameloop: s.frameloop, dpr: s.viewport.dpr };
+      },
+      mode,
+      get frames() { return get().gl.info.render.frame; },
+      /** Furniture ids that have meshes in the scene right now. */
+      furniture() {
+        const ids = new Set<string>();
+        get().scene.traverse((o) => { const id = o.userData?.furnitureId; if (typeof id === 'string') ids.add(id); });
+        return [...ids].sort();
+      },
+      project(x: number, y: number, z: number) {
+        const s = get();
+        const v = new THREE.Vector3(x, y, z).project(s.camera);
+        const r = s.gl.domElement.getBoundingClientRect();
+        return { x: Math.round(r.left + (v.x * 0.5 + 0.5) * r.width), y: Math.round(r.top + (-v.y * 0.5 + 0.5) * r.height) };
+      },
+      ...extra.current,
+    };
+    return () => { delete w.__spacelens3d; };
+  }, [get, mode, extra]);
+  return null;
+}
+
 function Sun({ hour, room }: { hour: number; room: ReturnType<typeof useRoom> }) {
   const ref = useRef<THREE.DirectionalLight>(null);
   const { scene } = useThree();
@@ -643,7 +693,7 @@ export function SceneView() {
   const [eyeId, setEyeId] = useState('standing');
   const [cutaway, setCutaway] = useState(true);
   const [figure, setFigure] = useState(false);
-  const [showBefore, setShowBefore] = useState(true);
+  const [showBefore, setShowBefore] = useState(false);
   const [hour, setHour] = useState(15);
   const [open, setOpen] = useState(false);
   const xrSup = useXRSupport();
@@ -833,6 +883,7 @@ export function SceneView() {
   const labelBox = useRef<HTMLDivElement>(null);
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
+  const devExtra = useRef<Record<string, unknown>>({});
 
   return (
     <div className="scene3d" ref={wrap} style={{ background: backdrop }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
@@ -850,7 +901,7 @@ export function SceneView() {
         {mode === 'walk' && <Plates spaces={model.spaces} y={model.ceilingM} ceiling />}
 
         <Furniture items={shown} interactive={mode !== 'walk' && !activeCandidateId} onFocus={focusItem} />
-        {activeCandidateId && showBefore && <Furniture items={model.furniture} ghost />}
+        {activeCandidateId && showBefore && <GhostBoxes items={model.furniture} />}
         <Routes />
         <Heat />
         <Highlights items={shown} />
@@ -861,6 +912,7 @@ export function SceneView() {
         <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={room.size * 5} />
         <XRRig spawn={figAt} spawnYaw={room.spawn.yaw} />
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} onRoom={setRoomId} onTourEnd={endTour} />
+        <DevHandle mode={mode} extra={devExtra} />
       </Canvas>
 
       {multi && mode !== 'walk' && (
