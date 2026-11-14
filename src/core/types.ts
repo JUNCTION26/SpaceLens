@@ -103,6 +103,34 @@ export interface FurnitureItem {
   sourceKind: SourceKind;
   /** Present when the object was generated to the person's own description. */
   custom?: ObjectSpec;
+  /** Present when the item comes from a real store listing. */
+  listing?: StoreListing;
+}
+
+export interface StoreListing {
+  store: string;
+  title: string;
+  url: string;
+  price: number | null;
+  currency: string;
+  imageUrl?: string;
+  /** Dimensions as stated on the listing, metres, when found. */
+  stated?: { w?: number; d?: number; h?: number };
+  /** When the listing was read. Prices change; this is not a quote. */
+  fetchedAt: number;
+}
+
+/** A mark drawn on the plan by the person or the design agent. Coordinates in plan metres. */
+export interface SketchMark {
+  id: string;
+  by: 'you' | 'agent';
+  kind: 'stroke' | 'arrow' | 'circle' | 'rect' | 'zone' | 'label' | 'ghost';
+  points: Vec2[];
+  text?: string;
+  color?: string;
+  /** For 'ghost': a proposed footprint. */
+  w?: number; d?: number; rotation?: number;
+  createdAt: number;
 }
 
 export interface SpaceModel {
@@ -243,7 +271,7 @@ export interface Layers {
 // A custom object is a list of parts in local metres: origin at the floor centre of the
 // footprint, +y up, front faces +z. The bounding box of all parts equals `size` exactly.
 
-export type PartShape = 'box' | 'rounded' | 'cylinder' | 'cone' | 'sphere' | 'cushion' | 'leg' | 'panel' | 'tube';
+export type PartShape = 'box' | 'rounded' | 'cylinder' | 'cone' | 'sphere' | 'cushion' | 'leg' | 'panel' | 'tube' | 'extrude' | 'lathe';
 
 export type MaterialId =
   | 'oak' | 'walnut' | 'pine' | 'birch' | 'white-laminate' | 'black-laminate'
@@ -265,6 +293,27 @@ export interface ObjectPart {
   material: MaterialId;
   /** Optional tint, hex. */
   color?: string;
+  /**
+   * 2D outline in metres for 'extrude' (x, y points of a closed shape, extruded along z by size[2])
+   * and 'lathe' (radius, height points revolved around the y axis). Lets parts be curved:
+   * arched headboards, heart shapes, vases, lamp shades.
+   */
+  profile?: Array<[number, number]>;
+  /** Parts sharing a group move together (a fold-down bed platform, a drawer, a door). */
+  group?: string;
+}
+
+/** A moving group: how a fold-down bed drops, a drawer slides or a door swings. */
+export interface ObjectMotion {
+  group: string;
+  label: string;
+  kind: 'hinge' | 'slide';
+  /** Hinge: point on the axis [x, y, z]; slide: unused. */
+  pivot?: [number, number, number];
+  /** Hinge axis or slide direction, unit vector. */
+  axis: [number, number, number];
+  /** Radians for a hinge, metres for a slide, at the fully open state. */
+  open: number;
 }
 
 export type ObjectRole = 'seating' | 'surface' | 'storage' | 'sleeping' | 'decor' | 'lighting' | 'appliance' | 'divider' | 'floor';
@@ -295,6 +344,9 @@ export interface ObjectSpec {
   prompt: string;
   size: { w: number; d: number; h: number };
   parts: ObjectPart[];
+  /** Optional moving groups. `size` is the closed state; `openSize` the footprint when open. */
+  motions?: ObjectMotion[];
+  openSize?: { w: number; d: number; h: number };
   semantics: ObjectSemantics;
   /** Which model produced it, or 'rules'. */
   model: string;
