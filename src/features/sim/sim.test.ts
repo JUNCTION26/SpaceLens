@@ -135,3 +135,40 @@ describe('two rooms sharing a wall', () => {
     expect(planTour(pair(false), buildGrid(pair(false), []), { x: 0.8, y: 2 }).stops.length).toBe(1);
   });
 });
+
+describe('imported plan: rooms are net floor areas with the wall between them', () => {
+  const rect = (x0: number, x1: number) => [{ x: x0, y: 0 }, { x: x1, y: 0 }, { x: x1, y: 4 }, { x: x0, y: 4 }];
+  const half = { ...wall, thicknessM: 0.1 };
+  const op = (id: string, spaceId: string, kind: Opening['kind'], wallIndex: number, offsetM: number): Opening => ({
+    id, kind, spaceId, wallIndex, offsetM, widthM: 0.9, heightM: 2.05, sillM: 0, swing: 'none', hinge: 'start', sourceKind: 'pdf-annotation', status: 'estimated',
+  });
+  const plan = (door: boolean): SpaceModel => ({
+    id: 'g', name: 'gap', version: 1, units: 'm', ceilingM: 2.6, sourceLabel: '',
+    spaces: [
+      { id: 'room-1', name: 'Corridoio', polygon: rect(0, 4), walls: [wall, half, wall, wall] },
+      { id: 'room-2', name: 'Stanza', polygon: rect(4.2, 8.2), walls: [wall, wall, wall, half] },
+    ],
+    openings: [op('in', 'room-1', 'door', 3, 2), ...(door ? [op('d~1', 'room-1', 'door', 1, 1), op('d~2', 'room-2', 'door', 3, 3)] : [])],
+    furniture: [], measurements: [], evidence: [],
+  });
+
+  it('sees the wall across the gap from both sides', async () => {
+    const { wallEdges } = await import('./walls');
+    const shared = wallEdges(plan(true)).filter((e) => e.neighbour);
+    expect(shared.length).toBe(2);
+    expect(shared.every((e) => e.owner && Math.abs(e.gapM - 0.2) < 1e-6)).toBe(true);
+  });
+
+  it('routes pass through the doorway across the wall, and a wall without a door blocks', () => {
+    expect(runRoutes(plan(true), [], 'adult').routes.find((x) => x.label === 'Entrance to Stanza')!.ok).toBe(true);
+    expect(runRoutes(plan(false), [], 'adult').routes.find((x) => x.label === 'Entrance to Stanza')!.ok).toBe(false);
+  });
+
+  it('door halves a wall apart form one link and only the front door leads outside', async () => {
+    const { roomGraph } = await import('../building/connectivity');
+    const g = roomGraph(plan(true));
+    expect(g.links.length).toBe(1);
+    expect(g.exits.map((e) => e.id)).toEqual(['in']);
+  });
+});
+

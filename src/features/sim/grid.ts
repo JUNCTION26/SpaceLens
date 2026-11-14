@@ -1,6 +1,6 @@
 import { bounds, centroid, openingSegment, pointInPolygon, itemCorners, add, mul } from '../../core/geometry';
 import type { FurnitureItem, SpaceModel, Vec2 } from '../../core/types';
-import { interiorSolids, spaceAt } from './walls';
+import { doorBridges, interiorSolids, spaceAt, wallEdges } from './walls';
 
 export const CELL = 0.05;
 
@@ -23,17 +23,26 @@ export function buildGrid(model: SpaceModel, furniture: FurnitureItem[], cell = 
   const ox = b.minX - cell, oy = b.minY - cell;
   const cols = Math.ceil((b.maxX - b.minX) / cell) + 2, rows = Math.ceil((b.maxY - b.minY) / cell) + 2;
   const free = new Uint8Array(cols * rows);
-  const blocks = furniture.filter((f) => !isRug(f)).map((f) => itemCorners(f));
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-    const p = { x: ox + (c + 0.5) * cell, y: oy + (r + 0.5) * cell };
-    if (!polys.some((poly) => pointInPolygon(p, poly))) continue;
-    if (blocks.some((q) => pointInPolygon(p, q))) continue;
-    free[r * cols + c] = 1;
-  }
+  // rasterise each room and each piece of furniture over its own bounding box only, so plans with
+  // 100+ rooms cost about the same per cell as a single room
+  const fill = (poly: Vec2[], v: 0 | 1) => {
+    const bb = bounds(poly);
+    const c0 = Math.max(0, Math.floor((bb.minX - ox) / cell)), c1 = Math.min(cols - 1, Math.ceil((bb.maxX - ox) / cell));
+    const r0 = Math.max(0, Math.floor((bb.minY - oy) / cell)), r1 = Math.min(rows - 1, Math.ceil((bb.maxY - oy) / cell));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const i = r * cols + c;
+      if (free[i] === v) continue;
+      if (pointInPolygon({ x: ox + (c + 0.5) * cell, y: oy + (r + 0.5) * cell }, poly)) free[i] = v;
+    }
+  };
+  for (const poly of polys) fill(poly, 1);
+  const edges = model.spaces.length > 1 ? wallEdges(model) : [];
+  for (const b of doorBridges(edges)) fill(b, 1);
+  for (const f of furniture) if (!isRug(f)) fill(itemCorners(f), 0);
   // interior walls: block every cell whose centre is within the wall's half thickness (at least
   // one cell wide so nothing leaks through diagonally)
   if (model.spaces.length > 1) {
-    for (const s of interiorSolids(model)) {
+    for (const s of interiorSolids(model, edges)) {
       const half = Math.max(s.halfM, cell * 0.75);
       const c0 = Math.max(0, Math.floor((Math.min(s.a.x, s.b.x) - half - ox) / cell)), c1 = Math.min(cols - 1, Math.ceil((Math.max(s.a.x, s.b.x) + half - ox) / cell));
       const r0 = Math.max(0, Math.floor((Math.min(s.a.y, s.b.y) - half - oy) / cell)), r1 = Math.min(rows - 1, Math.ceil((Math.max(s.a.y, s.b.y) + half - oy) / cell));

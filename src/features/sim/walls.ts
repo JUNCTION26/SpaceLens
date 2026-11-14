@@ -21,7 +21,12 @@ export interface WallEdge {
   neighbour: string | null;
   /** Thickness carried by the neighbour (0 on the facade). */
   neighbourThicknessM: number;
-  /** False when the neighbour draws this wall instead. */
+  /**
+   * Distance to the neighbour's facing edge. 0 when both rooms sit on one line (generated plans);
+   * the wall thickness for imported plans, whose rooms are net floor areas with the wall between.
+   */
+  gapM: number;
+  /** False when the neighbour draws this wall instead (each side draws its half across a gap). */
   owner: boolean;
   /** Openings of both rooms along this wall, sorted, in metres from `a`. */
   gaps: WallGap[];
@@ -39,6 +44,18 @@ export function spaceAt(model: SpaceModel, p: Vec2): Space | null {
 export function wallEdges(model: SpaceModel): WallEdge[] {
   const index = new Map(model.spaces.map((s, i) => [s.id, i]));
   const out: WallEdge[] = [];
+  // bounding boxes and openings per room, so big plans (100+ rooms) stay quick
+  const boxes = model.spaces.map((q) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of q.polygon) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; }
+    return { q, x0, y0, x1, y1 };
+  });
+  const roomAt = (m: Vec2, not: string) => {
+    for (const b of boxes) if (b.q.id !== not && m.x >= b.x0 && m.x <= b.x1 && m.y >= b.y0 && m.y <= b.y1 && pointInPolygon(m, b.q.polygon)) return b.q;
+    return null;
+  };
+  const opsBySpace = new Map<string, Opening[]>();
+  for (const o of model.openings) { const l = opsBySpace.get(o.spaceId); if (l) l.push(o); else opsBySpace.set(o.spaceId, [o]); }
   for (const s of model.spaces) {
     const n = s.polygon.length;
     for (let i = 0; i < n; i++) {
@@ -48,20 +65,26 @@ export function wallEdges(model: SpaceModel): WallEdge[] {
       const dir = norm(sub(b, a));
       const inward = wallInwardNormal(s, i);
       // the room just beyond the wall's middle (and both quarter points, for split walls)
+      // the room just beyond the wall (middle, then quarter points for split walls), first right
+      // behind the line, then across a wall's thickness for plans whose rooms are net areas
+      const own = s.walls[i]?.thicknessM ?? 0.1;
       let neighbour: Space | null = null;
-      for (const t of [0.5, 0.25, 0.75]) {
-        const m = { x: a.x + (b.x - a.x) * t - inward.x * NUDGE, y: a.y + (b.y - a.y) * t - inward.y * NUDGE };
-        neighbour = model.spaces.find((q) => q.id !== s.id && pointInPolygon(m, q.polygon)) ?? null;
-        if (neighbour) break;
+      let mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      probe: for (const d of [NUDGE, Math.min(0.65, own * 2 + NUDGE)]) {
+        for (const t of [0.5, 0.25, 0.75]) {
+          const m = { x: a.x + (b.x - a.x) * t - inward.x * d, y: a.y + (b.y - a.y) * t - inward.y * d };
+          neighbour = roomAt(m, s.id);
+          if (neighbour) { mid = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; break probe; }
+        }
       }
-      let neighbourThicknessM = 0;
+      let neighbourThicknessM = 0, gapM = 0;
       if (neighbour) {
         let bd = Infinity;
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         neighbour.polygon.forEach((p, j) => {
           const d = distPointSegment(mid, p, neighbour!.polygon[(j + 1) % neighbour!.polygon.length]);
           if (d < bd) { bd = d; neighbourThicknessM = neighbour!.walls[j]?.thicknessM ?? 0; }
         });
+        gapM = bd > 0.02 ? bd : 0;
       }
       const gaps: WallGap[] = [];
       const addGap = (o: Opening, c: Vec2) => {
@@ -71,18 +94,18 @@ export function wallEdges(model: SpaceModel): WallEdge[] {
         if (gaps.some((g) => Math.abs((g.s + g.e) / 2 - along) < 0.1 && g.kind === o.kind)) return;
         gaps.push({ s: Math.max(0, along - o.widthM / 2), e: Math.min(length, along + o.widthM / 2), kind: o.kind, opening: o });
       };
-      for (const o of model.openings) {
-        if (o.spaceId === s.id && o.wallIndex === i) addGap(o, openingSegment(s, o).c);
+      for (const o of opsBySpace.get(s.id) ?? []) {
+        if (o.wallIndex === i) addGap(o, openingSegment(s, o).c);
       }
       if (neighbour) {
-        for (const o of model.openings) {
-          if (o.spaceId !== neighbour.id || o.wallIndex >= neighbour.polygon.length) continue;
+        for (const o of opsBySpace.get(neighbour.id) ?? []) {
+          if (o.wallIndex >= neighbour.polygon.length) continue;
           addGap(o, openingSegment(neighbour, o).c);
         }
       }
       gaps.sort((p, q) => p.s - q.s);
-      const owner = !neighbour || (index.get(s.id) ?? 0) < (index.get(neighbour.id) ?? 0);
-      out.push({ spaceId: s.id, wallIndex: i, a, b, length, dir, inward, thicknessM: s.walls[i]?.thicknessM ?? 0.1, neighbour: neighbour?.id ?? null, neighbourThicknessM, owner, gaps });
+      const owner = !neighbour || gapM > 0 || (index.get(s.id) ?? 0) < (index.get(neighbour.id) ?? 0);
+      out.push({ spaceId: s.id, wallIndex: i, a, b, length, dir, inward, thicknessM: own, neighbour: neighbour?.id ?? null, neighbourThicknessM, gapM, owner, gaps });
     }
   }
   return out;
@@ -102,7 +125,9 @@ export function solidSegments(model: SpaceModel, edges = wallEdges(model)): Soli
   const out: SolidSegment[] = [];
   for (const w of edges) {
     if (!w.owner) continue;
-    const interior = !!w.neighbour;
+    // a wall on a shared line is centred on it; a wall across a gap stands outside both floors,
+    // so like a facade its face is the room's edge
+    const interior = !!w.neighbour && !w.gapM;
     const halfM = interior ? (w.thicknessM + w.neighbourThicknessM) / 2 : 0;
     let cur = 0;
     const push = (s: number, e: number) => {
@@ -117,6 +142,29 @@ export function solidSegments(model: SpaceModel, edges = wallEdges(model)): Soli
     push(cur, w.length);
   }
   return out;
+}
+
+/**
+ * Floor strips through doorways that cross a wall gap (imported plans keep the wall between two
+ * rooms' floors), so routes and walking can pass from one room's floor to the next.
+ */
+export function doorBridges(edges: WallEdge[]): Vec2[][] {
+  const out: Vec2[][] = [];
+  for (const w of edges) {
+    if (!w.gapM) continue;
+    const o = mul(w.inward, -(w.gapM + 0.04));
+    for (const g of w.gaps) {
+      if (g.kind === 'window') continue;
+      const p = add(w.a, mul(w.dir, g.s)), q = add(w.a, mul(w.dir, g.e));
+      out.push([add(p, mul(w.inward, 0.02)), add(q, mul(w.inward, 0.02)), add(q, o), add(p, o)]);
+    }
+  }
+  return out;
+}
+
+/** On some room's floor or in a doorway between two floors. */
+export function onFloor(model: SpaceModel, p: Vec2, bridges: Vec2[][]): boolean {
+  return !!spaceAt(model, p) || bridges.some((b) => pointInPolygon(p, b));
 }
 
 /** Interior wall pieces only (facade walls are already the edge of the floor). */

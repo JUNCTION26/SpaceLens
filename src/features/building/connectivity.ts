@@ -41,12 +41,19 @@ export function roomGraph(model: SpaceModel): RoomGraph {
   const links: DoorLink[] = [];
   for (let i = 0; i < doors.length; i++) {
     if (used.has(doors[i].o.id)) continue;
+    // the two halves of a door sit on one line, or a wall's thickness apart in imported plans:
+    // pair with the nearest unpaired half in another room
+    let best = -1, bd = 0.65;
     for (let j = i + 1; j < doors.length; j++) {
       if (used.has(doors[j].o.id) || doors[j].o.spaceId === doors[i].o.spaceId) continue;
-      if (Math.hypot(doors[i].c.x - doors[j].c.x, doors[i].c.y - doors[j].c.y) > 0.15) continue;
+      const d = Math.hypot(doors[i].c.x - doors[j].c.x, doors[i].c.y - doors[j].c.y);
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best >= 0) {
+      const j = best;
       used.add(doors[i].o.id); used.add(doors[j].o.id);
-      links.push({ a: doors[i].o.spaceId, b: doors[j].o.spaceId, at: doors[i].c, widthM: Math.min(doors[i].o.widthM, doors[j].o.widthM), openingIds: [doors[i].o.id, doors[j].o.id] });
-      break;
+      const at = { x: (doors[i].c.x + doors[j].c.x) / 2, y: (doors[i].c.y + doors[j].c.y) / 2 };
+      links.push({ a: doors[i].o.spaceId, b: doors[j].o.spaceId, at, widthM: Math.min(doors[i].o.widthM, doors[j].o.widthM), openingIds: [doors[i].o.id, doors[j].o.id] });
     }
   }
   // An unpaired door leads outside when just beyond it is outside every room.
@@ -55,7 +62,7 @@ export function roomGraph(model: SpaceModel): RoomGraph {
     if (used.has(d.o.id)) continue;
     const s = spaces.get(d.o.spaceId)!;
     const { inward } = openingSegment(s, d.o);
-    const beyond = { x: d.c.x - inward.x * 0.3, y: d.c.y - inward.y * 0.3 };
+    const beyond = { x: d.c.x - inward.x * 0.75, y: d.c.y - inward.y * 0.75 };
     if (!model.spaces.some((q) => pointInPolygon(beyond, q.polygon))) exits.push({ id: d.o.id, spaceId: s.id, at: d.c, widthM: d.o.widthM });
   }
   const neighbours = new Map<string, string[]>(model.spaces.map((s) => [s.id, []]));
