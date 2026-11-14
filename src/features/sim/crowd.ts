@@ -1,5 +1,6 @@
 import type { FurnitureItem, HeatGrid, SpaceModel } from '../../core/types';
-import { astar, buildGrid, centreOf, doorInner, pathLength, roomCentroid, snapFree } from './grid';
+import { astar, buildGrid, centreOf, doorInner, pathLength, snapFree } from './grid';
+import { entranceDoors, roomSpot } from './routes';
 
 export const CROWD_ASSUMPTIONS = 'Agents 0.30 m wide minimum, prefer wider gaps, walk door to a seat and back';
 export const TIGHT_M = 0.45;
@@ -14,11 +15,14 @@ export function mulberry32(seed: number) {
 
 export function runCrowd(model: SpaceModel, furniture: FurnitureItem[], agents: number, seed: number): CrowdRun | null {
   const g = buildGrid(model, furniture);
-  const doors = model.openings.filter((o) => o.kind === 'door' || o.kind === 'opening');
+  // a building fills from its entrances; a single room from any of its doors
+  const all = model.openings.filter((o) => o.kind === 'door' || o.kind === 'opening');
+  const ins = model.spaces.length > 1 ? entranceDoors(model) : [];
+  const doors = ins.length ? ins : all;
   if (!doors.length) return null;
   const rnd = mulberry32(seed);
   const seats = furniture.filter((f) => /table|chair|seat|sofa|desk|bench/i.test(f.category + ' ' + f.name));
-  const targets = (seats.length ? seats.map((f) => ({ x: f.x, y: f.y })) : [roomCentroid(model)]);
+  const targets = (seats.length ? seats.map((f) => ({ x: f.x, y: f.y })) : model.spaces.map((sp) => roomSpot(model, sp.id, g)));
   const HC = 0.2, cols = Math.ceil((g.cols * g.cell) / HC), rows = Math.ceil((g.rows * g.cell) / HC);
   const counts = new Float32Array(cols * rows);
   let total = 0, tight = 0, n = 0;

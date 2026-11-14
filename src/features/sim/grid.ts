@@ -1,5 +1,6 @@
 import { bounds, centroid, openingSegment, pointInPolygon, itemCorners, add, mul } from '../../core/geometry';
 import type { FurnitureItem, SpaceModel, Vec2 } from '../../core/types';
+import { interiorSolids, spaceAt } from './walls';
 
 export const CELL = 0.05;
 
@@ -12,7 +13,10 @@ export interface OccGrid {
 
 export const isRug = (f: FurnitureItem) => /rug|carpet/i.test(f.category + ' ' + f.name);
 
-/** Occupancy grid of the room polygon(s) minus furniture footprints, plus a chamfer distance transform. */
+/**
+ * Occupancy grid of the room polygon(s) minus furniture footprints and interior walls (door and
+ * opening gaps stay open), plus a chamfer distance transform.
+ */
 export function buildGrid(model: SpaceModel, furniture: FurnitureItem[], cell = CELL): OccGrid {
   const polys = model.spaces.map((s) => s.polygon);
   const b = bounds(polys.flat());
@@ -25,6 +29,21 @@ export function buildGrid(model: SpaceModel, furniture: FurnitureItem[], cell = 
     if (!polys.some((poly) => pointInPolygon(p, poly))) continue;
     if (blocks.some((q) => pointInPolygon(p, q))) continue;
     free[r * cols + c] = 1;
+  }
+  // interior walls: block every cell whose centre is within the wall's half thickness (at least
+  // one cell wide so nothing leaks through diagonally)
+  if (model.spaces.length > 1) {
+    for (const s of interiorSolids(model)) {
+      const half = Math.max(s.halfM, cell * 0.75);
+      const c0 = Math.max(0, Math.floor((Math.min(s.a.x, s.b.x) - half - ox) / cell)), c1 = Math.min(cols - 1, Math.ceil((Math.max(s.a.x, s.b.x) + half - ox) / cell));
+      const r0 = Math.max(0, Math.floor((Math.min(s.a.y, s.b.y) - half - oy) / cell)), r1 = Math.min(rows - 1, Math.ceil((Math.max(s.a.y, s.b.y) + half - oy) / cell));
+      const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y, L2 = dx * dx + dy * dy || 1;
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        const px = ox + (c + 0.5) * cell, py = oy + (r + 0.5) * cell;
+        const t = Math.max(0, Math.min(1, ((px - s.a.x) * dx + (py - s.a.y) * dy) / L2));
+        if (Math.hypot(px - s.a.x - dx * t, py - s.a.y - dy * t) < half) free[r * cols + c] = 0;
+      }
+    }
   }
   const INF = 1e9, D = new Float32Array(cols * rows);
   for (let i = 0; i < D.length; i++) D[i] = free[i] ? INF : 0;
@@ -142,4 +161,18 @@ export function doorInner(model: SpaceModel, id: string, inset: number): Vec2 | 
   if (!o || !s) return null;
   const seg = openingSegment(s, o); return add(seg.c, mul(seg.inward, inset));
 }
-export const roomCentroid = (model: SpaceModel) => centroid(model.spaces[0]?.polygon ?? [{ x: 0, y: 0 }]);
+/** Centre of one room (the first room when none is named), nudged inside for L-shaped rooms. */
+export function roomCentroid(model: SpaceModel, spaceId?: string): Vec2 {
+  const s = (spaceId && model.spaces.find((x) => x.id === spaceId)) || model.spaces[0];
+  if (!s) return { x: 0, y: 0 };
+  const c = centroid(s.polygon);
+  if (pointInPolygon(c, s.polygon)) return c;
+  for (let r = 0.2; r < 10; r += 0.2) for (let k = 0; k < 16; k++) {
+    const p = { x: c.x + Math.cos(k * Math.PI / 8) * r, y: c.y + Math.sin(k * Math.PI / 8) * r };
+    if (pointInPolygon(p, s.polygon)) return p;
+  }
+  return c;
+}
+
+/** Room a point is in, for labelling routes. */
+export const roomNameAt = (model: SpaceModel, p: Vec2) => spaceAt(model, p)?.name ?? null;

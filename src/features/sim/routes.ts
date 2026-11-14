@@ -1,6 +1,8 @@
 import type { BodyProfileId, FurnitureItem, RouteResult, SpaceModel, Vec2 } from '../../core/types';
+import { pointInPolygon } from '../../core/geometry';
 import { astar, buildGrid, centreOf, doorInner, pathLength, roomCentroid, smooth, snapFree } from './grid';
 import type { OccGrid } from './grid';
+import { wallEdges } from './walls';
 
 export interface BodyProfile { id: BodyProfileId; label: string; widthM: number; turnM?: number; note: string }
 export const PROFILES: BodyProfile[] = [
@@ -14,18 +16,60 @@ export const profileOf = (id: BodyProfileId) => PROFILES.find((p) => p.id === id
 
 export interface Target { id: string; label: string; from: Vec2; to: Vec2 }
 
-/** Each door's inner point to each window (0.5 m in front) and to the room centre. */
-export function defaultTargets(model: SpaceModel): Target[] {
+/**
+ * One room: each door's inner point to each window of that room (0.5 m in front) and to the room
+ * centre. A building: from each entrance to the middle of every room, through its doors.
+ */
+export function defaultTargets(model: SpaceModel, g?: OccGrid): Target[] {
+  if (model.spaces.length > 1) return buildingTargets(model, g);
   const out: Target[] = [];
   const doors = model.openings.filter((o) => o.kind === 'door' || o.kind === 'opening');
   const wins = model.openings.filter((o) => o.kind === 'window');
   doors.forEach((d, di) => {
     const from = doorInner(model, d.id, 0.3); if (!from) return;
-    wins.forEach((w, wi) => {
+    wins.filter((w) => w.spaceId === d.spaceId).forEach((w, wi) => {
       const to = doorInner(model, w.id, 0.5);
       if (to) out.push({ id: `${d.id}>${w.id}`, label: `Door ${di + 1} to window ${wi + 1}`, from, to });
     });
-    out.push({ id: `${d.id}>c`, label: `Door ${di + 1} to centre`, from, to: roomCentroid(model) });
+    out.push({ id: `${d.id}>c`, label: `Door ${di + 1} to centre`, from, to: roomCentroid(model, d.spaceId) });
+  });
+  return out;
+}
+
+/** Doors and openings on the facade (the ways in), in model order. */
+export function entranceDoors(model: SpaceModel) {
+  const edges = wallEdges(model);
+  return model.openings.filter((o) => o.kind !== 'window' && edges.some((w) => w.spaceId === o.spaceId && w.wallIndex === o.wallIndex && !w.neighbour));
+}
+
+/** A free spot in a room near its middle: furniture often stands right on the centroid. */
+export function roomSpot(model: SpaceModel, spaceId: string, g?: OccGrid, clearM = 0.35): Vec2 {
+  const c = roomCentroid(model, spaceId);
+  const s = model.spaces.find((x) => x.id === spaceId);
+  if (!g || !s) return c;
+  let best: Vec2 | null = null, bd = Infinity;
+  const xs = s.polygon.map((p) => p.x), ys = s.polygon.map((p) => p.y);
+  for (let y = Math.min(...ys); y <= Math.max(...ys); y += g.cell * 2) for (let x = Math.min(...xs); x <= Math.max(...xs); x += g.cell * 2) {
+    const i = Math.floor((y - g.oy) / g.cell) * g.cols + Math.floor((x - g.ox) / g.cell);
+    if (i < 0 || i >= g.dist.length || g.dist[i] < clearM) continue;
+    const p = { x, y };
+    if (!pointInPolygon(p, s.polygon)) continue;
+    const d = (x - c.x) ** 2 + (y - c.y) ** 2;
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best ?? c;
+}
+
+function buildingTargets(model: SpaceModel, g?: OccGrid): Target[] {
+  const ins = entranceDoors(model);
+  const starts = ins.length ? ins : model.openings.filter((o) => o.kind !== 'window').slice(0, 1);
+  const out: Target[] = [];
+  starts.forEach((d, di) => {
+    const from = doorInner(model, d.id, 0.3); if (!from) return;
+    const tag = starts.length > 1 ? `Entrance ${di + 1}` : 'Entrance';
+    for (const s of model.spaces) {
+      out.push({ id: `${d.id}>${s.id}`, label: `${tag} to ${s.name}`, from, to: roomSpot(model, s.id, g) });
+    }
   });
   return out;
 }
@@ -71,8 +115,9 @@ export function turningCircle(g: OccGrid, from: Vec2, p: BodyProfile): TurnCheck
 }
 
 export interface RouteRun { routes: RouteResult[]; turn: TurnCheck | null }
-export function runRoutes(model: SpaceModel, furniture: FurnitureItem[], profile: BodyProfileId, targets = defaultTargets(model)): RouteRun {
+export function runRoutes(model: SpaceModel, furniture: FurnitureItem[], profile: BodyProfileId, targets?: Target[]): RouteRun {
   const g = buildGrid(model, furniture), p = profileOf(profile);
+  targets = targets ?? defaultTargets(model, g);
   const routes = targets.map((t) => routeOnGrid(g, t, p));
   const turn = p.turnM && targets[0] ? turningCircle(g, targets[0].from, p) : null;
   return { routes, turn };

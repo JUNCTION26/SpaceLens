@@ -1,5 +1,6 @@
 import { add, itemCorners, mul, openingSegment, sub, cross } from '../../core/geometry';
 import type { FurnitureItem, SpaceModel, Vec2 } from '../../core/types';
+import { solidSegments } from './walls';
 
 export const EYE_M = 1.2;
 export interface Sightline { a: Vec2; b: Vec2; visible: boolean }
@@ -15,7 +16,9 @@ function hit(p: Vec2, q: Vec2, a: Vec2, b: Vec2): number | null {
 /** Rays from the viewpoint to every opening and to 72 directions; tall furniture and walls block. */
 export function castSightlines(model: SpaceModel, furniture: FurnitureItem[], from: Vec2, excludeId?: string): Sightline[] {
   const walls: [Vec2, Vec2][] = [];
-  for (const s of model.spaces) s.polygon.forEach((p, i) => walls.push([p, s.polygon[(i + 1) % s.polygon.length]]));
+  // in a building, open doorways between rooms let the eye through
+  if (model.spaces.length > 1) for (const w of solidSegments(model)) walls.push([w.a, w.b]);
+  else for (const s of model.spaces) s.polygon.forEach((p, i) => walls.push([p, s.polygon[(i + 1) % s.polygon.length]]));
   const blockers: [Vec2, Vec2][] = [];
   for (const f of furniture) {
     if (f.id === excludeId || f.h <= EYE_M) continue;

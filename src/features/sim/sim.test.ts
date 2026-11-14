@@ -68,3 +68,60 @@ describe('sightlines and crowd', () => {
     expect(Math.max(...a.heat.values)).toBe(1);
   });
 });
+
+describe('two rooms sharing a wall', () => {
+  const sq = (x0: number) => [{ x: x0, y: 0 }, { x: x0 + 4, y: 0 }, { x: x0 + 4, y: 4 }, { x: x0, y: 4 }];
+  const at = (id: string, spaceId: string, kind: Opening['kind'], wallIndex: number, offsetM: number, widthM = 0.9): Opening => ({
+    id, kind, spaceId, wallIndex, offsetM, widthM, heightM: 2.05, sillM: kind === 'window' ? 0.9 : 0,
+    swing: 'none', hinge: 'start', sourceKind: 'generated', status: 'estimated',
+  });
+  const half = { ...wall, thicknessM: 0.05 };
+  const pair = (withDoor: boolean): SpaceModel => ({
+    id: 'b', name: 'pair', version: 1, units: 'm', ceilingM: 2.6, sourceLabel: '',
+    spaces: [
+      { id: 'A', name: 'Hall', polygon: sq(0), walls: [wall, half, wall, wall] },
+      { id: 'B', name: 'Kitchen', polygon: sq(4), walls: [wall, wall, wall, half] },
+    ],
+    openings: [
+      at('in', 'A', 'door', 3, 2),
+      ...(withDoor ? [at('d~A', 'A', 'door', 1, 1), at('d~B', 'B', 'door', 3, 3)] : []),
+      at('w', 'B', 'window', 1, 2, 1.2),
+    ],
+    furniture: [], measurements: [], evidence: [],
+  });
+
+  it('finds the shared wall once with both door gaps', async () => {
+    const { wallEdges, solidSegments, entranceSpawn } = await import('./walls');
+    const edges = wallEdges(pair(true));
+    const shared = edges.filter((e) => e.neighbour);
+    expect(shared.length).toBe(2);
+    expect(shared.filter((e) => e.owner).length).toBe(1);
+    expect(shared[0].gaps.filter((g) => g.kind === 'door').length).toBe(1);
+    const interior = solidSegments(pair(true)).filter((s) => s.interior);
+    expect(interior.length).toBe(2);
+    expect(interior[0].halfM).toBeCloseTo(0.05);
+    const sp = entranceSpawn(pair(true));
+    expect(sp.spaceId).toBe('A');
+    expect(sp.pos.x).toBeCloseTo(0.8);
+  });
+
+  it('routes from the entrance go through the door, not the wall', () => {
+    const r = runRoutes(pair(true), [], 'adult').routes.find((x) => x.label === 'Entrance to Kitchen')!;
+    expect(r.ok).toBe(true);
+    const crossing = r.points.find((p, i) => i > 0 && (r.points[i - 1].x - 4) * (p.x - 4) <= 0)!;
+    const prev = r.points[r.points.indexOf(crossing) - 1];
+    const t = (4 - prev.x) / (crossing.x - prev.x || 1);
+    expect(Math.abs(prev.y + (crossing.y - prev.y) * t - 1)).toBeLessThan(0.3);
+  });
+
+  it('a wall without a door blocks the way', () => {
+    const r = runRoutes(pair(false), [], 'adult').routes.find((x) => x.label === 'Entrance to Kitchen')!;
+    expect(r.ok).toBe(false);
+  });
+
+  it('crowd enters by the entrance and reaches the next room', () => {
+    const f = [item('t', 6, 2, 0.8, 0.8, 0.75, 'table')];
+    const c = runCrowd(pair(true), f, 6, 3)!;
+    expect(c.stats.paths).toBe(12);
+  });
+});
