@@ -3,6 +3,8 @@ import {
   openingSegment, perp, pointInPolygon, polygonInside, rotate, sub, wallInwardNormal, wallSegment,
 } from '../../core/geometry';
 import type { FurnitureItem, Space, SpaceModel, Vec2 } from '../../core/types';
+import { getState } from '../../core/store';
+import { wallEdges } from '../sim/walls';
 
 /** Drag-and-drop payload type for catalog items (library -> plan / 3D). Data = catalogId. */
 export const CATALOG_DND = 'application/x-spacelens-catalog';
@@ -32,10 +34,28 @@ export function doorZones(model: SpaceModel): Vec2[][] {
   return out;
 }
 
-function poseFits(space: Space, item: ItemLike, pose: Pose, others: FurnitureItem[], zones: Vec2[][]): boolean {
+/** Footprints of walls shared by two rooms (each stands half into both rooms). */
+function interiorWallBoxes(model: SpaceModel): Vec2[][] {
+  if (model.spaces.length < 2) return [];
+  return wallEdges(model).filter((e) => e.owner && e.neighbour).map((e) => {
+    const h = (e.thicknessM + e.neighbourThicknessM) / 2, n = e.inward;
+    return [add(e.a, mul(n, h)), add(e.b, mul(n, h)), add(e.b, mul(n, -h)), add(e.a, mul(n, -h))];
+  });
+}
+
+/** Half thickness of each shared wall by `${spaceId}:${wallIndex}` (facade walls are absent). */
+function sharedHalves(model: SpaceModel): Map<string, number> {
+  const out = new Map<string, number>();
+  if (model.spaces.length < 2) return out;
+  for (const e of wallEdges(model)) if (e.neighbour) out.set(`${e.spaceId}:${e.wallIndex}`, (e.thicknessM + e.neighbourThicknessM) / 2);
+  return out;
+}
+
+function poseFits(space: Space, item: ItemLike, pose: Pose, others: FurnitureItem[], zones: Vec2[][], walls: Vec2[][] = []): boolean {
   const it = { ...item, ...pose };
   const body = itemCorners(it);
   if (!polygonInside(body, space.polygon)) return false;
+  for (const w of walls) if (convexOverlap(body, w) > 1e-6) return false;
   const env = itemCorners(it, true);
   for (const z of zones) if (convexOverlap(body, z) > 0) return false;
   for (const o of others) {
@@ -49,7 +69,7 @@ function poseFits(space: Space, item: ItemLike, pose: Pose, others: FurnitureIte
 }
 
 /** Wall-backed poses along every wall of a space, facing inward. */
-function wallPoses(space: Space, item: ItemLike, step = 0.1): Pose[] {
+function wallPoses(space: Space, item: ItemLike, step = 0.1, inset: (i: number) => number = () => 0): Pose[] {
   const out: Pose[] = [];
   const back = item.clearance?.back ?? 0;
   for (let i = 0; i < space.polygon.length; i++) {
@@ -62,39 +82,57 @@ function wallPoses(space: Space, item: ItemLike, step = 0.1): Pose[] {
     for (let t = item.w / 2; t <= L - item.w / 2 + 1e-9; t += step) ts.push(t);
     ts.sort((p, q) => Math.abs(p - L / 2) - Math.abs(q - L / 2)); // centred first
     for (const t of ts) {
-      const c = add(add(a, mul(dir, t)), mul(n, item.d / 2 + back + 0.005));
+      const c = add(add(a, mul(dir, t)), mul(n, item.d / 2 + back + 0.005 + inset(i)));
       out.push({ x: c.x, y: c.y, rotation });
     }
   }
   return out;
 }
 
-/** First pose where `item` fits without overlapping `others`, clearance envelopes or door swings.
- *  Wall-type categories prefer wall-backed, inward-facing poses. Searches every space. Falls back to the first room centre. */
+/** The room the person is working in: the selected room, or the room of the selected item. */
+function preferredSpace(model: SpaceModel, item: ItemLike): Space | undefined {
+  if (model.spaces.length > 1) {
+    const sel = getState().selection;
+    if (sel?.kind === 'space') { const s = model.spaces.find((x) => x.id === sel.id); if (s) return s; }
+    if (sel?.kind === 'furniture') {
+      const f = model.furniture.find((x) => x.id === sel.id);
+      const s = f && model.spaces.find((x) => pointInPolygon(f, x.polygon));
+      if (s) return s;
+    }
+  }
+  return spaceOf(model, item);
+}
+
+/** First pose where `item` fits without overlapping `others`, clearance envelopes, door swings or
+ *  shared walls. Wall-type categories prefer wall-backed, inward-facing poses. Searches the room
+ *  being worked in first, then every other room. Falls back to the first room centre. */
 export function findFreeSpot(model: SpaceModel, item: FurnitureItem, others: FurnitureItem[] = model.furniture): { x: number; y: number; rotation: number } {
   const zones = doorZones(model);
-  const spaces = [...model.spaces].sort((s, t) => (s === spaceOf(model, item) ? -1 : t === spaceOf(model, item) ? 1 : 0));
+  const walls = interiorWallBoxes(model);
+  const halves = sharedHalves(model);
+  const first = preferredSpace(model, item);
+  const spaces = [...model.spaces].sort((s, t) => (s === first ? -1 : t === first ? 1 : 0));
   for (const relaxed of [false, true]) {
     const zs = relaxed ? [] : zones;
     const oth = relaxed ? others.map((o) => ({ ...o, clearance: { front: 0, back: 0, left: 0, right: 0 } })) : others;
     const self = relaxed ? { ...item, clearance: { front: 0, back: 0, left: 0, right: 0 } } : item;
     for (const space of spaces) {
       if (isWallCategory(item.category)) {
-        for (const p of wallPoses(space, self)) if (poseFits(space, self, p, oth, zs)) return p;
+        for (const p of wallPoses(space, self, 0.1, (i) => halves.get(`${space.id}:${i}`) ?? 0)) if (poseFits(space, self, p, oth, zs, walls)) return p;
       }
       const c = centroid(space.polygon);
       for (let r = 0; r < 6; r += 0.1) {
         for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
           for (const rotation of [item.rotation, item.rotation + Math.PI / 2]) {
             const pose = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, rotation };
-            if (poseFits(space, self, pose, oth, zs)) return pose;
+            if (poseFits(space, self, pose, oth, zs, walls)) return pose;
           }
           if (r === 0) break;
         }
       }
     }
   }
-  const c = centroid(model.spaces[0]?.polygon ?? [{ x: 0, y: 0 }]);
+  const c = centroid((first ?? model.spaces[0])?.polygon ?? [{ x: 0, y: 0 }]);
   return { x: c.x, y: c.y, rotation: item.rotation };
 }
 
