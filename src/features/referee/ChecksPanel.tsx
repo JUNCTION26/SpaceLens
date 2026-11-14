@@ -18,9 +18,9 @@ function Row({ p }: { p: Problem }) {
       <SeverityDot severity={p.severity} />
       <div className="referee-row-body">
         {p.itemIds.length || p.openingIds.length
-          ? <button type="button" className="referee-title" onClick={show} title="Select it on the plan">{p.title}</button>
-          : <p className="referee-title">{p.title}</p>}
-        <FixButtons problem={p} compact />
+          ? <button type="button" className="referee-title" onClick={show} title={p.title}>{p.title}</button>
+          : <p className="referee-title" title={p.title}>{p.title}</p>}
+        <FixButtons problem={p} compact max={2} />
       </div>
     </li>
   );
@@ -40,7 +40,7 @@ export const ChecksPanel = memo(function ChecksPanel() {
     <section className="referee" aria-label="Checks">
       <div className="referee-head" aria-live="polite">
         <span className={`referee-dot ${main.some((p) => p.severity === 'error') ? 'bad' : main.length ? 'warn' : 'ok'}`} aria-hidden="true" />
-        <span className="referee-count">{main.length ? `${main.length} to fix` : 'All clear'}</span>
+        <span className="referee-count">{main.length ? `${main.length} to fix` : 'All good'}</span>
         {auto > 0 && (
           <button type="button" className="btn btn-sm btn-primary referee-fixall" onClick={() => void fixAll()} disabled={fixingAll}
             title="Only fixes that cause no new problem. Undo reverts all.">
@@ -59,7 +59,7 @@ export const ChecksPanel = memo(function ChecksPanel() {
         <details className="referee-passes">
           <summary>{passes.length} passed</summary>
           <ul className="referee-sentences">
-            {passes.map((r) => <li key={r.id}><span className="referee-rule">{r.rule}</span> {r.details}</li>)}
+            {passes.map((r) => <li key={r.id} title={r.details}><span className="referee-rule">{r.rule}</span></li>)}
           </ul>
         </details>
       )}

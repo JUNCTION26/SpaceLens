@@ -23,7 +23,7 @@ export function FixButtons({ problem, max = 3, compact = false }: { problem: Pro
           onPointerEnter={() => setPreview(f)} onPointerLeave={() => setPreview(null)}
           onFocus={() => setPreview(f)} onBlur={() => setPreview(null)}
           onClick={run(f)}
-          title={f.kind === 'go' ? undefined : f.safe ? 'Checked: clears this without causing a new problem' : undefined}>
+          title={f.kind === 'go' ? undefined : f.safe ? 'Safe fix' : undefined}>
           {f.label}
         </button>
       ))}
@@ -35,7 +35,7 @@ export function FixButtons({ problem, max = 3, compact = false }: { problem: Pro
 export function ProblemCard({ problems, style, onEnter, onLeave, onClose }: {
   problems: Problem[]; style?: React.CSSProperties; onEnter?: () => void; onLeave?: () => void; onClose?: () => void;
 }) {
-  const shown = problems.slice(0, 2);
+  const shown = problems.slice(0, 1);
   const more = problems.length - shown.length;
   return (
     <div className="pb-card" role="dialog" aria-label="Problem and fixes" style={style}
@@ -43,11 +43,11 @@ export function ProblemCard({ problems, style, onEnter, onLeave, onClose }: {
       onKeyDown={(e) => { if (e.key === 'Escape') onClose?.(); }}>
       {shown.map((p) => (
         <div key={p.id} className="pb-card-row">
-          <p className="pb-card-title"><SeverityDot severity={p.severity} />{p.title}</p>
-          <FixButtons problem={p} />
+          <p className="pb-card-title" title={p.title}><SeverityDot severity={p.severity} />{p.title}</p>
+          <FixButtons problem={p} max={2} />
         </div>
       ))}
-      {more > 0 && <button type="button" className="pb-more" onClick={() => window.dispatchEvent(new Event('spacelens:checks'))}>{more} more in Checks</button>}
+      {more > 0 && <button type="button" className="pb-more" onClick={() => window.dispatchEvent(new Event('spacelens:checks'))}>{more} more</button>}
     </div>
   );
 }

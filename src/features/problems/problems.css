@@ -41,3 +41,5 @@
   .pb-card { position: fixed; left: 8px !important; right: 8px; top: auto !important; bottom: calc(72px + env(safe-area-inset-bottom)); max-width: none; width: auto; z-index: 55; box-shadow: var(--shadow-lg); }
   .pb-fix { min-height: 36px; padding: 8px 12px; }
 }
+
+.referee-title, .pb-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }

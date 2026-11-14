@@ -23,3 +23,5 @@ button.referee-title:hover { text-decoration: underline; text-decoration-color: 
 .referee-passes summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 0; }
 .referee-passes summary:hover { color: var(--text); }
 .referee-passes .referee-sentences, .referee-passes .referee-list { padding-top: 6px; }
+
+.referee-title, .pb-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
