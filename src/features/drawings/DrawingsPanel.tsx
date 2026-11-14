@@ -7,6 +7,10 @@ import { signedArea, uid } from '../../core/geometry';
 import type { Evidence, Measurement, Space, Vec2, WallMeta } from '../../core/types';
 import { cropRegion, downscale, indexStats, loadImage, loadPdf, saveSummary, type DrawingDoc, type TextItem } from './drawingIndex';
 import { answerFromIndex, type Answer, type Region } from './answer';
+import { drawingToBuilding, type BuildReport } from './toBuilding';
+import { answerFromGeometry } from './geoAnswer';
+import { buildFromProposals, cleanProposals, PROPOSAL_PROMPT, PROPOSAL_SCHEMA, scaleFromAreas, type RoomProposal } from './rasterRooms';
+import type { SpaceModel } from '../../core/types';
 import './drawings.css';
 
 type Tool = 'pan' | 'calibrate' | 'trace';
@@ -57,6 +61,11 @@ export function DrawingsPanel() {
   const [anim, setAnim] = useState(false);
   const [stageSize, setStageSize] = useState({ w: 1, h: 1 });
   const [bench, setBench] = useState<{ accuracyOnAnswered: number; coverage: number; questions: number; files: number; dataset: string } | null>(null);
+  const [built, setBuilt] = useState<{ page: number; model: SpaceModel; report: BuildReport } | null>(null);
+  const [building, setBuilding] = useState(false);
+  const [pickRoom, setPickRoom] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<RoomProposal[] | null>(null);
+  const setView = useStore((s) => s.setView);
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
@@ -111,6 +120,48 @@ export function DrawingsPanel() {
   function openDoc(d: DrawingDoc) {
     docCache.set(d.name, d); lastDoc = d; saveSummary(d);
     setDoc(d); setPage(0); setZoom(1); setPan({ x: 0, y: 0 }); setAnswers([]); setFocus(null); setTrace([]); setCalPts([]); setMPerPx({});
+    setBuilt(null); setPickRoom(null); setProposals(null);
+  }
+
+  async function buildPlan() {
+    if (!doc || !pg) return;
+    setBuilding(true); setLoading('Reading walls, doors and rooms');
+    await new Promise((r) => setTimeout(r, 30)); // let the progress line paint
+    try {
+      // An object URL keeps the saved model small: every wall's evidence points at the same page image.
+      let imageUrl = pg.dataUrl;
+      try { imageUrl = URL.createObjectURL(await (await fetch(pg.dataUrl)).blob()); } catch { /* keep the data URL */ }
+      const out = drawingToBuilding(doc, page, { imageUrl });
+      setBuilt({ page, model: out.model, report: out.report });
+      setPickRoom(null); setOverlay(false); setTool('pan'); setZoom(1); setPan({ x: 0, y: 0 });
+    } catch (e) {
+      toast(`Could not read the plan: ${(e as Error).message}`, 'error');
+    } finally { setBuilding(false); setLoading(null); }
+  }
+
+  async function proposeRooms() {
+    if (!doc || !pg) return;
+    setBuilding(true); setLoading('Gemini is looking at the plan');
+    try {
+      const img = await downscale(pg.dataUrl, 1400);
+      const raw = await gemini<{ rooms?: Array<{ name?: string; areaM2?: number; polygon?: Vec2[] }> }>(
+        [dataUrlToInlineData(img), { text: PROPOSAL_PROMPT }],
+        { json: true, schema: PROPOSAL_SCHEMA, system: 'You read architectural floor plans precisely. Never invent rooms or numbers.' },
+      );
+      const ps = cleanProposals(raw);
+      setProposals(ps);
+      if (!ps.length) toast('No rooms found. Trace a room by hand.', 'warn');
+    } catch (e) {
+      toast(`${(e as Error).message} Trace a room by hand instead.`, 'error');
+    } finally { setBuilding(false); setLoading(null); }
+  }
+
+  function open3d() {
+    if (!built?.report.ok) return;
+    dispatch({ type: 'REPLACE_MODEL', model: built.model });
+    setView('split');
+    setMode('design');
+    toast(`${built.report.rooms.length} rooms built from the drawing`, 'ok');
   }
 
   async function openBlob(blob: Blob, name: string) {
@@ -171,7 +222,8 @@ export function DrawingsPanel() {
   async function ask(question = q) {
     if (!doc || !question.trim()) return;
     setAsking(true);
-    const local = answerFromIndex(doc, question, page);
+    const geo = built?.report.ok ? answerFromGeometry(built.report, built.model, question) : null;
+    const local = geo ?? answerFromIndex(doc, question, page);
     if (local) { setStats((s) => ({ asked: s.asked + 1, free: s.free + 1 })); show(local); setAsking(false); setQ(''); return; }
     setStats((s) => ({ ...s, asked: s.asked + 1 }));
     if (!hasGemini()) {
@@ -304,13 +356,121 @@ export function DrawingsPanel() {
   const st = doc ? indexStats(doc) : null;
   const pageFocus = (focus ?? []).filter((r) => r.page === page);
   const named = [...new Set(roomList.filter((x) => x.area).map((x) => x.r.str))].slice(0, 2);
+  const geoReady = !!built?.report.ok && built.page === page;
   const suggestions = [
-    ...named.map((n) => `Area of ${n}?`),
+    ...(geoReady ? ['Which room is largest?', 'How many rooms have a window?', 'Distance from entrance to bathroom?'] : []),
+    ...named.slice(0, geoReady ? 1 : 2).map((n) => `Area of ${n}?`),
     ...(roomList.length ? ['How many rooms?'] : []),
     ...(scaleItems.length ? ['What scale?'] : []),
     ...(dims.length ? ['Which dimensions are on this sheet?'] : []),
   ];
   if (!suggestions.length) suggestions.push('What scale?', 'List rooms', 'What is the area of the kitchen?');
+
+  const rep = built && built.page === page ? built.report : null;
+  const picked = rep?.rooms.find((r) => r.spaceId === pickRoom) ?? null;
+  const flyToRoom = (id: string) => {
+    const r = rep?.rooms.find((x) => x.spaceId === id); if (!r) return;
+    setPickRoom(id);
+    const xs = r.outline.map((p) => p.x), ys = r.outline.map((p) => p.y);
+    flyTo([{ page, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }]);
+  };
+  const proposalScale = proposals && pg ? (scaleFromAreas(proposals, pg.pxW, pg.pxH) ?? mpp ?? null) : null;
+  function openProposals() {
+    if (!doc || !pg || !proposals?.length || !proposalScale) return;
+    const out = buildFromProposals(proposals, { pxW: pg.pxW, pxH: pg.pxH, mPerPx: proposalScale, imageUrl: pg.dataUrl, name: doc.name, page });
+    dispatch({ type: 'REPLACE_MODEL', model: out.model });
+    setView('split'); setMode('design');
+    toast(`${out.rooms.length} rooms built from the picture`, 'ok');
+  }
+  const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const hasLines = !!doc?.vectors?.[page];
+  const buildCard = doc && (
+    <section className="card drawings-build">
+      {!rep && (
+        <>
+          <h4>Plan to 3D</h4>
+          {hasLines ? (
+            <>
+              <p className="muted">Reads walls, doors, windows and rooms from the drawing lines.</p>
+              <button className="btn btn-primary drawings-big" onClick={() => void buildPlan()} disabled={building}>
+                {building ? 'Reading the plan…' : 'Build 3D from this plan'}
+              </button>
+            </>
+          ) : proposals ? (
+            <>
+              <p className="muted drawings-bnote">Gemini proposed {proposals.length} rooms. Remove any outline that is wrong.</p>
+              <div className="drawings-rooms">
+                {proposals.map((r, i) => (
+                  <div key={i} className="drawings-room">
+                    <span>{r.name}{r.areaM2 ? ` · ${r.areaM2} m²` : ''}</span>
+                    <button className="btn btn-ghost btn-sm" aria-label={`Remove ${r.name}`} onClick={() => setProposals((ps) => ps!.filter((_, j) => j !== i))}><Icon name="minus" size={12} /></button>
+                  </div>
+                ))}
+              </div>
+              {!proposalScale && <p className="muted drawings-bnote">No printed areas to size from. Set the scale first.</p>}
+              <button className="btn btn-primary drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}>Open in 3D</button>
+              {!proposalScale && <button className="btn btn-sm" onClick={() => setTool('calibrate')}>Set scale</button>}
+            </>
+          ) : (
+            <>
+              <p className="muted">This is a picture, so there are no drawing lines to read.{hasGemini() ? ' Gemini can propose the rooms for you to check.' : ' Trace a room by hand.'}</p>
+              {hasGemini() && <button className="btn btn-primary drawings-big" disabled={building} onClick={() => void proposeRooms()}>{building ? 'Looking at the plan…' : 'Find rooms with Gemini'}</button>}
+              <button className="btn drawings-big" onClick={() => setTool(mpp ? 'trace' : 'calibrate')}>Trace a room</button>
+            </>
+          )}
+        </>
+      )}
+      {rep && !rep.ok && (
+        <>
+          <h4>Could not build 3D</h4>
+          <p>{rep.reason}</p>
+          <button className="btn drawings-big" onClick={() => { setBuilt(null); setTool(mpp ? 'trace' : 'calibrate'); }}>Trace a room by hand</button>
+        </>
+      )}
+      {rep && rep.ok && (
+        <>
+          <div className="row drawings-stats">
+            <div className="stat"><b>{rep.rooms.length}</b><span className="muted">rooms</span></div>
+            <div className="stat"><b>{rep.doors}</b><span className="muted">doors</span></div>
+            <div className="stat"><b>{rep.windows}</b><span className="muted">windows</span></div>
+          </div>
+          {rep.withPrintedArea > 0 && (
+            <p className="muted drawings-bnote">
+              {rep.verified} of {rep.withPrintedArea} room areas match the printed area within 2%. Median difference {rep.medianAreaErrorPct?.toFixed(1)}%.
+            </p>
+          )}
+          {picked ? (
+            <div className={`drawings-bpick st-${picked.printedArea == null ? 'none' : picked.status}`}>
+              <b>{picked.name}</b>
+              {picked.printedArea != null
+                ? <span>Printed {picked.printedArea.toFixed(2)} m² · Computed {picked.computedArea.toFixed(2)} m² · {fmtPct(picked.errorPct!)}</span>
+                : <span>Computed {picked.computedArea.toFixed(2)} m² · no area printed</span>}
+              <span className="muted">{picked.doors} door{picked.doors === 1 ? '' : 's'} · {picked.windows} window{picked.windows === 1 ? '' : 's'}</span>
+            </div>
+          ) : <p className="muted drawings-bnote">Click a room on the sheet to compare areas.</p>}
+          <div className="drawings-rooms">
+            {rep.rooms.map((r) => (
+              <button key={r.spaceId} className={`drawings-room${pickRoom === r.spaceId ? ' is-on' : ''}`} onClick={() => flyToRoom(r.spaceId)}>
+                <span>{r.name}</span>
+                <span className={r.printedArea == null ? 'muted' : r.status === 'verified' ? 'drawings-ok' : 'drawings-bad'}>
+                  {r.computedArea.toFixed(1)} m²{r.errorPct != null ? ` ${fmtPct(r.errorPct)}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+          {rep.failed.length > 0 && (
+            <details className="drawings-bfailed">
+              <summary>{rep.failed.length} room{rep.failed.length > 1 ? 's' : ''} not closed</summary>
+              <ul>{rep.failed.map((f, i) => <li key={i}>{[f.label, f.no].filter(Boolean).join(' ') || 'Room'}: {f.reason}</li>)}</ul>
+            </details>
+          )}
+          {rep.warnings.filter((w) => !/could not be closed/.test(w)).map((w) => <p key={w} className="muted drawings-bnote">{w}</p>)}
+          <button className="btn btn-primary drawings-big" onClick={open3d}>Open in 3D</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setBuilt(null); setPickRoom(null); }}>Clear</button>
+        </>
+      )}
+    </section>
+  );
 
   return (
     <div className="drawings">
@@ -374,6 +534,19 @@ export function DrawingsPanel() {
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none">
                   {overlay && pageItems.map((i) => <rect key={`o${i.id}`} className={`drawings-ov ov-${i.kind}`} x={i.x} y={i.y} width={i.w} height={i.h}><title>{`${i.kind}: ${i.str}`}</title></rect>)}
                   {hover && hover.page === page && <rect className="drawings-hover" x={hover.x - 0.005} y={hover.y - 0.005} width={hover.w + 0.01} height={hover.h + 0.01} />}
+                  {built && built.page === page && built.report.ok && (
+                    <g>
+                      {built.report.wallsNorm.map((w, i) => <polygon key={`w${i}`} className="drawings-bwall" points={w.map((p) => `${p.x},${p.y}`).join(' ')} />)}
+                      {built.report.rooms.map((r) => (
+                        <polygon key={r.spaceId} className={`drawings-broom st-${r.printedArea == null ? 'none' : r.status}${pickRoom === r.spaceId ? ' is-on' : ''}`}
+                          points={r.outline.map((p) => `${p.x},${p.y}`).join(' ')} onClick={() => setPickRoom(r.spaceId)}>
+                          <title>{r.name}</title>
+                        </polygon>
+                      ))}
+                    </g>
+                  )}
+                  {proposals?.map((r, i) => <polygon key={`p${i}`} className="drawings-broom st-none" points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')}><title>{`${r.name} (proposed)`}</title></polygon>)}
+                  {built && built.page === page && built.report.failed.map((f, i) => <rect key={`f${i}`} className="drawings-bfail" x={f.box[0] - 0.004} y={f.box[1] - 0.004} width={f.box[2] + 0.008} height={f.box[3] + 0.008}><title>{f.reason}</title></rect>)}
                   {pageFocus.map((r, i) => <rect key={i} className="drawings-hit" x={r.x} y={r.y} width={r.w} height={r.h} />)}
                   {calPts.length === 2 && <line className="drawings-cal" x1={calPts[0].x} y1={calPts[0].y} x2={calPts[1].x} y2={calPts[1].y} />}
                   {calPts.map((p, i) => <circle key={i} className="drawings-cal-pt" cx={p.x} cy={p.y} r={0.004} />)}
@@ -400,6 +573,7 @@ export function DrawingsPanel() {
           </div>
 
           <aside className="drawings-side">
+            {buildCard}
             <section className="card drawings-ask">
               <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
                 <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this drawing" />

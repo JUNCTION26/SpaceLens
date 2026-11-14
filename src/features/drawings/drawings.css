@@ -86,3 +86,25 @@
 .drawings-meta .chip { font-size: 11px; }
 .drawings-hit, .drawings-hover { animation: none; }
 .drawings-cost { margin: 6px 0; }
+
+/* Plan to 3D */
+.drawings-build { display: flex; flex-direction: column; gap: 8px; }
+.drawings-build h4, .drawings-build p { margin: 0; }
+.drawings-bnote { font-size: 12px; }
+.drawings-bwall { fill: color-mix(in srgb, var(--accent) 35%, transparent); stroke: none; }
+.drawings-broom { pointer-events: auto; cursor: pointer; stroke-width: 1.5px; vector-effect: non-scaling-stroke; fill-opacity: .28; }
+.drawings-broom.st-verified { fill: var(--ok); stroke: var(--ok); }
+.drawings-broom.st-estimated { fill: var(--bad); stroke: var(--bad); }
+.drawings-broom.st-none { fill: var(--warn); stroke: var(--warn); }
+.drawings-broom:hover { fill-opacity: .45; }
+.drawings-broom.is-on { fill-opacity: .55; stroke-width: 3px; }
+.drawings-bfail { fill: none; stroke: var(--bad); stroke-width: 2px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.drawings-bpick { display: flex; flex-direction: column; gap: 2px; font-size: 13px; padding: 6px 8px; border-radius: 6px; border-left: 3px solid var(--line); background: var(--panel-2); }
+.drawings-bpick.st-verified { border-left-color: var(--ok); }
+.drawings-bpick.st-estimated { border-left-color: var(--bad); }
+.drawings-bpick.st-none { border-left-color: var(--warn); }
+.drawings-room.is-on { border-color: var(--accent); }
+.drawings-ok { color: var(--ok); }
+.drawings-bad { color: var(--bad); }
+.drawings-bfailed { font-size: 12px; }
+.drawings-bfailed ul { margin: 4px 0 0; padding-left: 18px; }
