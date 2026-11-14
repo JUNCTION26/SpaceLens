@@ -2,7 +2,7 @@
 // verdicts with a 0..1 score and a plain sentence with the measured numbers.
 import type { FurnitureItem, Opening, OpeningKind, ObjectSemantics, Requirements, RuleVerdict, Space, SpaceModel } from '../../core/types';
 import { distPointRect, distToBoundary, overlapDepth, pointInPolygon, rectOutside, signedArea, corners as rectCorners, type ORect, type P } from '../referee/geom';
-import { isHostCategory, isSeatCategory, isSoftSeat, semanticsOf, zoneKindOf, type ZoneKind } from './semantics';
+import { isHostCategory, isSeatCategory, isSoftSeat, normaliseItem, semanticsOf, zoneKindOf, type ZoneKind } from './semantics';
 
 // ---------------------------------------------------------------- small maths
 export const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : Number.isFinite(x) ? x : 0);
@@ -45,9 +45,14 @@ export function openingZoneRect(w: WallInfo, offset: number, width: number, dept
   return { cx: c.x + (w.n.x * depth) / 2, cy: c.y + (w.n.y * depth) / 2, hw: width / 2, hd: depth / 2, rot: w.rot };
 }
 
-/** Geometry of the first room, computed once and shared by every rule. */
-export function buildRoom(model: SpaceModel): RoomCtx {
-  const space = model.spaces[0];
+/** The space a layout is for: the given id, else the first room with an outline. */
+export function spaceOf(model: SpaceModel, spaceId?: string): Space | undefined {
+  return (spaceId ? model.spaces.find((s) => s.id === spaceId) : undefined) ?? model.spaces.find((s) => s.polygon.length >= 3);
+}
+
+/** Geometry of one room (default: the first), computed once and shared by every rule. */
+export function buildRoom(model: SpaceModel, spaceId?: string): RoomCtx {
+  const space = spaceOf(model, spaceId) ?? model.spaces[0];
   const poly = space.polygon;
   const walls: WallInfo[] = poly.map((_, i) => ({ i, ...wallFrame(poly, i), windows: [], doors: [] }));
   const openings: OpeningInfo[] = [];
@@ -97,7 +102,7 @@ export interface AItem {
   /** Wall the back rests on (gap <= 5 cm), or the nearest wall it faces away from. */
   back: { wall: number; gap: number } | null;
 }
-export interface LayoutCtx { room: RoomCtx; items: AItem[]; byId: Map<string, AItem>; req?: Requirements | null; hostOf: Map<string, string>; zones: Map<string, ZoneKind> }
+export interface LayoutCtx { room: RoomCtx; items: AItem[]; byId: Map<string, AItem>; req?: Requirements | null; hostOf: Map<string, string>; zones: Map<string, ZoneKind>; memo?: Map<string, unknown> }
 
 function backWall(room: RoomCtx, f: FurnitureItem, front: P): { wall: number; gap: number } | null {
   const backMid = { x: f.x - front.x * f.d / 2, y: f.y - front.y * f.d / 2 };
@@ -142,15 +147,17 @@ export function assignZones(items: FurnitureItem[]): Map<string, ZoneKind> {
   return out;
 }
 
-export function analyseItem(room: RoomCtx, f: FurnitureItem): AItem {
+export function analyseItem(room: RoomCtx, item: FurnitureItem): AItem {
+  const f = normaliseItem(item);
   const rect = rectOf(f), front = frontOf(f.rotation), sem = semanticsOf(f);
   return { f, sem, rect, poly: rectCorners(rect), front, right: rightOf(f.rotation), solid: f.category !== 'rug', zone: zoneKindOf(f), back: backWall(room, f, front) };
 }
 export function analyse(room: RoomCtx, furniture: FurnitureItem[], req?: Requirements | null, cache?: Map<FurnitureItem, AItem>): LayoutCtx {
   const items = furniture.map((f) => { const hit = cache?.get(f); if (hit) return hit; const a = analyseItem(room, f); cache?.set(f, a); return a; });
-  const zones = assignZones(furniture);
+  const norm = items.map((a) => a.f);
+  const zones = assignZones(norm);
   for (const a of items) a.zone = zones.get(a.f.id) ?? a.zone;
-  return { room, items, byId: new Map(items.map((a) => [a.f.id, a])), req, hostOf: pairSeatsOf(furniture), zones };
+  return { room, items, byId: new Map(items.map((a) => [a.f.id, a])), req, hostOf: pairSeatsOf(norm), zones };
 }
 
 // ---------------------------------------------------------------- distances
@@ -205,6 +212,14 @@ export const doorPoint = (op: OpeningInfo, inward = 0.4): P => addv(op.c, mulv(o
 export interface FloorGrid { ox: number; oy: number; cols: number; rows: number; cell: number; clr: Float32Array }
 /** Distance from each cell to the nearest wall or solid footprint (-1 outside the room). Walls do not count near `freeNear` points. */
 export function floorGrid(L: LayoutCtx, cell = 0.1, freeNear: P[] = []): FloorGrid {
+  const key = `grid:${cell}:${freeNear.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`;
+  const hit = L.memo?.get(key) as FloorGrid | undefined;
+  if (hit) return hit;
+  const g = buildFloorGrid(L, cell, freeNear);
+  (L.memo ??= new Map()).set(key, g);
+  return g;
+}
+function buildFloorGrid(L: LayoutCtx, cell: number, freeNear: P[]): FloorGrid {
   const { box, poly } = L.room;
   const cols = Math.max(1, Math.ceil((box.maxX - box.minX) / cell)), rows = Math.max(1, Math.ceil((box.maxY - box.minY) / cell));
   const clr = new Float32Array(cols * rows).fill(-1);
@@ -304,6 +319,50 @@ function focalOf(L: LayoutCtx): { kind: 'item'; a: AItem } | { kind: 'window'; p
   return w ? { kind: 'window', p: w.c } : null;
 }
 const nameOf = (a: AItem) => a.f.name;
+const at = (a: AItem): P => ({ x: a.f.x, y: a.f.y });
+/** Gap from an item's footprint to the nearest wall. */
+const wallGap = (L: LayoutCtx, a: AItem) => Math.min(...a.poly.map((p) => distToBoundary(p, L.room.poly)));
+/** Pieces that stand free by design. */
+const FREE_STANDING = new Set(['table', 'cafe-table', 'kitchen-island', 'treatment-bed', 'room-divider', 'rug', 'coffee-table', 'office-pod']);
+const OUTLOOK = new Set(['tv-unit', 'coffee-table', 'bed', 'reception-desk']);
+const PAIRED = new Set(['nightstand', 'lamp', 'armchair', 'side-table']);
+
+/** Walking distance (m) from `start` to every cell along cells at least `rad` from walls and furniture (8-way). */
+export function pathLengths(g: FloorGrid, start: P, rad: number): Float64Array {
+  const n = g.cols * g.rows, d = new Float64Array(n).fill(Infinity);
+  const s = cellOf(g, start);
+  if (g.clr[s] < rad) return d;
+  const hv: number[] = [], hi: number[] = [];
+  const push = (val: number, i: number) => { hv.push(val); hi.push(i); let k = hv.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (hv[p] <= hv[k]) break; [hv[p], hv[k]] = [hv[k], hv[p]]; [hi[p], hi[k]] = [hi[k], hi[p]]; k = p; } };
+  const pop = () => { const val = hv[0], i = hi[0], lv = hv.pop()!, li = hi.pop()!; if (hv.length) { hv[0] = lv; hi[0] = li; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < hv.length && hv[l] < hv[m]) m = l; if (r < hv.length && hv[r] < hv[m]) m = r; if (m === k) break; [hv[m], hv[k]] = [hv[k], hv[m]]; [hi[m], hi[k]] = [hi[k], hi[m]]; k = m; } } return [val, i]; };
+  d[s] = 0; push(0, s);
+  while (hv.length) {
+    const [val, i] = pop();
+    if (val > d[i]) continue;
+    const r = Math.floor(i / g.cols), c = i % g.cols;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      if (!dr && !dc) continue;
+      const rr = r + dr, cc = c + dc;
+      if (rr < 0 || cc < 0 || rr >= g.rows || cc >= g.cols) continue;
+      const j = rr * g.cols + cc;
+      if (g.clr[j] < rad) continue;
+      const w = val + g.cell * (dr && dc ? Math.SQRT2 : 1);
+      if (w < d[j]) { d[j] = w; push(w, j); }
+    }
+  }
+  return d;
+}
+/** Shortest walking distance to any cell within `radius` of p, plus the last step. */
+function nearestDist(g: FloorGrid, d: Float64Array, p: P, radius: number): number {
+  let m = Infinity;
+  const c0 = Math.floor((p.x - radius - g.ox) / g.cell), c1 = Math.floor((p.x + radius - g.ox) / g.cell);
+  const r0 = Math.floor((p.y - radius - g.oy) / g.cell), r1 = Math.floor((p.y + radius - g.oy) / g.cell);
+  for (let r = Math.max(0, r0); r <= Math.min(g.rows - 1, r1); r++) for (let c = Math.max(0, c0); c <= Math.min(g.cols - 1, c1); c++) {
+    const q = { x: g.ox + (c + 0.5) * g.cell, y: g.oy + (r + 0.5) * g.cell }, k = distp(q, p);
+    if (k <= radius && Number.isFinite(d[r * g.cols + c])) m = Math.min(m, d[r * g.cols + c] + k);
+  }
+  return m;
+}
 /** Free distance straight out from an item's side, sampled along that side. */
 function sideFree(L: LayoutCtx, a: AItem, side: 'front' | 'left' | 'right' | 'back', from = 0, to = 1, ignore?: Set<string>): number {
   const f = a.f, hw = f.w / 2, hd = f.d / 2, e = 0.002;
@@ -496,13 +555,13 @@ export const RULES: DesignRule[] = [
     },
   }),
   rule({
-    id: 'bed-window', name: 'Headboard off the window', severity: 'preference', source: 'Draughts and light at the head',
+    id: 'bed-window', name: 'Headboard off the window', severity: 'strong', source: 'Draughts and light at the head',
     evaluate: (L, v) => L.items.filter(isBed).map((a) => {
       const w = a.back && a.back.gap < 0.1 ? L.room.walls[a.back.wall] : null;
       if (!w || !w.windows.length) return v([a.f.id], 1, `The headboard of ${lc(a.f.name)} is on a wall without a window.`);
       const t = dot(sub({ x: a.f.x, y: a.f.y }, w.a), w.dir);
       const hit = w.windows.some(([s, e]) => t + a.f.w / 2 > s && t - a.f.w / 2 < e);
-      return hit ? v([a.f.id], 0.5, `The headboard sits under the window: draughty, and light falls on the pillow.`) : v([a.f.id], 0.85, `The headboard shares a wall with the window but is not under it.`);
+      return hit ? v([a.f.id], 0.3, `The headboard sits under the window: draughty, and light falls on the pillow.`) : v([a.f.id], 0.85, `The headboard shares a wall with the window but is not under it.`);
     }),
   }),
   rule({
@@ -541,7 +600,8 @@ export const RULES: DesignRule[] = [
       const nw = nearestWindow(L.room, { x: a.f.x, y: a.f.y });
       if (!nw || nw.d > 4.5) return [];
       const view = mulv(a.front, -1), toW = normv(sub(nw.w.c, { x: a.f.x, y: a.f.y })), c = dot(view, toW);
-      if (c < -0.6) return [v([a.f.id], 0.3, `The window is behind whoever sits at ${lc(a.f.name)}: it reflects in the screen.`)];
+      if (c < -0.6) return [v([a.f.id], 0.25, `The window is behind whoever sits at ${lc(a.f.name)}: it reflects in the screen.`)];
+      if (c > 0.85 && nw.d < 2.5) return [v([a.f.id], 0.55, `The screen on ${lc(a.f.name)} sits against the window: bright daylight right behind the monitor tires the eyes.`)];
       if (c > 0.6) return [v([a.f.id], 0.8, `${a.f.name} faces the window: good light, some glare on bright days.`)];
       return [v([a.f.id], 1, `Daylight falls on ${lc(a.f.name)} from the side, no screen glare.`)];
     }),
@@ -718,7 +778,12 @@ export const RULES: DesignRule[] = [
         return v([r.f.id, t.f.id], sc, sc >= 0.99 ? `${r.f.name} is big enough that chairs stay on it when pulled out.` : `${seatsT.length - okSeats} chairs at ${lc(t.f.name)} hang off ${lc(r.f.name)}.`);
       }
       const ct = of(L, 'coffee-table').find((c) => c.poly.every((p) => pointInPolygon(p, r.poly)));
-      if (!seats.length) return v([r.f.id], ct ? 0.7 : 0.4, ct ? `${r.f.name} sits under the coffee table.` : `${r.f.name} floats with no furniture on it.`);
+      const bed = L.items.find((a) => isBed(a) && polyDist(a.poly, r.poly) === 0);
+      if (!seats.length && bed) {
+        const inside = [toPlanOf(bed.f, -bed.f.w / 2 - 0.3, 0.3), toPlanOf(bed.f, bed.f.w / 2 + 0.3, 0.3)].filter((p) => pointInPolygon(p, r.poly)).length;
+        return v([r.f.id, bed.f.id], inside === 2 ? 1 : inside ? 0.75 : 0.5, inside === 2 ? `${r.f.name} reaches out both sides of ${lc(bed.f.name)}: a soft first step.` : `${r.f.name} barely shows beside ${lc(bed.f.name)}.`);
+      }
+      if (!seats.length) return v([r.f.id], ct ? 0.7 : 0.15, ct ? `${r.f.name} sits under the coffee table.` : `${r.f.name} floats with no furniture on it.`);
       let ok = 0;
       for (const s of seats) {
         const fl = toPlanOf(s.f, -s.f.w / 2 + 0.08, s.f.d / 2 - 0.08), fr = toPlanOf(s.f, s.f.w / 2 - 0.08, s.f.d / 2 - 0.08);
@@ -750,11 +815,17 @@ export const RULES: DesignRule[] = [
     }),
   }),
   rule({
-    id: 'tall-walls', name: 'Tall pieces on solid walls', severity: 'preference', source: 'Keep daylight',
-    evaluate: (L, v) => L.items.filter((a) => a.solid && a.f.h > 1.2 && a.sem.role === 'storage').map((a) => {
+    id: 'tall-walls', name: 'Tall storage placed well', severity: 'strong', source: 'Longest solid wall, clear of windows and the door hinge',
+    evaluate: (L, v) => L.items.filter((a) => a.solid && a.sem.tall && a.sem.role === 'storage').map((a) => {
       const w = a.back && a.back.gap < 0.1 ? L.room.walls[a.back.wall] : null;
-      if (!w) return v([a.f.id], 0.5, `${a.f.name} is tall and stands away from the walls.`);
-      return w.windows.length ? v([a.f.id], 0.5, `${a.f.name} is tall and shares the window wall, cutting the light.`) : v([a.f.id], 1, `${a.f.name} stands on a windowless wall.`);
+      if (!w) return v([a.f.id], 0.3, `${a.f.name} is tall and stands away from the walls.`);
+      if (w.windows.length) return v([a.f.id], 0.4, `${a.f.name} is tall and shares the window wall, cutting the light.`);
+      const hinge = L.room.doors.filter((d) => d.kind === 'door' && d.o.swing === 'in').map((d) => (d.o.hinge === 'start' ? d.a : d.b)).find((h) => distPointRect(h, a.rect) < 0.6);
+      if (hinge) return v([a.f.id], 0.4, `${a.f.name} stands right by the door hinge: hidden behind the open door, and the door cannot open past it.`);
+      const free = L.room.walls.filter((x) => !x.windows.length && !x.doors.length);
+      const longest = Math.max(0, ...free.map((x) => x.len));
+      if (!w.doors.length && w.len >= longest - 0.05) return v([a.f.id], 1, `${a.f.name} stands on the longest solid wall.`);
+      return w.doors.length ? v([a.f.id], 0.75, `${a.f.name} shares the door wall; the longest solid wall would carry it better.`) : v([a.f.id], 0.85, `${a.f.name} stands on a solid wall, though not the longest one.`);
     }),
   }),
   rule({
@@ -818,7 +889,10 @@ export const RULES: DesignRule[] = [
         const ox = Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)), oy = Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
         const area = (r: typeof a) => Math.max(0.01, (r.x1 - r.x0) * (r.y1 - r.y0));
         const ov = (ox * oy) / Math.min(area(a), area(b));
-        out.push(v([...a.ids, ...b.ids], 1 - Math.min(1, ov * 1.5), ov < 0.1 ? `The ${ka} and ${kb} areas are separate.` : `The ${ka} and ${kb} areas interleave (${Math.round(ov * 100)}% overlap).`));
+        if (ov >= 0.02) { out.push(v([...a.ids, ...b.ids], 0.8 * (1 - Math.min(1, ov * 1.5)), `The ${ka} and ${kb} areas interleave (${Math.round(ov * 100)}% overlap).`)); continue; }
+        // Separate, but with breathing room between them?
+        const gap = Math.max(Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1), Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1), 0);
+        out.push(v([...a.ids, ...b.ids], gap >= 0.6 ? 1 : 0.7 + 0.5 * gap, gap >= 0.6 ? `The ${ka} and ${kb} areas are separate, with ${cm(Math.min(gap, 3))}${gap >= 3 ? '+' : ''} between them.` : `The ${ka} and ${kb} areas touch (${cm(gap)} apart); a little breathing room would separate them.`));
       }
       return out;
     },
@@ -837,6 +911,8 @@ export const RULES: DesignRule[] = [
     id: 'wall-backed', name: 'Backs to the wall', severity: 'strong', source: 'Wall-backed pieces',
     evaluate: (L, v) => L.items.filter((a) => a.solid && a.sem.wallBacked && !isBed(a) && a.f.category !== 'nightstand').map((a) => {
       const g = a.back?.gap ?? 9;
+      const partner = a.f.category === 'desk' && g > 0.05 ? L.items.find((b) => b !== a && b.f.category === 'desk' && dot(a.front, b.front) < -0.9 && polyDist(a.poly, b.poly) < 0.05) : undefined;
+      if (partner) return v([a.f.id, partner.f.id], 1, `${a.f.name} backs onto ${lc(partner.f.name)} in a shared bench.`);
       const sofa = a.f.category === 'sofa' || a.f.category === 'sofa-bed';
       if (g <= 0.05) return v([a.f.id], 1, `${a.f.name} stands against the wall.`);
       if (sofa) {
@@ -861,6 +937,177 @@ export const RULES: DesignRule[] = [
     },
   }),
   rule({
+    id: 'no-floating', name: 'Nothing adrift', severity: 'strong', source: 'Every piece leans on a wall or belongs to a group',
+    evaluate: (L, v) => {
+      const out: RuleVerdict[] = [];
+      for (const a of L.items) {
+        if (!a.solid || L.hostOf.has(a.f.id) || FREE_STANDING.has(a.f.category) || isBed(a)) continue;
+        const gap = wallGap(L, a);
+        if (gap <= 0.1) continue;
+        const c = a.f.category, pairs = new Set(a.sem.pairsWith);
+        // Reasons to stand free: a piece it belongs with within reach, a rug under it, a screen it faces, a desk bench.
+        const near = L.items.find((b) => b !== a && b.solid && (pairs.has(b.f.category) || b.sem.pairsWith.includes(c)) && polyDist(a.poly, b.poly) < 1.0);
+        const onRug = L.items.some((r) => r.f.category === 'rug' && pointInPolygon(at(a), r.poly));
+        const screen = a.sem.faces === 'screen' && of(L, 'tv-unit').some((t) => distp(at(t), at(a)) < 4.5 && dot(a.front, normv(sub(at(t), at(a)))) > 0.8);
+        const bench = c === 'desk' && L.items.some((b) => b !== a && b.f.category === 'desk' && polyDist(a.poly, b.poly) < 0.05);
+        if (near || onRug || screen || bench) continue;
+        out.push(v([a.f.id], band(gap, 0, 0.1, 0.5), `${a.f.name} stands ${cm(gap)} from the nearest wall with nothing it belongs to nearby.`));
+      }
+      return out.length ? out : [v([], 1, 'Every piece rests on a wall or belongs to a group.')];
+    },
+  }),
+  rule({
+    id: 'seat-outlook', name: 'Seats face something', severity: 'strong', source: 'A seat looks at a screen, a view or other people',
+    evaluate: (L, v) => L.items.filter((a) => a.solid && a.sem.role === 'seating' && !L.hostOf.has(a.f.id) && !/^sofa/.test(a.f.category)).map((a) => {
+      const o = at(a);
+      const look = (p: P, maxD: number) => distp(o, p) <= maxD && dot(a.front, normv(sub(p, o))) >= 0.7;
+      const thing = L.items.find((b) => b !== a && b.solid && (OUTLOOK.has(b.f.category) || isSoftSeat(b.f.category) || isHostCategory(b.f.category)) && look(at(b), 4.5));
+      if (thing) return v([a.f.id, thing.f.id], 1, `${a.f.name} faces ${lc(thing.f.name)}.`);
+      const win = L.room.windows.find((w) => look(w.c, 6));
+      if (win) return v([a.f.id, win.id], 0.9, `${a.f.name} looks out of the window.`);
+      const ahead = rayFree(L, toPlanOf(a.f, 0, a.f.d / 2 + 0.002), a.front, new Set([a.f.id]));
+      return ahead >= 2 ? v([a.f.id], 0.55, `${a.f.name} faces open floor with nothing to look at.`) : v([a.f.id], 0.15, `${a.f.name} faces ${ahead < 1 ? 'a wall' : 'a blank stretch of room'} ${cm(ahead)} away.`);
+    }),
+  }),
+  rule({
+    id: 'desk-pair', name: 'Desks work together', severity: 'strong', source: 'Facing or side by side, not back to back in one aisle',
+    evaluate: (L, v) => {
+      const desks = of(L, 'desk'), out: RuleVerdict[] = [];
+      for (let i = 0; i < desks.length; i++) for (let j = i + 1; j < desks.length; j++) {
+        const a = desks[i], b = desks[j];
+        if (polyDist(a.poly, b.poly) > 3) continue;
+        const ab = sub(at(b), at(a)), u = normv(ab), par = dot(a.front, b.front);
+        const aToB = dot(a.front, u) > 0.5, bToA = dot(b.front, u) < -0.5;
+        const ids2 = [a.f.id, b.f.id];
+        if (par < -0.9 && aToB && bToA) {
+          // The chair sides face each other: two people sit back to back in one aisle.
+          const gap = Math.abs(dot(ab, a.front)) - a.f.d / 2 - b.f.d / 2;
+          const sc = gap >= 2.0 ? 0.85 : gap >= 1.6 ? 0.6 : 0.25;
+          out.push(v(ids2, sc, gap >= 1.6 ? `${a.f.name} and ${lc(b.f.name)} put their users back to back across ${mm(gap)}; it works, but each sees the other's screen.` : `${a.f.name} and ${lc(b.f.name)} put their users back to back with only ${cm(gap)} between the desks: the chairs collide.`));
+        } else if (par < -0.9) {
+          out.push(v(ids2, 1, `${a.f.name} and ${lc(b.f.name)} face each other${polyDist(a.poly, b.poly) < 0.05 ? ' across a shared bench' : ''}.`));
+        } else if (par > 0.9) {
+          const ahead = Math.abs(dot(ab, a.front)), lateral = Math.abs(dot(ab, a.right));
+          if (ahead < 0.1) out.push(v(ids2, 1, `${a.f.name} and ${lc(b.f.name)} sit side by side in a row.`));
+          else if (lateral < (a.f.w + b.f.w) / 2) out.push(v(ids2, 0.4, `One desk faces the back of the other's chair: whoever sits behind looks at a back all day.`));
+          else out.push(v(ids2, 0.8, `${a.f.name} and ${lc(b.f.name)} point the same way but are out of line.`));
+        } else out.push(v(ids2, 0.85, `${a.f.name} and ${lc(b.f.name)} meet at a right angle.`));
+      }
+      return out;
+    },
+  }),
+  rule({
+    id: 'bed-door-wall', name: 'Headboard off the door wall', severity: 'strong', source: 'Nobody walks in past the pillow',
+    evaluate: (L, v) => L.items.filter(isBed).flatMap((a) => {
+      const w = a.back && a.back.gap < 0.1 ? L.room.walls[a.back.wall] : null;
+      if (!w) return [];
+      return w.doors.length ? [v([a.f.id], 0.35, `The headboard of ${lc(a.f.name)} is on the door wall: whoever comes in walks right past the pillow.`)]
+        : [v([a.f.id], 1, `The headboard of ${lc(a.f.name)} is away from the door.`)];
+    }),
+  }),
+  rule({
+    id: 'symmetry', name: 'Pairs mirror each other', severity: 'preference', source: 'Matching pieces either side of a bed or sofa',
+    evaluate: (L, v) => {
+      const out: RuleVerdict[] = [];
+      const hosts = L.items.filter((a) => isBed(a) || isSoftSeat(a.f.category) || a.f.category === 'desk');
+      const groups = new Map<string, AItem[]>();
+      for (const a of L.items) if (PAIRED.has(a.f.category)) (groups.get(a.f.catalogId) ?? groups.set(a.f.catalogId, []).get(a.f.catalogId)!).push(a);
+      for (const g of groups.values()) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+        const x = g[i], y = g[j];
+        const host = hosts.find((h) => h !== x && h !== y && polyDist(h.poly, x.poly) < 0.6 && polyDist(h.poly, y.poly) < 0.6);
+        if (!host) continue;
+        const loc = (a: AItem) => { const r = sub(at(a), at(host)); return { x: dot(r, host.right), y: dot(r, host.front) }; };
+        const lx = loc(x), ly = loc(y);
+        if (Math.sign(lx.x) === Math.sign(ly.x)) continue;
+        const dev = Math.abs(lx.x + ly.x) + Math.abs(lx.y - ly.y);
+        out.push(v([x.f.id, y.f.id, host.f.id], band(dev, 0, 0.04, 0.3), dev <= 0.04 ? `The two ${lc(x.f.name)}s mirror each other either side of ${lc(host.f.name)}.` : `The two ${lc(x.f.name)}s beside ${lc(host.f.name)} are ${cm(dev)} out of mirror.`));
+      }
+      return out;
+    },
+  }),
+  rule({
+    id: 'natural-paths', name: 'Natural walking lines', severity: 'preference', source: 'Short, direct paths from the door', costly: true,
+    evaluate: (L, v) => {
+      const door = L.room.doors[0];
+      if (!door) return [];
+      const start = doorPoint(door);
+      const targets: Array<{ id: string; label: string; p: P }> = [];
+      for (const w of L.room.windows) targets.push({ id: w.id, label: 'the window', p: doorPoint(w, 0.5) });
+      for (const a of L.items) {
+        if (isBed(a)) {
+          // A double needs both sides; a single needs its open side.
+          const sides = [-1, 1].map((sg) => toPlanOf(a.f, sg * (a.f.w / 2 + 0.3), 0)).filter((p) => pointInPolygon(p, L.room.poly) && distToBoundary(p, L.room.poly) > 0.2);
+          for (const p of isDouble(a) ? sides : sides.slice(0, 1)) targets.push({ id: a.f.id, label: `the side of ${lc(a.f.name)}`, p });
+        }
+        if (a.f.category === 'desk' || a.f.category === 'reception-desk') targets.push({ id: a.f.id, label: lc(a.f.name), p: toPlanOf(a.f, 0, a.f.d / 2 + 0.45) });
+      }
+      if (!targets.length) return [];
+      const g = floorGrid(L, 0.1, [start, ...targets.map((t) => t.p)]);
+      const dist = pathLengths(g, start, 0.25);
+      const out: RuleVerdict[] = [];
+      for (const t of targets) {
+        const d = nearestDist(g, dist, t.p, 0.3), straight = Math.max(0.6, distp(start, t.p));
+        if (!Number.isFinite(d)) { out.push(v([t.id], 0.3, `There is no easy line from the door to ${t.label}.`)); continue; }
+        const detour = d / straight;
+        out.push(v([t.id], band(detour, 1, 1.3, 1.0), detour <= 1.3 ? `The walk from the door to ${t.label} is direct (${mm(d)}).` : `Reaching ${t.label} from the door takes a ${mm(d)} detour around furniture, ${Math.round((detour - 1) * 100)}% longer than straight.`));
+      }
+      return out;
+    },
+  }),
+  rule({
+    id: 'dead-corners', name: 'No dead corners', severity: 'preference', source: 'Floor nobody can reach is wasted', costly: true,
+    evaluate: (L, v) => {
+      const door = L.room.doors[0];
+      if (!door || solids(L).length < 2) return [];
+      const start = doorPoint(door);
+      const g = floorGrid(L, 0.1, [start]);
+      const best = widestFrom(g, start);
+      const n = g.cols * g.rows, reach = new Int16Array(n).fill(-1), q: number[] = [];
+      for (let i = 0; i < n; i++) if (best[i] >= 0.22) { reach[i] = 0; q.push(i); }
+      // Floor within 30 cm of where a person can stand is usable (reach into a shelf, step beside a bed).
+      for (let h = 0; h < q.length; h++) {
+        const i = q[h], r = Math.floor(i / g.cols), c = i % g.cols;
+        if (reach[i] >= 3) continue;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || cc < 0 || rr >= g.rows || cc >= g.cols) continue;
+          const j = rr * g.cols + cc;
+          if (reach[j] < 0 && g.clr[j] >= 0) { reach[j] = reach[i] + 1; q.push(j); }
+        }
+      }
+      let dead = 0, sx = 0, sy = 0;
+      for (let i = 0; i < n; i++) if (g.clr[i] > 0.03 && reach[i] < 0) { dead++; sx += i % g.cols; sy += Math.floor(i / g.cols); }
+      const area = dead * g.cell * g.cell;
+      if (area < 0.05) return [v([], 1, 'Every bit of free floor can be reached.')];
+      const c = { x: g.ox + (sx / dead + 0.5) * g.cell, y: g.oy + (sy / dead + 0.5) * g.cell };
+      const by = solids(L).reduce((p, q2) => (distPointRect(c, q2.rect) < distPointRect(c, p.rect) ? q2 : p));
+      return [v([by.f.id], band(area, 0, 0.15, 0.8), `About ${area.toFixed(1)} m² of floor near ${lc(by.f.name)} is boxed in where nobody can get to it.`)];
+    },
+  }),
+  rule({
+    id: 'small-room', name: 'Small room hugs the walls', severity: 'preference', source: 'Under 12 m², free-standing pieces eat the floor',
+    evaluate: (L, v) => {
+      if (L.room.area >= 12) return [];
+      const cand = L.items.filter((a) => a.solid && !L.hostOf.has(a.f.id) && a.sem.role !== 'decor' && a.sem.role !== 'lighting');
+      if (cand.length < 2) return [];
+      const off = cand.filter((a) => wallGap(L, a) > 0.1);
+      return [v(ids(off), 1 - off.length / cand.length, off.length ? `In ${L.room.area.toFixed(1)} m², ${off.map(nameOf).join(', ')} ${off.length > 1 ? 'stand' : 'stands'} away from the walls and eat${off.length > 1 ? '' : 's'} the open floor.` : 'Every piece hugs a wall, keeping the small room open.')];
+    },
+  }),
+  rule({
+    id: 'large-room', name: 'Large room has a centre', severity: 'preference', source: 'Over 25 m², a group floats on a rug',
+    evaluate: (L, v) => {
+      if (L.room.area <= 25) return [];
+      const cand = L.items.filter((a) => a.solid && !L.hostOf.has(a.f.id) && a.sem.role !== 'decor' && a.sem.role !== 'lighting');
+      if (cand.length < 3) return [];
+      const floating = cand.filter((a) => wallGap(L, a) > 0.4);
+      if (!floating.length) return [v([], 0.4, `Everything lines the walls of a ${L.room.area.toFixed(0)} m² room, leaving a bare middle; float a seating or dining group.`)];
+      const anchored = of(L, 'rug').some((r) => L.items.some((a) => a.solid && (isSoftSeat(a.f.category) || isHostCategory(a.f.category)) && pointInPolygon(at(a), r.poly)));
+      const lounge = floating.some((a) => isSoftSeat(a.f.category) || a.f.category === 'coffee-table');
+      return [v(ids(floating), anchored || !lounge ? 1 : 0.8, anchored || !lounge ? `${floating.length} piece${floating.length > 1 ? 's' : ''} stand free in the room, giving it a centre.` : 'The seating floats in the room; a rug under it would tie the group together.')];
+    },
+  }),
+  rule({
     id: 'services', name: 'Radiators and sockets', severity: 'preference', source: 'Not measured',
     evaluate: (_L, v) => [v([], 1, 'Radiators and sockets are not in the measurements, so they were not considered.')],
   }),
@@ -868,18 +1115,20 @@ export const RULES: DesignRule[] = [
 
 export const RULE_COUNT = RULES.length;
 
-export interface EvalOptions { fast?: boolean; cache?: Map<FurnitureItem, AItem> }
+/** `fast`: skip the costly floor-grid rules and the hard rules (the solver checks those itself before scoring). */
+export interface EvalOptions { fast?: boolean; cache?: Map<FurnitureItem, AItem>; /** Room to judge (default: the first). */ spaceId?: string }
 
 /** Verdicts for an analysed layout (used by the solver to avoid rebuilding the room). */
 export function evaluateCtx(L: LayoutCtx, opts: EvalOptions = {}): RuleVerdict[] {
   const out: RuleVerdict[] = [];
-  for (const r of RULES) if (!(opts.fast && r.costly)) out.push(...r.evaluate(L));
+  for (const r of RULES) if (!(opts.fast && (r.costly || r.severity === 'hard'))) out.push(...r.evaluate(L));
   return out;
 }
 
 /** Every rule against the furniture. `req` adds the person's route targets and widths. */
 export function evaluateRules(model: SpaceModel, furniture: FurnitureItem[], req?: Requirements | null, opts: EvalOptions = {}): RuleVerdict[] {
-  if (!model.spaces.length || model.spaces[0].polygon.length < 3) return [];
-  const room = buildRoom(model);
+  const space = spaceOf(model, opts.spaceId);
+  if (!space || space.polygon.length < 3) return [];
+  const room = buildRoom(model, space.id);
   return evaluateCtx(analyse(room, furniture, req, opts.cache), opts);
 }

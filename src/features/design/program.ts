@@ -71,6 +71,12 @@ export function defaultProgram(model: SpaceModel, items: FurnitureItem[], req?: 
         if (f.h > 1.2 && hasWindow) add({ kind: 'apart-from', subject: f.id, target: 'window', distanceM: [0.5, 9], weight: 0.4, reason: 'Tall storage on a windowless wall keeps the daylight.' });
         break;
       case 'desk':
+        if (desks.filter((d) => d.catalogId === f.catalogId).length >= 3) {
+          // Benches: desks back to back in pairs, pairs in rows.
+          if (desks[0].id !== f.id) add({ kind: 'aligned-with', subject: f.id, target: desks[0].id, weight: 0.4, reason: 'Desks in straight rows leave clear aisles between the benches.' });
+          if (hasWindow) add({ kind: 'near-window', subject: f.id, target: 'window', distanceM: [0, 3], weight: 0.3, reason: 'Benches run towards the windows so every desk gets some daylight.' });
+          break;
+        }
         add({ kind: 'against-wall', subject: f.id, weight: 0.8, reason: 'A desk with its back to a wall leaves the room open and hides the cables.' });
         if (hasWindow) add({ kind: 'near-window', subject: f.id, target: 'window', distanceM: [0, 1.5], weight: 0.7, reason: 'Daylight from the side is the best light to work in, without glare on the screen.' });
         break;

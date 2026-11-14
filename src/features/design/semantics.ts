@@ -49,7 +49,7 @@ const FALLBACK: Row = S('decor', false, 0.4, 0, [], 'room', 'A free-standing obj
 export function semanticsOf(item: FurnitureItem): ObjectSemantics {
   const own = item.custom?.semantics;
   if (own) return { ...own, pairsWith: [...(own.pairsWith ?? [])], tall: own.tall ?? item.h > 1.2 };
-  const row = SEMANTICS[item.category] ?? FALLBACK;
+  const row = SEMANTICS[item.category] ?? (item.custom ? SEMANTICS[effectiveCategory(item)] : undefined) ?? FALLBACK;
   return { category: item.category, ...row, pairsWith: [...row.pairsWith], tall: item.h > 1.2 };
 }
 
@@ -67,6 +67,61 @@ export function zoneKindOf(item: FurnitureItem): ZoneKind {
   return 'decor';
 }
 
+const ROLE_CATEGORY: Record<ObjectRole, string> = {
+  seating: 'armchair', surface: 'table', storage: 'storage-cabinet', sleeping: 'bed', decor: 'plant',
+  lighting: 'lamp', appliance: 'storage-cabinet', divider: 'room-divider', floor: 'rug',
+};
+// Words in a generated object's category, longest first, mapped to the category the rules know.
+const WORDS: Array<[RegExp, string]> = [
+  [/bunk|loft/, 'bunk-bed'], [/crib|cot\b/, 'crib'], [/sofa.?bed/, 'sofa-bed'], [/night.?stand|bedside/, 'nightstand'], [/bed/, 'bed'],
+  [/sofa|couch|settee/, 'sofa'], [/arm.?chair|lounge chair|bean.?bag/, 'armchair'], [/office chair/, 'office-chair'], [/stool/, 'stool'], [/bench/, 'bench'], [/chair/, 'chair'],
+  [/reception/, 'reception-desk'], [/desk|workstation/, 'desk'], [/coffee table/, 'coffee-table'], [/side table/, 'side-table'], [/island/, 'kitchen-island'],
+  [/counter|bar\b/, 'counter'], [/table/, 'table'], [/wardrobe|closet|armoire/, 'wardrobe'], [/dresser|drawers/, 'dresser'], [/toy/, 'toy-storage'],
+  [/book|shelf|shelves/, 'bookshelf'], [/tv|media/, 'tv-unit'], [/sideboard|buffet/, 'sideboard'], [/cabinet|cupboard|storage/, 'storage-cabinet'],
+  [/rug|carpet/, 'rug'], [/lamp|light/, 'lamp'], [/plant|tree/, 'plant'], [/divider|screen|partition/, 'room-divider'], [/booth|pod/, 'office-pod'],
+];
+
+/** The category the layout rules use: a generated object's own words or role mapped onto a known one. */
+export function effectiveCategory(item: Pick<FurnitureItem, 'category' | 'custom'>): string {
+  if (SEMANTICS[item.category]) return item.category;
+  const sem = item.custom?.semantics;
+  const words = `${sem?.category ?? ''} ${item.category}`.toLowerCase();
+  if (sem?.category && SEMANTICS[sem.category]) return sem.category;
+  for (const [re, c] of WORDS) if (re.test(words)) return c;
+  return sem?.role ? ROLE_CATEGORY[sem.role] : item.category;
+}
+
+/**
+ * The item as the layout rules see it: a known category, clearances at least what its semantics ask
+ * for, and the open footprint of its moving parts (a fold-down bed, an extending table) as unfolded size.
+ * Returns the same object when nothing changes.
+ */
+export function normaliseItem(f: FurnitureItem): FurnitureItem {
+  const spec = f.custom;
+  const category = effectiveCategory(f);
+  if (!spec && category === f.category) return f;
+  let clearance = f.clearance, unfoldedD = f.unfoldedD;
+  if (spec?.semantics) {
+    const s = spec.semantics;
+    // The item's own side zones win when it has any (a single bed open on one side); otherwise both sides.
+    const own = f.clearance.left > 0 || f.clearance.right > 0;
+    clearance = {
+      front: Math.max(f.clearance.front, s.frontClearanceM ?? 0), back: f.clearance.back,
+      left: own ? f.clearance.left : s.sideClearanceM ?? 0, right: own ? f.clearance.right : s.sideClearanceM ?? 0,
+    };
+  }
+  const os = spec?.openSize;
+  if (os && spec) {
+    // The item may have been resized after generation: scale the open footprint with it.
+    const kd = spec.size.d > 0 ? f.d / spec.size.d : 1, kw = spec.size.w > 0 ? f.w / spec.size.w : 1;
+    const od = os.d * kd, ow = os.w * kw;
+    if (od > f.d + 0.05) unfoldedD = Math.max(unfoldedD ?? 0, od);
+    if (ow > f.w + 0.05) { const e = (ow - f.w) / 2; clearance = { ...clearance, left: Math.max(clearance.left, e), right: Math.max(clearance.right, e) }; }
+  }
+  return { ...f, category, clearance, unfoldedD };
+}
+
+export const isRug = (f: { category: string }) => f.category === 'rug';
 export const isSeatCategory = (c: string) => ['chair', 'desk-chair', 'office-chair', 'stool', 'bench'].includes(c);
 /** Same definition the referee uses: a seat belongs to the nearest desk, table or counter. */
 export const isHostCategory = (c: string) => /desk|table|counter/.test(c) && !/coffee|side/.test(c);
