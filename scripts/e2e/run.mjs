@@ -114,9 +114,9 @@ async function describe(c) {
   await c.page.click('text~Home office for two');
   const t0 = Date.now();
   await c.page.click('[aria-label="Design it"]');
-  await sleep(2500);
-  const stages = await c.sideText();
-  c.ok(/Understanding the room|Planned|Solving|Planning/i.test(stages) || (await c.state('s.candidates.length > 0')), 'stages are shown while designing');
+  const staged = await c.page.waitFor(`/Understanding the room|Planned|Solving|Planning/i.test(document.querySelector('.panel-col')?.innerText ?? '') || window.__spacelens.useStore.getState().candidates.length > 0`, 30000).catch(() => false);
+  c.timings.firstStage = Date.now() - t0;
+  c.ok(staged, 'stages are shown while designing');
   await c.shot('stages');
   const got = await c.until('s.candidates.length > 0', AI_MS).catch(() => false);
   c.timings.firstLayout = Date.now() - t0;
@@ -293,6 +293,11 @@ async function shop(c) {
       await c.page.type('[aria-label="Depth in cm"]', '55');
       await c.page.type('[aria-label="Height in cm"]', '45');
       await c.page.click('text~Add at this size');
+      await sleep(4000);
+    }
+    if (await c.page.locate('text~Build from title')) {
+      c.note('photo blocked: needed a second click on "Build from title"');
+      await c.page.click('text~Build from title');
     }
     await c.until(`s.model.furniture.length > ${before}`, AI_MS).catch(() => {});
     c.ok((await c.state('s.model.furniture.length')) > before, 'Add to room puts the product in the room');
