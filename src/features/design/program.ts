@@ -31,12 +31,16 @@ export function assignSeatHosts(items: FurnitureItem[]): Map<string, string> {
     const spans = [h.w, h.w, h.d, h.d];
     return Math.max(1, sides.reduce((t, c, i) => t + (c >= 0.3 ? Math.max(1, Math.floor((spans[i] + 0.1) / 0.55)) : 0), 0));
   };
-  const seats = items.filter((f) => isSeatCategory(f.category));
+  const seats = items.filter((f) => isSeatCategory(f.category)).sort((a, b) => Number(b.category === 'office-chair' || /desk/.test(b.catalogId)) - Number(a.category === 'office-chair' || /desk/.test(a.catalogId)));
   for (const s of seats) {
     const stool = s.category === 'stool';
+    // Desk and office chairs go to desks first; dining chairs and benches to tables first.
+    const work = /desk|office/.test(s.catalogId) || s.category === 'office-chair';
     const ok = stool
       ? take(s, counters, () => Math.max(1, Math.floor(2))) || take(s, tables, seatCap) || take(s, desks, () => 1)
-      : take(s, desks, () => 1) || take(s, tables, seatCap) || take(s, counters, (h) => Math.max(1, Math.floor(h.w / 0.6))) || take(s, [...desks, ...tables, ...counters], () => 99);
+      : work
+        ? take(s, desks, () => 1) || take(s, tables, seatCap) || take(s, counters, (h) => Math.max(1, Math.floor(h.w / 0.6))) || take(s, [...desks, ...tables, ...counters], () => 99)
+        : take(s, tables, seatCap) || take(s, desks, () => 1) || take(s, counters, (h) => Math.max(1, Math.floor(h.w / 0.6))) || take(s, [...desks, ...tables, ...counters], () => 99);
     void ok;
   }
   return out;
@@ -116,9 +120,12 @@ export function defaultProgram(model: SpaceModel, items: FurnitureItem[], req?: 
       case 'cafe-table':
         if (cafe[0] && cafe[0].id !== f.id) add({ kind: 'aligned-with', subject: f.id, target: cafe[0].id, weight: 0.4, reason: 'Tables in rows read as calm and leave straight aisles.' });
         break;
-      case 'counter': case 'reception-desk':
-        add({ kind: 'against-wall', subject: f.id, weight: c === 'counter' ? 1 : 0.4, reason: 'A counter on a wall leaves the floor to the guests.' });
-        add({ kind: 'faces', subject: f.id, target: 'door', weight: 0.3, reason: 'Staff at the counter see who comes in.' });
+      case 'counter':
+        add({ kind: 'against-wall', subject: f.id, weight: 1, reason: 'A counter on a wall leaves the floor to the guests.' });
+        break;
+      case 'reception-desk':
+        // Staff sit at the desk's front and look over it, towards the entrance (the rules check that).
+        add({ kind: 'away-from-door', subject: f.id, target: 'door', distanceM: [1.2, 9], weight: 0.3, reason: 'A step back from the door gives visitors room to arrive.' });
         break;
       case 'crib':
         add({ kind: 'against-wall', subject: f.id, weight: 0.8, reason: 'A crib against a wall is safer and out of the way.' });

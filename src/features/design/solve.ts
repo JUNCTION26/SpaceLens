@@ -159,8 +159,11 @@ function fits(ctx: Ctx, others: FurnitureItem[], cand: FurnitureItem[]): string 
       if (g.unfold && overlapDepth(g.unfold, go.r) > M) return `unfold:${o.id}`;
       if (go.unfold && overlapDepth(go.unfold, g.r) > M) return `unfold:${o.id}`;
       if (paired(f, o)) continue;
-      for (const s of g.sides) if (overlapDepth(s.r, go.r) > M) return `use:${o.id}`;
-      for (const s of go.sides) if (overlapDepth(s.r, g.r) > M) return `use:${o.id}`;
+      const hostO = hostOf.has(o.id) ? byId.get(hostOf.get(o.id)!) : undefined;
+      const hostOR = hostO ? geo(ctx, hostO).r : null;
+      // A seat's zone that reaches under its own desk or table stops there.
+      for (const s of g.sides) if (!(hostR && overlapDepth(s.r, hostR) > 0.01) && overlapDepth(s.r, go.r) > M) return `use:${o.id}`;
+      for (const s of go.sides) if (!(hostOR && overlapDepth(s.r, hostOR) > 0.01) && overlapDepth(s.r, g.r) > M) return `use:${o.id}`;
     }
   }
   return null;
@@ -620,7 +623,9 @@ function freeSlots(ctx: Ctx, g: Group): Spec[] {
     return out;
   }
   const b = ctx.room.box;
-  for (let x = b.minX + 0.3; x < b.maxX; x += 0.3) for (let y = b.minY + 0.3; y < b.maxY; y += 0.3) for (const rot of [base, base + Math.PI / 2]) out.push({ kind: 'free', x, y, rot });
+  // Pieces with a front (a reception desk, an armchair) may face any of the four ways.
+  const rots = semanticsOf(f).faces === 'none' ? [base, base + Math.PI / 2] : [base, base + Math.PI / 2, base + Math.PI, base - Math.PI / 2];
+  for (let x = b.minX + 0.3; x < b.maxX; x += 0.3) for (let y = b.minY + 0.3; y < b.maxY; y += 0.3) for (const rot of rots) out.push({ kind: 'free', x, y, rot });
   return out;
 }
 
@@ -696,6 +701,10 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     if (root.w < 1.2 && cls(ctx, p) !== `w${wall}mid`) return 'Bed tucked in the corner';
     if (facesWin) return 'Bed facing the window';
     return `Bed on the ${wallWord(ctx, wall)}`;
+  }
+  if (spec.kind === 'array' && spec.bench) {
+    const rows = spec.rows, pairs = Math.ceil(p.group.roots.length / 2);
+    return rows === 1 ? `Desks in one bench of ${pairs} facing pairs` : `Desks in ${rows} benches of facing pairs${spec.bench.gap ? ' with aisles' : ''}`;
   }
   if (c === 'desk') {
     const desks = st.placed.filter((q) => q.items[0].category === 'desk');

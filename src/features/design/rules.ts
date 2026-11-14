@@ -219,17 +219,42 @@ export function floorGrid(L: LayoutCtx, cell = 0.1, freeNear: P[] = []): FloorGr
   (L.memo ??= new Map()).set(key, g);
   return g;
 }
+/** Clearances above this are all the same to every rule (a 3 m wide way is simply wide). */
+const GRID_CAP = 1.5;
+const wallGrids = new WeakMap<RoomCtx, Map<number, Float32Array>>();
 function buildFloorGrid(L: LayoutCtx, cell: number, freeNear: P[]): FloorGrid {
   const { box, poly } = L.room;
   const cols = Math.max(1, Math.ceil((box.maxX - box.minX) / cell)), rows = Math.max(1, Math.ceil((box.maxY - box.minY) / cell));
-  const clr = new Float32Array(cols * rows).fill(-1);
-  const solids = L.items.filter((a) => a.solid);
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+  // Distance to the walls (capped) depends only on the room: computed once per room and cell size.
+  const per = wallGrids.get(L.room) ?? wallGrids.set(L.room, new Map()).get(L.room)!;
+  let walls = per.get(cell);
+  if (!walls) {
+    walls = new Float32Array(cols * rows).fill(-1);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const p = { x: box.minX + (c + 0.5) * cell, y: box.minY + (r + 0.5) * cell };
+      if (pointInPolygon(p, poly)) walls[r * cols + c] = Math.min(GRID_CAP, distToBoundary(p, poly));
+    }
+    per.set(cell, walls);
+  }
+  const clr = walls.slice();
+  if (freeNear.length) for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const k = r * cols + c;
+    if (clr[k] < 0) continue;
     const p = { x: box.minX + (c + 0.5) * cell, y: box.minY + (r + 0.5) * cell };
-    if (!pointInPolygon(p, poly)) continue;
-    let m = freeNear.some((q) => distp(p, q) < 0.5) ? 9 : distToBoundary(p, poly);
-    for (const a of solids) { const d = distPointRect(p, a.rect); if (d < m) m = d; }
-    clr[r * cols + c] = m;
+    if (freeNear.some((q) => distp(p, q) < 0.5)) clr[k] = GRID_CAP;
+  }
+  // Each piece only lowers cells within the cap of its footprint.
+  for (const a of L.items) {
+    if (!a.solid) continue;
+    const xs = a.poly.map((q) => q.x), ys = a.poly.map((q) => q.y);
+    const c0 = Math.max(0, Math.floor((Math.min(...xs) - GRID_CAP - box.minX) / cell)), c1 = Math.min(cols - 1, Math.floor((Math.max(...xs) + GRID_CAP - box.minX) / cell));
+    const r0 = Math.max(0, Math.floor((Math.min(...ys) - GRID_CAP - box.minY) / cell)), r1 = Math.min(rows - 1, Math.floor((Math.max(...ys) + GRID_CAP - box.minY) / cell));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const k = r * cols + c;
+      if (clr[k] <= 0) continue;
+      const d = distPointRect({ x: box.minX + (c + 0.5) * cell, y: box.minY + (r + 0.5) * cell }, a.rect);
+      if (d < clr[k]) clr[k] = d;
+    }
   }
   return { ox: box.minX, oy: box.minY, cols, rows, cell, clr };
 }
@@ -416,6 +441,7 @@ export const RULES: DesignRule[] = [
         ];
         for (const [side, need, r] of sides) {
           if (need <= 0.01) continue;
+          if (hostA && overlapDepth(r, hostA.rect) > 0.01) continue; // knee space under its own desk or table
           const hit = s.filter((g) => g !== a && L.hostOf.get(g.f.id) !== f.id && host !== g.f.id && overlapDepth(r, g.rect) > 0.01);
           const facesHost = !!hostA && overlapDepth(r, hostA.rect) > 0.01;
           const wall = !facesHost && rectOutside(r, L.room.poly) > 0.01;
@@ -778,7 +804,7 @@ export const RULES: DesignRule[] = [
         return v([r.f.id, t.f.id], sc, sc >= 0.99 ? `${r.f.name} is big enough that chairs stay on it when pulled out.` : `${seatsT.length - okSeats} chairs at ${lc(t.f.name)} hang off ${lc(r.f.name)}.`);
       }
       const ct = of(L, 'coffee-table').find((c) => c.poly.every((p) => pointInPolygon(p, r.poly)));
-      const bed = L.items.find((a) => isBed(a) && polyDist(a.poly, r.poly) === 0);
+      const bed = L.items.find((a) => isBed(a) && overlapDepth(a.rect, r.rect) > 0.05);
       if (!seats.length && bed) {
         const inside = [toPlanOf(bed.f, -bed.f.w / 2 - 0.3, 0.3), toPlanOf(bed.f, bed.f.w / 2 + 0.3, 0.3)].filter((p) => pointInPolygon(p, r.poly)).length;
         return v([r.f.id, bed.f.id], inside === 2 ? 1 : inside ? 0.75 : 0.5, inside === 2 ? `${r.f.name} reaches out both sides of ${lc(bed.f.name)}: a soft first step.` : `${r.f.name} barely shows beside ${lc(bed.f.name)}.`);
@@ -1105,6 +1131,22 @@ export const RULES: DesignRule[] = [
       const anchored = of(L, 'rug').some((r) => L.items.some((a) => a.solid && (isSoftSeat(a.f.category) || isHostCategory(a.f.category)) && pointInPolygon(at(a), r.poly)));
       const lounge = floating.some((a) => isSoftSeat(a.f.category) || a.f.category === 'coffee-table');
       return [v(ids(floating), anchored || !lounge ? 1 : 0.8, anchored || !lounge ? `${floating.length} piece${floating.length > 1 ? 's' : ''} stand free in the room, giving it a centre.` : 'The seating floats in the room; a rug under it would tie the group together.')];
+    },
+  }),
+  rule({
+    id: 'reception-door', name: 'Reception sees the entrance', severity: 'strong', source: 'Staff face visitors as they come in',
+    evaluate: (L, v) => {
+      const doors = L.room.doors.filter((d) => d.kind === 'door');
+      if (!doors.length) return [];
+      return of(L, 'reception-desk').map((a) => {
+        // Staff sit on the front side and look across the desk (against its front direction).
+        const seat = toPlanOf(a.f, 0, a.f.d / 2 + 0.45), look = mulv(a.front, -1);
+        const door = doors.reduce((p, q) => (distp(q.c, seat) < distp(p.c, seat) ? q : p));
+        const c = dot(look, normv(sub(door.c, seat)));
+        return c > 0.5 ? v([a.f.id, door.id], 1, `Whoever sits at ${lc(a.f.name)} faces the entrance.`)
+          : c > -0.2 ? v([a.f.id, door.id], 0.6, `The entrance is off to the side of ${lc(a.f.name)}.`)
+            : v([a.f.id, door.id], 0.1, `Whoever sits at ${lc(a.f.name)} has their back to the entrance; visitors arrive behind them.`);
+      });
     },
   }),
   rule({
