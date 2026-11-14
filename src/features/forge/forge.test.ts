@@ -186,3 +186,17 @@ describe('geometry', () => {
     expect(Math.abs(size.z - s.size.d)).toBeLessThan(0.006);
   });
 });
+
+describe('SpecSymbol', () => {
+  it('draws one outline per visible part and the open footprint dashed', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { createElement } = await import('react');
+    const { SpecSymbol } = await import('./SpecSymbol');
+    const wb = EXAMPLES.find((s) => s.id === 'example-wall-bed')!;
+    const svg = renderToStaticMarkup(createElement('svg', null, createElement(SpecSymbol, { spec: wb })));
+    expect(svg).toContain('forge-symbol-open');
+    expect(svg).toContain('stroke-dasharray');
+    const table = renderToStaticMarkup(createElement('svg', null, createElement(SpecSymbol, { spec: EXAMPLES[5] })));
+    expect(table).toContain('<ellipse');
+  });
+});
