@@ -112,7 +112,7 @@ export function SimPanel() {
   return (
     <div className="sim">
       <button className="btn btn-primary sim-walk" onClick={() => window.dispatchEvent(new Event('spacelens:walk'))}>
-        <Icon name="walk" size={14} /> Walk through
+        <Icon name="walk" size={14} /> Walk
       </button>
 
       <div className="sim-seg" role="group" aria-label="Who is moving">{PROFILES.map((pr) => (
@@ -124,9 +124,9 @@ export function SimPanel() {
           : !rs.length ? <span className="muted">No doors yet</span>
           : <>
             <span className={`sim-dot ${bad.length ? 'bad' : 'ok'}`} aria-hidden="true" />
-            <span>{bad.length ? `${bad.length} of ${rs.length} spots blocked` : 'Every spot reachable'}
-              {worst && <span className="muted"> · narrowest {worst.narrowestM!.toFixed(2)} m{worst.narrowestM! < p.widthM ? ` (needs ${p.widthM.toFixed(2)})` : ''}</span>}
-              {turn && !turn.ok && <span className="muted"> · no 1.5 m turn</span>}
+            <span title={worst ? `Narrowest ${worst.narrowestM!.toFixed(2)} m, needs ${p.widthM.toFixed(2)} m` : undefined}>{bad.length ? `${bad.length} blocked` : 'All reachable'}
+              {worst && <span className="muted"> · {worst.narrowestM!.toFixed(2)} m</span>}
+              {turn && !turn.ok && <span className="muted"> · No turn</span>}
             </span>
             {worst?.narrowestAt && <button className="icon-btn" title="Show narrowest spot" aria-label="Show narrowest spot" aria-pressed={focusId === worst.id && layers.routes} onClick={() => showSpot(worst.id)}><Icon name="eye" size={14} /></button>}
           </>}
@@ -135,7 +135,7 @@ export function SimPanel() {
       <div className="sim-row">
         <button className="sim-row-head" aria-expanded={fitOpen} onClick={() => setFitOpen((v) => !v)} title={`Assumes: ${PASSAGE_ASSUMPTIONS.join('. ')}.`}>
           <Icon name={fitOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-          <span>Fit through the door</span>
+          <span>Door fit</span>
           {passage && <span className={`sim-tag ${passage.ok ? 'ok' : 'bad'}`}>{passage.ok ? 'Fits' : 'Stuck'}</span>}
         </button>
         {fitOpen && (
@@ -154,7 +154,6 @@ export function SimPanel() {
               <button className="btn btn-sm" disabled={busy || !door} onClick={runPassage}>{busy ? 'Testing' : 'Test'}</button>
               {passage?.ok && <button className="icon-btn" title="Replay" aria-label="Replay" onClick={play}><Icon name="play" size={14} /></button>}
             </div>
-            {passage && <p className="sim-note">{passage.details}</p>}
           </div>
         )}
       </div>
@@ -180,7 +179,7 @@ export function SimPanel() {
           </details>
           <div className="sim-sub">
             <div className="row sim-sub-head"><span>Sightlines</span><button className="btn btn-sm" onClick={sight}>Cast</button></div>
-            <p className="muted sim-note">From {sel ? sel.name : 'room centre'}, eye at {EYE_M} m.{seen.length > 0 && ` ${seen.filter((s) => s.visible).length} of ${seen.length} openings visible.`}</p>
+            {seen.length > 0 && <span className="muted sim-note" title={`From ${sel ? sel.name : 'room centre'}, eye at ${EYE_M} m`}>{seen.filter((s) => s.visible).length}/{seen.length} visible</span>}
           </div>
           <div className="sim-sub">
             <div className="row sim-sub-head"><span title={`Assumes: ${CROWD_ASSUMPTIONS}.`}>Crowd</span><button className="btn btn-sm" onClick={runCrowdSim}>Run</button></div>
@@ -191,10 +190,9 @@ export function SimPanel() {
               <input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value) || 0)} />
             </label>
             {crowd.cur && (
-              <p className="muted sim-note">Mean path {crowd.cur.meanPathM.toFixed(1)} m{crowd.prev && ` (was ${crowd.prev.meanPathM.toFixed(1)})`} · {crowd.cur.tightPct.toFixed(0)}% through gaps under 0.45 m{crowd.prev && ` (was ${crowd.prev.tightPct.toFixed(0)}%)`}</p>
+              <span className="muted sim-note" title="Mean path and share through gaps under 0.45 m">{crowd.cur.meanPathM.toFixed(1)} m · {crowd.cur.tightPct.toFixed(0)}% tight</span>
             )}
           </div>
-          <p className="muted sim-note">Rugs ignored, 5 cm grid.</p>
         </div>
       </details>
     </div>
