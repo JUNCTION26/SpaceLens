@@ -1,10 +1,14 @@
-import type { FurnitureItem, Infeasibility, LayoutCandidate, Requirements, Space, SpaceModel, ValidationResult, Vec2 } from '../../core/types';
+import type { DesignReport, FurnitureItem, Infeasibility, LayoutCandidate, Requirements, Space, SpaceModel, ValidationResult, Vec2 } from '../../core/types';
 import {
   add, area, bounds, convexOverlap, dist, distPointSegment, doorSwingPolygon, itemCorners, mul, openingSegment,
   pointInPolygon, polygonInside, uid, wallInwardNormal, wallSegment, fmtSek,
 } from '../../core/geometry';
 import { CATALOG, catalogEntry, makeItem } from '../furniture/catalog';
 import { validateLayout } from '../referee/validate';
+import { defaultProgram } from '../design/program';
+import { evaluateRules } from '../design/rules';
+import { designScore } from '../design/score';
+import { solveProgram } from '../design/solve';
 
 export interface SolveOptions { variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number, bestOpenM2?: number) => void }
 
@@ -582,7 +586,59 @@ function summarize(cands: LayoutCandidate[]) {
   }
 }
 
-export async function generateLayouts(model: SpaceModel, req: Requirements, opts: SolveOptions = {}): Promise<{ candidates: LayoutCandidate[]; infeasibility: Infeasibility | null }> {
+export interface LayoutResult { candidates: LayoutCandidate[]; infeasibility: Infeasibility | null; reports: DesignReport[] }
+let reportsCache: DesignReport[] = [];
+/** Design reports (program + rule verdicts) for the candidates of the last generateLayouts call. */
+export function lastReports(): DesignReport[] { return reportsCache; }
+
+/**
+ * Layouts for a brief: a design program from what each piece is, solved by the relation solver, every
+ * candidate checked by the referee and scored by the design rules. The older annealer is a fallback
+ * for outlines the constructive solver cannot handle.
+ */
+export async function generateLayouts(model: SpaceModel, req: Requirements, opts: SolveOptions = {}): Promise<LayoutResult> {
+  if (!model.spaces.length) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] }, reports: [] };
+  let built = buildItems(model, req, false);
+  if (req.budgetSek != null && costOf(built.items) > req.budgetSek) {
+    built = buildItems(model, req, true);
+    if (costOf(built.items) > req.budgetSek) {
+      built.items = built.items.filter((f) => !built.optional.has(f.id));
+      built.assumptions.push('Dropped optional items to meet budget');
+    }
+  }
+  const program = defaultProgram(model, built.items, req);
+  const res = await solveProgram(model, built.items, program, {
+    variants: opts.variants ?? 3, seed: opts.seed ?? 1, timeBudgetMs: opts.timeBudgetMs ?? 1500, req, fixedIds: [...built.fixed],
+    onProgress: opts.onProgress ? (p) => opts.onProgress!(p) : undefined,
+  });
+  if (res.candidates.length) {
+    for (const c of res.candidates) c.assumptions = [...built.assumptions, ...c.assumptions];
+    reportsCache = res.reports;
+    return { candidates: res.candidates, infeasibility: null, reports: res.reports };
+  }
+  // Fallback: the annealer, scored by the same rules (pointless when the floor area alone rules it out).
+  const tooSmall = res.infeasibility?.reasons.some((r) => /need about|larger than the room/.test(r));
+  const legacy = tooSmall ? { candidates: [] as LayoutCandidate[] } : await legacyLayouts(model, req, { ...opts, timeBudgetMs: Math.min(opts.timeBudgetMs ?? 1200, 1200) });
+  if (legacy.candidates.length) {
+    const reports = legacy.candidates.map((c) => {
+      const verdicts = evaluateRules(model, c.furniture, req);
+      c.metrics.score = designScore(verdicts);
+      return { candidateId: c.id, program, verdicts };
+    });
+    reportsCache = reports;
+    return { candidates: legacy.candidates, infeasibility: null, reports };
+  }
+  reportsCache = [];
+  const base = explainInfeasible(model, req);
+  const mine = res.infeasibility;
+  const reasons = [...(mine?.reasons ?? []), ...base.reasons.filter((r) => !/No layout found in time/.test(r))];
+  const relaxations = [...(mine?.relaxations ?? [])];
+  for (const r of base.relaxations) if (!relaxations.some((x) => x.label.toLowerCase() === r.label.toLowerCase())) relaxations.push(r);
+  return { candidates: [], infeasibility: { reasons: reasons.length ? reasons : base.reasons, relaxations }, reports: [] };
+}
+
+/** The previous generator (constructive seed + simulated annealing), kept as a fallback. */
+async function legacyLayouts(model: SpaceModel, req: Requirements, opts: SolveOptions = {}): Promise<{ candidates: LayoutCandidate[]; infeasibility: Infeasibility | null }> {
   if (!model.spaces.length) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] } };
   const ctx = makeCtx(model, req);
   const n = Math.min(opts.variants ?? 4, VARIANTS.length), seed0 = opts.seed ?? 1;
