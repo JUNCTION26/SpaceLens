@@ -49,12 +49,28 @@ function ctxFor(page, name) {
     warn(cond, msg) { if (!cond) { c.warns.push(msg); console.log(`    WARN ${msg}`); } return !!cond; },
     note(msg) { c.notes.push(msg); console.log(`    note ${msg}`); },
     async shot(label) { const f = await page.shot(`${name}-${label}`); c.shots.push(f); return f; },
-    state: (expr) => page.evaluate(S(expr)),
+    async state(expr) {
+      try { return await page.evaluate(S(expr)); } catch (e) {
+        if (!/reading 'useStore'|__spacelens/.test(e.message)) throw e;
+        // Another tool saved a file and the dev server reloaded the page; wait for the app to come back once.
+        c.note('page reloaded mid-flow (dev server hot reload)');
+        await page.waitFor('!!window.__spacelens && !!window.__spacelens.useStore', 90000);
+        return page.evaluate(S(expr));
+      }
+    },
     async open(query, { settle = 1200, fresh = true } = {}) {
       if (fresh) await page.evaluate('try { localStorage.clear(); } catch {}').catch(() => {});
       await page.goto(`${BASE}?coach=0${query ? `&${query}` : ''}`, settle);
       if (NOKEY) await page.evaluate(`window.__spacelens.useStore.getState().setSettings({ geminiKey: '' })`);
       await page.settled();
+    },
+    /** With a key the AI result must arrive. Without one, a missing result is fine only if the screen says what to do. */
+    async aiOk(got, label, scope = 'body') {
+      if (got || !NOKEY) return c.ok(got, label);
+      const t = await page.text(scope);
+      const guide = /\bkey\b|Settings|Connect Gemini|offline|without AI/i.test(t);
+      c.note(`no key: ${label} did not happen; guidance shown: ${guide}`);
+      return c.ok(guide, `no key: "${label}" is replaced by clear guidance`);
     },
     async time(label, fn) { const t0 = Date.now(); try { return await fn(); } finally { c.timings[label] = Date.now() - t0; } },
     async until(expr, timeout = 30000) { return page.waitFor(S(expr), timeout); },
@@ -104,7 +120,8 @@ async function describe(c) {
   await c.shot('stages');
   const got = await c.until('s.candidates.length > 0', AI_MS).catch(() => false);
   c.timings.firstLayout = Date.now() - t0;
-  if (!c.ok(got, 'layouts arrive')) { await c.shot('no-layouts'); c.note((await c.sideText()).slice(0, 400)); return; }
+  if (NOKEY) c.note(`no key: layouts ${got ? 'still arrive' : 'do not arrive'}`);
+  if (!(await c.aiOk(got, 'layouts arrive', '.panel-col')) || !got) { await c.shot('no-layouts'); c.note((await c.sideText()).slice(0, 400)); return; }
   await sleep(1500);
   const cands = await c.state('s.candidates.map((x) => ({ id: x.id, name: x.name, n: x.furniture.length }))');
   c.ok(cands.length >= 2, `at least 2 layouts (${cands.length})`);
@@ -134,7 +151,7 @@ async function create(c) {
   const built = await c.page.waitFor(`!!document.evaluate("//button[contains(., 'Place in room')]", document, null, 9).singleNodeValue`, AI_MS).catch(() => false);
   c.timings.toObject = Date.now() - t0;
   await c.shot('built');
-  if (!c.ok(built, 'object is built and offers Place in room')) { c.note((await c.sideText()).slice(0, 300)); return; }
+  if (!(await c.aiOk(built, 'object is built and offers Place in room', '.panel-col')) || !built) { c.note((await c.sideText()).slice(0, 300)); return; }
   await c.page.click('text~Place in room');
   await sleep(800);
   const after = await c.state('s.model.furniture.length');
@@ -338,7 +355,7 @@ async function agent(c) {
     const ms = Date.now() - t0;
     const changed = (await c.state('s.model.version')) > v0;
     c.note(`"${text}" -> ${turn?.who === 'agent' ? turn.text.slice(0, 120) : 'no reply'} [${(turn?.done ?? []).join('; ')}] ${turn?.meta ?? ''} ${ms} ms`);
-    c.ok(turn?.who === 'agent', `agent replies to "${text}"`);
+    if (!(await c.aiOk(turn?.who === 'agent', `agent replies to "${text}"`, '.stage')) || turn?.who !== 'agent') return turn;
     if (check) c.ok(await c.state(check), `${label} ("${text}")`);
     else if (label) c.ok(changed, `${label} ("${text}")`);
     return turn;
@@ -454,7 +471,7 @@ async function drawings(c) {
   await c.page.click(`text=${q}`, { within: '.drawings-sugg' });
   await c.page.waitFor(`document.querySelectorAll('.drawings-answer').length > 0`, AI_MS).catch(() => {});
   const ans = await c.page.evaluate(`document.querySelector('.drawings-answer')?.innerText.replace(/\\s+/g, ' ') ?? ''`);
-  c.ok(ans && !/No answer/.test(ans), `"${q}" is answered (${ans.slice(0, 120)})`);
+  await c.aiOk(ans && !/No answer/.test(ans), `"${q}" is answered (${ans.slice(0, 120)})`, '.drawings-side');
   c.ok(await c.page.evaluate(`document.querySelectorAll('.drawings-hit').length > 0`), 'answer evidence is highlighted on the sheet');
   await c.shot('answer');
   // Build 3D: use the printed scale if offered, then trace the first room box from the index.
@@ -518,7 +535,37 @@ async function hoverfix(c) {
   await c.shot('fixed');
 }
 
-const FLOWS = { home, describe, create, library, walk, safety, shop, export: exporting, agent, phone, themes, building, drawings, hoverfix };
+async function settings(c) {
+  await c.open('nav=describe&sample=1&open=settings');
+  await sleep(800);
+  c.ok(await c.page.locate('[aria-labelledby="settings-title"]'), 'Settings opens from the deep link');
+  const status = () => c.page.evaluate(`[...document.querySelectorAll('.dialog [role=status]')].map((e) => e.innerText).join(' | ')`);
+  if (!NOKEY) {
+    const done = await c.page.waitFor(`!/Checking the key/.test([...document.querySelectorAll('.dialog [role=status]')].map((e) => e.innerText).join(' '))`, 60000).catch(() => false);
+    const st = await status();
+    c.ok(done && /Fast decisions|Key works/.test(st), `key is checked and summarised (${st.slice(0, 160)})`);
+    await c.page.click('text=Test speed');
+    await c.page.waitFor(`!/Testing/.test(document.querySelector('.dialog')?.innerText ?? '')`, 90000).catch(() => {});
+    const rows = await c.page.evaluate(`[...document.querySelectorAll('.dialog tbody tr')].map((r) => r.innerText.replace(/\\s+/g, ' '))`);
+    c.ok(rows.length > 0 && rows.some((r) => /OK/.test(r)), `speed test table (${rows.join(' / ').slice(0, 200)})`);
+  } else {
+    c.ok(/Saved in this browser only/.test(await status()), 'no key: key field says where it is kept');
+    c.ok(await c.page.evaluate(`[...document.querySelectorAll('.dialog button')].find((b) => /Test speed/.test(b.innerText))?.disabled === true`), 'no key: Test speed is disabled');
+  }
+  await c.page.click('text~Choose models');
+  await sleep(300);
+  const opts = await c.page.evaluate(`[...document.querySelectorAll('.dialog details select')].map((s) => s.options.length)`);
+  c.ok(opts.length === 3 && opts.every((n) => n >= 2), `model choice for each task (${opts.join(',')})`);
+  c.ok(/Gemini use this session/.test(await c.page.text('.dialog')), 'session meter shown');
+  await c.shot('dialog');
+  await c.page.key('Escape');
+  await sleep(300);
+  c.ok(!(await c.page.locate('[aria-labelledby="settings-title"]')), 'Esc closes Settings');
+  const chip = await c.page.evaluate(`!!document.querySelector('.topbar .ai-status, [class*=ai-status], [aria-label*="Gemini"]')`);
+  c.warn(chip, 'AI status chip is in the top bar');
+}
+
+const FLOWS = { home, settings, describe, create, library, walk, safety, shop, export: exporting, agent, phone, themes, building, drawings, hoverfix };
 const SIZE = { phone: [390, 844] };
 
 const pick = args.filter((a, i) => !a.startsWith('--') && !['--base'].includes(args[i - 1]));
