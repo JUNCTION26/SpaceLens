@@ -728,7 +728,12 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     return floating ? `Floating sofa, TV${where}` : `Lounge around the TV${where}`;
   }
   if (c === 'sofa' || c === 'sofa-bed') return wall != null ? `Sofa on the ${wallWord(ctx, wall)}` : 'Sofa in the room';
-  if (c === 'counter' || c === 'reception-desk') {
+  if (c === 'reception-desk') {
+    const seat = toPlanOf(root, 0, root.d / 2 + 0.45), door = ctx.room.doors[0];
+    const facing = door && dot({ x: Math.sin(root.rotation), y: -Math.cos(root.rotation) }, sub(door.c, seat)) > 0;
+    return facing ? 'Reception desk facing the entrance' : 'Reception desk in the room';
+  }
+  if (c === 'counter') {
     const door = ctx.room.doors[0];
     if (door && polyDist([door.a, door.b, door.b, door.a], [toPlanOf(root, -root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, root.d / 2), toPlanOf(root, -root.w / 2, root.d / 2)]) < 1.6) return 'Counter by the door';
     if (wall != null && door && dot(ctx.room.walls[wall].n, door.inward) < -0.9) return 'Counter facing the door';
