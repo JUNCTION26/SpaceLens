@@ -5,6 +5,11 @@
 
 import { uid } from '../../core/geometry';
 import type { MaterialId, ObjectPart, ObjectSemantics, ObjectSpec, PartShape } from '../../core/types';
+import { fitSpec } from './fit';
+import { enforceColors } from './recolor';
+import { kitRecipe } from './rulesKits';
+import { normalizeSpec } from './spec';
+import { validateSpec } from './validate';
 import { kindById, parseRequest, resolveSize, titleFor, type Kind, type ParsedRequest, type TemplateId } from './parseRequest';
 
 type V3 = [number, number, number];
@@ -319,6 +324,7 @@ export function buildTemplate(template: TemplateId, size: Size, p: ParsedRequest
     case 'bench': return bench(size, p, L);
     case 'lamp': return lamp(size, p, L);
     case 'rug': return rug(size, p, L);
+    case 'special': return cabinet(size, p, L, kind);
   }
 }
 
@@ -328,6 +334,8 @@ export function rulesObject(prompt: string, opts: { parsed?: ParsedRequest; size
   const p = opts.parsed ?? parseRequest(prompt);
   const kind = p.kind ?? kindById('cabinet')!;
   const size = opts.size ?? resolveSize({ ...p, kind });
+  const recipe = kitRecipe({ ...p, kind }, size);
+  if (recipe) return fromRecipe(recipe, prompt, p, kind, size, t0);
   const parts = buildTemplate(kind.template, size, p, kind);
   const name = p.kind ? titleFor(p) : prompt.trim().slice(0, 40) || 'Object';
   const mat = p.materials[0] ? `${p.materials[0].replace('-', ' ')} ` : '';
@@ -341,6 +349,21 @@ export function rulesObject(prompt: string, opts: { parsed?: ParsedRequest; size
   return {
     ...extra,
     id: uid('obj'), name, prompt, size: { ...size }, parts,
+    semantics: defaultSemantics(kind.category, size, desc),
+    model: 'rules', latencyMs: Math.round(now() - t0), createdAt: Date.now(),
+  };
+}
+
+/** Expand kit items, fit them to the exact size, repair and recolour. */
+function fromRecipe(items: Array<Record<string, unknown>>, prompt: string, p: ParsedRequest, kind: Kind, size: Size, t0: number): ObjectSpec {
+  const name = p.kind ? titleFor(p) : prompt.trim().slice(0, 40) || 'Object';
+  const norm = normalizeSpec({ name, parts: items }, { prompt, name });
+  const v = validateSpec(fitSpec(norm, size));
+  const spec = enforceColors(v.fixed, p).spec;
+  const mat = p.materials[0] ? `${p.materials[0].replace('-', ' ')} ` : '';
+  const desc = `${(mat + kind.label.toLowerCase()).replace(/^./, (c) => c.toUpperCase())}, ${cmTxt(size.w)} wide, ${cmTxt(size.d)} deep and ${cmTxt(size.h)} high.`;
+  return {
+    ...spec, id: uid('obj'), name, prompt, size: { ...size },
     semantics: defaultSemantics(kind.category, size, desc),
     model: 'rules', latencyMs: Math.round(now() - t0), createdAt: Date.now(),
   };

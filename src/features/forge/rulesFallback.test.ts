@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KINDS, parseRequest } from './parseRequest';
-import { partsBounds, rulesObject, semanticLine } from './rulesFallback';
+import { rulesObject, semanticLine } from './rulesFallback';
+import { partsBounds } from './spec';
 
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-3;
 
@@ -30,7 +31,8 @@ describe('rules templates', () => {
     expect(desk.parts.some((p) => /drawer/i.test(p.name))).toBe(true);
     expect(desk.parts.every((p) => p.material !== 'oak')).toBe(true);
     // Drawers on the right: the pedestal sits at +x.
-    expect(desk.parts.find((p) => p.name === 'Drawer pedestal')!.pos[0]).toBeGreaterThan(0);
+    expect(desk.parts.find((p) => /^Pedestal/.test(p.name))!.pos[0]).toBeGreaterThan(0);
+    expect(desk.motions?.length).toBe(3);
     expectFills('walnut desk 160 by 80 with drawers on the right', desk.size);
 
     const bench = rulesObject('low oak TV bench 180 wide');
@@ -56,8 +58,8 @@ describe('rules templates', () => {
 
   it('builds a fold-down wall bed with a hinge motion', () => {
     const spec = expectFills('wall bed', { w: 1.56, d: 0.45, h: 2.2 });
-    expect(spec.motions?.[0]).toMatchObject({ group: 'bed', kind: 'hinge' });
-    expect(spec.parts.some((p) => p.group === 'bed')).toBe(true);
+    expect(spec.motions?.[0]).toMatchObject({ kind: 'hinge' });
+    expect(spec.parts.some((p) => p.group === spec.motions![0].group)).toBe(true);
     expect(spec.openSize!.d).toBeGreaterThan(2);
   });
 
@@ -77,5 +79,17 @@ describe('rules templates', () => {
     const spec = rulesObject('a hammock stand');
     expect(spec.parts.length).toBeGreaterThan(3);
     expect(spec.model).toBe('rules');
+  });
+
+  it('gives the common asks their character without a model', () => {
+    const barbie = rulesObject('pink Barbie dream bed 90x200 with heart headboard');
+    expect(barbie.parts.some((p) => /canopy/i.test(p.name))).toBe(true);
+    expect(barbie.parts.some((p) => p.color === '#f27cb0' || p.color === '#e0218a')).toBe(true);
+    expect(rulesObject('gaming chair black and red').parts.some((p) => p.color === '#c62828')).toBe(true);
+    expect(rulesObject('kids bunk bed with slide').parts.some((p) => /chute/i.test(p.name))).toBe(true);
+    expect(rulesObject('grand piano').parts.some((p) => /black key/i.test(p.name))).toBe(true);
+    expect(rulesObject('arcade machine').parts.some((p) => /joystick/i.test(p.name))).toBe(true);
+    expect(rulesObject('curved green velvet sofa 240').parts.some((p) => p.shape === 'extrude')).toBe(true);
+    expect(rulesObject('built-in fold-down wall bed 160 wide').motions?.[0].kind).toBe('hinge');
   });
 });

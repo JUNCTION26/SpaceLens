@@ -3,9 +3,9 @@
 // without any model involved. English plus basic Swedish.
 
 import type { MaterialId } from '../../core/types';
-import { COLORS } from '../voice/parse';
+import { findColors, findTheme, type Theme } from './palette';
 
-export type TemplateId = 'desk' | 'table' | 'sofa' | 'chair' | 'bed' | 'shelf' | 'cabinet' | 'bench' | 'lamp' | 'rug';
+export type TemplateId = 'desk' | 'table' | 'sofa' | 'chair' | 'bed' | 'shelf' | 'cabinet' | 'bench' | 'lamp' | 'rug' | 'special';
 
 export interface Kind {
   id: string;
@@ -22,11 +22,24 @@ export interface Kind {
 
 // Most specific first: "coffee table" must win over "table", "skrivbord" over "bord".
 export const KINDS: Kind[] = [
+  { id: 'kitchen-island', category: 'counter', label: 'Kitchen island', template: 'cabinet', size: [2.0, 0.9, 0.92], en: ['kitchen island', 'island', 'breakfast bar'], sv: ['köksö', 'frukostbar'] },
+  { id: 'bar-counter', category: 'counter', label: 'Bar counter', template: 'special', size: [2.0, 0.6, 1.1], en: ['bar counter', 'home bar', 'bar unit', 'cocktail bar'], sv: ['bardisk'] },
+  { id: 'reception-desk', category: 'desk', label: 'Reception desk', template: 'special', size: [2.4, 0.8, 1.1], en: ['reception desk', 'front desk', 'reception counter', 'welcome desk'], sv: ['receptionsdisk'] },
+  { id: 'standing-desk', category: 'desk', label: 'Standing desk', template: 'desk', size: [1.6, 0.8, 1.05], en: ['standing desk', 'sit-stand desk', 'sit stand desk', 'height adjustable desk', 'standing workstation'], sv: ['ståbord'] },
+  { id: 'bunk-bed', category: 'bunk-bed', label: 'Bunk bed', template: 'special', size: [1.0, 2.0, 1.65], en: ['bunk bed', 'bunkbed', 'loft bed', 'double decker bed'], sv: ['våningssäng', 'loftsäng'] },
+  { id: 'crib', category: 'crib', label: 'Baby cot', template: 'special', size: [0.66, 1.26, 0.95], en: ['baby cot', 'crib', 'cot', 'cradle', 'baby bed'], sv: ['spjälsäng', 'babysäng'] },
+  { id: 'hospital-bed', category: 'bed', label: 'Hospital bed', template: 'special', size: [1.0, 2.15, 0.9], en: ['hospital bed', 'care bed', 'nursing bed', 'medical bed'], sv: ['sjukhussäng', 'vårdsäng'] },
+  { id: 'grand-piano', category: 'piano', label: 'Grand piano', template: 'special', size: [1.52, 1.85, 1.0], en: ['grand piano', 'baby grand', 'concert grand'], sv: ['flygel'] },
+  { id: 'piano', category: 'piano', label: 'Piano', template: 'special', size: [1.5, 0.6, 1.25], en: ['upright piano', 'piano'], sv: ['piano'] },
+  { id: 'arcade', category: 'arcade-machine', label: 'Arcade machine', template: 'special', size: [0.7, 0.85, 1.75], en: ['arcade machine', 'arcade cabinet', 'arcade game', 'arcade'], sv: ['arkadmaskin', 'arkadspel'] },
+  { id: 'phone-booth', category: 'phone-booth', label: 'Phone booth', template: 'special', size: [1.0, 1.0, 2.2], en: ['phone booth', 'office booth', 'phone pod', 'office pod', 'meeting pod', 'call booth', 'focus pod'], sv: ['telefonbås', 'kontorsbås'] },
+  { id: 'library-wall', category: 'bookshelf', label: 'Bookshelf wall', template: 'shelf', size: [3.0, 0.65, 2.6], en: ['bookshelf wall', 'library wall', 'wall of books', 'book wall', 'wall unit', 'wall of shelves'], sv: ['bokhyllevägg'] },
   { id: 'coffee-table', category: 'coffee-table', label: 'Coffee table', template: 'table', size: [1.1, 0.6, 0.42], en: ['coffee table', 'sofa table', 'lounge table'], sv: ['soffbord'] },
   { id: 'side-table', category: 'side-table', label: 'Side table', template: 'table', size: [0.5, 0.5, 0.55], en: ['side table', 'end table'], sv: ['sidobord', 'avlastningsbord'] },
   { id: 'nightstand', category: 'nightstand', label: 'Nightstand', template: 'cabinet', size: [0.45, 0.4, 0.55], en: ['nightstand', 'bedside table', 'bedside', 'night table'], sv: ['sängbord', 'nattduksbord'] },
   { id: 'tv-unit', category: 'tv-unit', label: 'TV bench', template: 'cabinet', size: [1.6, 0.4, 0.45], en: ['tv bench', 'tv unit', 'tv stand', 'media console', 'tv cabinet', 'media unit'], sv: ['tv-bänk', 'tvbänk', 'tv bänk', 'mediabänk'] },
-  { id: 'desk-chair', category: 'office-chair', label: 'Desk chair', template: 'chair', size: [0.6, 0.6, 1.05], en: ['desk chair', 'office chair', 'task chair', 'gaming chair'], sv: ['kontorsstol', 'skrivbordsstol'] },
+  { id: 'gaming-chair', category: 'office-chair', label: 'Gaming chair', template: 'chair', size: [0.7, 0.7, 1.3], en: ['gaming chair', 'racing chair', 'gamer chair'], sv: ['gamingstol'] },
+  { id: 'desk-chair', category: 'office-chair', label: 'Desk chair', template: 'chair', size: [0.6, 0.6, 1.05], en: ['desk chair', 'office chair', 'task chair', 'swivel chair'], sv: ['kontorsstol', 'skrivbordsstol'] },
   { id: 'desk', category: 'desk', label: 'Desk', template: 'desk', size: [1.4, 0.7, 0.74], en: ['desk', 'workstation', 'writing table'], sv: ['skrivbord'] },
   { id: 'dining-table', category: 'table', label: 'Dining table', template: 'table', size: [1.6, 0.9, 0.75], en: ['dining table', 'kitchen table'], sv: ['matbord', 'köksbord'] },
   { id: 'bookshelf', category: 'bookshelf', label: 'Bookshelf', template: 'shelf', size: [0.8, 0.3, 1.8], en: ['bookshelf', 'bookcase', 'shelving unit', 'shelving', 'shelf', 'shelves', 'etagere'], sv: ['bokhylla', 'hylla'] },
@@ -69,6 +82,13 @@ const FEATURE_WORDS: Array<[RegExp, string]> = [
   [/\b(no back|backless|utan rygg)\b/, 'backless'], [/\b(chaise|divan|schäslong)\b/, 'chaise'], [/\b(glass doors?|glasdörrar)\b/, 'glass-doors'],
 ];
 
+const COUNT_KEYS: Array<[RegExp, string]> = [
+  [/^(drawer|låd)/, 'drawers'], [/^(door|dörr|luck)/, 'doors'], [/^(shel|hyll)/, 'shelves'], [/^(seat|sits)/, 'seats'], [/^(tier|level|deck)/, 'tiers'],
+  [/^leg/, 'legs'], [/^(cushion|pillow|kudd)/, 'cushions'], [/^(person|people|guest)/, 'seats'], [/^step/, 'steps'], [/^(panel|section|module|bay|compartment|cubb|cube)/, 'sections'],
+  [/^(burner|hob)/, 'burners'], [/^(bulb|light|lamp|arm)/, 'lights'], [/^rung/, 'rungs'], [/^(slat|bar)/, 'slats'], [/^basket/, 'baskets'],
+];
+const COUNT_RE = /\b(\d{1,2})\s*-?\s*(drawers?|doors?|shel(?:f|ves)|seat(?:er|s)?|tiers?|levels?|decks?|legs?|cushions?|pillows?|people|persons?|guests?|steps?|panels?|sections?|modules?|bays?|compartments?|cubbies|cubes?|burners?|bulbs?|lights?|lamps?|arms?|rungs?|slats?|bars?|baskets?|lådor|låd|dörrar|hyllor|hyllplan|kuddar)(?![a-zåäö])/g;
+
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
   pair: 2, couple: 2,
@@ -89,6 +109,10 @@ export interface ParsedRequest {
   materials: MaterialId[];
   features: string[];
   side?: 'left' | 'right';
+  /** Counted features: "three-drawer" -> { drawers: 3 }. */
+  counts: Record<string, number>;
+  /** A named design theme ("Barbie", "industrial"). */
+  theme?: Theme;
   round: boolean;
   low: boolean;
   tall: boolean;
@@ -129,6 +153,13 @@ export function normalizeText(text: string): string {
 }
 
 export function findKind(t: string): Kind | null {
+  // The object is named before "with ..." ("island with two bar stools" is an island).
+  const head = t.split(/\s(?:with|med|plus|and a|featuring)\s/)[0];
+  if (head !== t) { const k = findKindIn(head); if (k) return k; }
+  return findKindIn(t);
+}
+
+function findKindIn(t: string): Kind | null {
   for (const k of KINDS) {
     for (const w of k.en) if (new RegExp(`(^|[^a-zåäö])${w}(s|es)?(?![a-zåäö])`).test(t)) return k; // ordered by specificity
   }
@@ -141,7 +172,7 @@ export function findKind(t: string): Kind | null {
 export function parseRequest(text: string): ParsedRequest {
   let t = normalizeText(text);
   const kind = findKind(t);
-  const out: ParsedRequest = { text, kind, qty: 1, colors: [], materials: [], features: [], round: false, low: false, tall: false };
+  const out: ParsedRequest = { text, kind, qty: 1, colors: [], materials: [], features: [], counts: {}, round: false, low: false, tall: false };
 
   // Seats: "for six", "6-seater", "seats 8", "för sex personer".
   const seatRe = /\b(?:for|seats|seating|för)\s+(\d+|[a-zåäö]+)(?:\s+(?:people|persons|personer|guests))?\b|\b(\d+|[a-zåäö]+)[- ]?(?:seater|seat|sits|sitsig)\b/;
@@ -152,6 +183,18 @@ export function parseRequest(text: string): ParsedRequest {
     if (n && n >= 1 && n <= 16) { out.seats = n; t = t.replace(sm[0], ' '); }
   }
   t = t.replace(NUM_WORD_RE, (w) => String(NUMBER_WORDS[w]));
+
+  // Companion pieces: "with two bar stools".
+  const comp = /\bwith (\d{1,2}) (?:bar |counter |dining )?(stools?|chairs?)\b/.exec(t);
+  if (comp) { out.counts[comp[2].startsWith('stool') ? 'stools' : 'chairs'] = parseInt(comp[1], 10); t = t.replace(comp[0], ' with '); }
+
+  // Counted features are not sizes: "three-drawer pedestal", "2 doors", "4 shelves".
+  t = t.replace(COUNT_RE, (_all, n: string, noun: string) => {
+    const v = parseInt(n, 10);
+    const key = COUNT_KEYS.find(([re]) => re.test(noun))?.[1];
+    if (key && v >= 1 && v <= 40) out.counts[key] = v;
+    return ` ${noun} `;
+  });
 
   const dims: { w?: number; d?: number; h?: number; dia?: number } = {};
   const loose: number[] = [];
@@ -199,14 +242,12 @@ export function parseRequest(text: string): ParsedRequest {
     const m = re.exec(t);
     if (m && !out.materials.includes(id)) { out.materials.push(id); m[0].split(' ').forEach((w) => seen.add(w)); }
   }
-  for (const word of Object.keys(COLORS)) {
-    if (['oak', 'walnut', 'birch', 'björk'].includes(word)) continue; // materials, not colours
-    if (new RegExp(`(^|[^a-zåäö])${word}(a|t)?(?![a-zåäö])`).test(t) && !out.colors.some((c) => c.hex === COLORS[word])) {
-      // "black metal legs" names a material; still keep black as the colour hint only if not used up.
-      if (seen.has(word) && out.materials.some((m) => m.startsWith('black') || m.startsWith('white'))) continue;
-      out.colors.push({ word, hex: COLORS[word] });
-    }
+  for (const c of findColors(t)) {
+    // "black metal legs" names a material; the colour word is used up by it.
+    if (seen.has(c.word) && out.materials.some((m) => m.startsWith('black') || m.startsWith('white'))) continue;
+    out.colors.push(c);
   }
+  out.theme = findTheme(t);
   for (const [re, f] of FEATURE_WORDS) if (re.test(t)) out.features.push(f);
   if (/\b(right|höger|högra)\b/.test(t)) out.side = 'right';
   else if (/\b(left|vänster|vänstra)\b/.test(t)) out.side = 'left';

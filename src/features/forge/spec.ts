@@ -4,6 +4,8 @@
 // Local frame: metres, origin at the floor centre of the footprint, +y up, front faces +z.
 import * as THREE from 'three';
 import type { MaterialId, ObjectMotion, ObjectPart, ObjectRole, ObjectSemantics, ObjectSpec, PartShape } from '../../core/types';
+import { coerceKit, expandItem, expands, KITS, type KitItem } from './kits';
+import { PROFILE_STYLES } from './profiles';
 
 export const PART_SHAPES: readonly PartShape[] = ['box', 'rounded', 'cylinder', 'cone', 'sphere', 'cushion', 'leg', 'panel', 'tube', 'extrude', 'lathe'];
 
@@ -29,23 +31,29 @@ export const SPEC_JSON_SCHEMA = {
     category: { type: 'STRING', description: 'One lowercase word or hyphenated phrase: desk, sofa, chair, bed, bookshelf, table, armchair, lamp, cabinet...' },
     parts: {
       type: 'ARRAY',
-      description: 'Between 12 and 40 parts. Metres. Origin at the floor centre of the footprint, +y up, front faces +z. Lowest part touches y=0. Parts must touch each other (no floating pieces).',
+      description: 'Items in metres. Origin at the floor centre of the footprint, +y up, front faces +z. Lowest item touches y=0. Items must touch (no floating pieces). An item is a plain part (shape) or a kit that code expands into many detailed parts inside its box (size = kit bounding box, pos = its centre).',
       items: {
         type: 'OBJECT',
         properties: {
           name: { type: 'STRING' },
-          shape: { type: 'STRING', enum: [...PART_SHAPES], description: 'box: sharp block. rounded: block with radius. panel: thin board. leg: tapered post (long axis is the taper). tube: round bar along its longest axis. cylinder/cone: round along y (cone radius = top radius). sphere: ellipsoid. cushion: soft upholstered pad. extrude: the closed 2D outline in profile (x, y) extruded along z, scaled to size (arched or heart headboards, scalloped panels). lathe: profile of [radius, height] points revolved around y, scaled to size (vases, shades, turned legs, stool seats).' },
+          kit: { type: 'STRING', enum: [...KITS], nullable: true, description: 'Omit for a plain part.' },
+          style: { type: 'STRING', nullable: true, description: `Kit variant, or an outline for extrude parts and headboards: ${PROFILE_STYLES.join(', ')}.` },
+          count: { type: 'NUMBER', nullable: true, description: 'How many (drawers, doors, legs, cushions, shelves, rungs, slats, pillows, segments).' },
+          shape: { type: 'STRING', enum: [...PART_SHAPES], nullable: true, description: 'Plain parts only. box: sharp block. rounded: softened block. panel: thin board. leg: tapered post. tube: round bar along its longest axis. cylinder/cone: round along y. sphere: ellipsoid. cushion: soft pad. extrude: outline (style or profile) extruded along z. lathe: [radius, height] profile revolved around y.' },
           size: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 3, maxItems: 3, description: 'Full extents [x, y, z] in metres before rotation.' },
           pos: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 3, maxItems: 3, description: 'Centre [x, y, z] in metres.' },
-          rot: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 3, maxItems: 3, nullable: true, description: 'Euler XYZ rotation in radians. Omit when not rotated.' },
-          radius: { type: 'NUMBER', nullable: true, description: 'Corner radius in metres for rounded parts; top radius for cones.' },
+          rot: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 3, maxItems: 3, nullable: true, description: 'Euler XYZ radians. Omit when not rotated.' },
+          radius: { type: 'NUMBER', nullable: true, description: 'Corner radius (rounded), top radius (cone), leg or rail thickness / 2 (kits), band thickness (arc).' },
           material: { type: 'STRING', enum: [...MATERIAL_IDS] },
-          color: { type: 'STRING', nullable: true, description: 'Optional exact hex colour like #2f5d3a. Shown exactly as given.' },
-          profile: { type: 'ARRAY', nullable: true, items: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 2, maxItems: 2 }, description: 'Only for extrude and lathe: 2D points in metres, 4 to 64 of them.' },
-          group: { type: 'STRING', nullable: true, description: 'Name of a moving group (a drawer, door or fold-down platform). Omit for fixed parts.' },
+          color: { type: 'STRING', nullable: true, description: 'Exact hex colour like #2f5d3a.' },
+          accent: { type: 'STRING', nullable: true, description: 'Kits: second hex colour (handles, piping, throw, drapes, buttons, cabinet).' },
+          profile: { type: 'ARRAY', nullable: true, items: { type: 'ARRAY', items: { type: 'NUMBER' }, minItems: 2, maxItems: 2 }, description: 'Custom outline points when no style fits (extrude, lathe, plan kit).' },
+          mirror: { type: 'STRING', enum: ['x', 'z', 'xz'], nullable: true, description: 'Also add a copy mirrored across x=0 (a left/right pair) or z=0.' },
+          inset: { type: 'NUMBER', nullable: true, description: 'arc kit: move the band this far in from the outer edge.' },
+          group: { type: 'STRING', nullable: true, description: 'Plain parts that move together (a fold-down platform). Kits make their own.' },
         },
-        required: ['name', 'shape', 'size', 'pos', 'material'],
-        propertyOrdering: ['name', 'shape', 'size', 'pos', 'rot', 'radius', 'material', 'color', 'profile', 'group'],
+        required: ['name', 'size', 'pos', 'material'],
+        propertyOrdering: ['name', 'kit', 'style', 'count', 'shape', 'size', 'pos', 'rot', 'radius', 'material', 'color', 'accent', 'profile', 'mirror', 'inset', 'group'],
       },
     },
     motions: {
@@ -351,6 +359,37 @@ export function coerceProfile(v: unknown, lathe = false): Array<[number, number]
   return pts;
 }
 
+/** A kit (or mirrored / repeated) item in metres, or null when it has no usable box. */
+export function coerceItem(o: Record<string, unknown>, unit = 1, fallbackMaterial: MaterialId = 'oak'): KitItem | null {
+  const size = vec3(o.size ?? o.dims ?? o.dimensions), pos = vec3(o.pos ?? o.position ?? o.center);
+  if (!size || !pos) return null;
+  const s = size.map((v) => Math.abs(v) * unit);
+  if (s.some((v) => v > MAX_DIM)) return null;
+  const item: KitItem = {
+    name: str(o.name, 50) ?? str(o.kit, 20) ?? 'part',
+    size: s.map((v) => r4(Math.max(MIN_PART, v))) as [number, number, number],
+    pos: pos.map((v) => r4(v * unit)) as [number, number, number],
+    material: coerceMaterial(o.material, fallbackMaterial),
+  };
+  const kit = coerceKit(o.kit);
+  if (kit) item.kit = kit;
+  const shape = coerceShape(o.shape ?? o.type);
+  if (shape) item.shape = shape;
+  const rot = vec3(o.rot ?? o.rotation);
+  if (rot && rot.some((v) => v !== 0)) { const deg = rot.some((v) => Math.abs(v) > Math.PI * 2 + 0.01); item.rot = rot.map((v) => r4(deg ? (v * Math.PI) / 180 : v)) as [number, number, number]; }
+  const radius = num(o.radius); if (radius != null && radius > 0) item.radius = r4(radius * unit);
+  const inset = num(o.inset); if (inset != null && inset > 0) item.inset = r4(inset * unit);
+  const count = num(o.count); if (count != null && count >= 1) item.count = Math.round(count);
+  const color = coerceColor(o.color); if (color) item.color = color;
+  const accent = coerceColor(o.accent); if (accent) item.accent = accent;
+  const style = str(o.style, 40); if (style) item.style = style;
+  const mirror = str(o.mirror, 4); if (mirror && /^(x|z|xz|zx)$/i.test(mirror)) item.mirror = mirror.toLowerCase();
+  const group = str(o.group, 40); if (group) item.group = group;
+  const step = vec3(o.step); if (step) item.step = step.map((v) => r4(v * unit)) as [number, number, number];
+  if (Array.isArray(o.profile)) { const prof = coerceProfile(o.profile, shape === 'lathe'); if (prof) item.profile = unit === 1 ? prof : prof.map(([a, b]) => [r4(a * unit), r4(b * unit)] as [number, number]); }
+  return item;
+}
+
 /** Coerce motions, keeping only those whose group exists among the parts. */
 export function coerceMotions(v: unknown, parts: readonly ObjectPart[], unit = 1): ObjectMotion[] | undefined {
   if (!Array.isArray(v)) return undefined;
@@ -467,9 +506,21 @@ export function normalizeSpec(raw: unknown, want: { w?: number; d?: number; h?: 
   const unit = maxExt > 12 ? (maxExt > 1200 ? 0.001 : 0.01) : 1;
 
   const fallbackMat = coerceMaterial(o.material, /sofa|chair|bed|cushion/.test(catText.toLowerCase()) ? 'fabric' : 'oak');
-  let parts = rawParts.map((p) => coercePart(p, unit, fallbackMat)).filter((p): p is ObjectPart => !!p).slice(0, MAX_PARTS);
+  const kitMotions: ObjectMotion[] = [];
+  let parts: ObjectPart[] = [];
+  rawParts.forEach((p, i) => {
+    const rec = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+    if (!expands(rec)) { const q = coercePart(p, unit, fallbackMat); if (q) parts.push(q); return; }
+    const item = coerceItem(rec, unit, fallbackMat);
+    if (!item) return;
+    const ex = expandItem(item, i);
+    for (const q of ex.parts) { const c = coercePart(q, 1, fallbackMat); if (c) parts.push(c); }
+    kitMotions.push(...ex.motions);
+  });
+  parts = parts.slice(0, MAX_PARTS);
 
-  let motions = coerceMotions(o.motions, parts, unit);
+  const allMotions = [...(coerceMotions(o.motions, parts, unit) ?? []), ...(coerceMotions(kitMotions, parts, 1) ?? [])].slice(0, 12);
+  let motions: ObjectMotion[] | undefined = allMotions.length ? allMotions : undefined;
   // Re-centre: footprint centred on x/z, lowest point on the floor.
   if (parts.length) {
     const b = partsBounds(parts);
