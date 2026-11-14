@@ -3,8 +3,36 @@ import { useStore } from '../../core/store';
 import { bounds, fmtM2, fmtSek, itemCorners } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
 import { validateLayout } from '../referee/validate';
-import { crossover, generateLayouts } from './solver';
+import { crossover } from './solver';
+import { designRoom, type FullReport } from '../design/pipeline';
+import { useReports } from '../design/reportStore';
+import { DecisionsPanel } from '../design/DecisionsPanel';
 import './layout.css';
+
+/** 0-100 score as a thin ring. */
+function ScoreRing({ value }: { value: number }) {
+  const r = 13, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Math.round(value)));
+  const tone = v >= 80 ? 'var(--ok)' : v >= 60 ? 'var(--warn)' : 'var(--bad)';
+  return (
+    <svg className="layout-ring" width={32} height={32} viewBox="0 0 32 32" role="img" aria-label={`Score ${v} of 100`}>
+      <circle cx={16} cy={16} r={r} fill="none" stroke="var(--line)" strokeWidth={2} />
+      <circle cx={16} cy={16} r={r} fill="none" stroke={tone} strokeWidth={2} strokeLinecap="round"
+        strokeDasharray={`${(c * v) / 100} ${c}`} transform="rotate(-90 16 16)" />
+      <text x={16} y={16} textAnchor="middle" dominantBaseline="central" fontSize={10} fill="currentColor">{v}</text>
+    </svg>
+  );
+}
+
+/** The two highest-weight reasons, skipping items the rules say are failing. */
+function strongestReasons(rep: FullReport): string[] {
+  const failing = new Set(rep.verdicts.filter((v) => !v.pass).flatMap((v) => v.itemIds));
+  const seen = new Set<string>();
+  return [...rep.program.relations]
+    .sort((a, b) => Number(failing.has(a.subject)) - Number(failing.has(b.subject)) || b.weight - a.weight)
+    .map((r) => r.reason)
+    .filter((t) => (seen.has(t) ? false : (seen.add(t), true)))
+    .slice(0, 2);
+}
 
 function Thumb({ model, cand, scale }: { model: SpaceModel; cand: LayoutCandidate; scale: number }) {
   const sp = model.spaces[0]; if (!sp) return null;
@@ -27,6 +55,7 @@ export function DesignPanel() {
   const [compare, setCompare] = useState(false);
   const [pins, setPins] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const reports = useReports((s) => s.reports);
 
   const stale = candidates.length > 0 && candidates.some((c) => c.parentVersion < model.version);
   const recheck = useMemo(() => {
@@ -40,9 +69,12 @@ export function DesignPanel() {
     if (!req) return;
     setBusy(true);
     try {
-      const { candidates: c, infeasibility: inf } = await generateLayouts(model, req, { seed: model.version + 1 });
-      useStore.getState().setCandidates(c, inf);
-    } finally { setBusy(false); }
+      const res = await designRoom(model, req, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true) });
+      useReports.getState().setReports(res.reports);
+      useStore.getState().setCandidates(res.candidates, res.infeasibility);
+    } catch (e) {
+      useStore.getState().toast(`Layout failed: ${(e as Error).message}`, 'error');
+    } finally { setBusy(false); useReports.getState().setStages(useReports.getState().stages, false); }
   };
   const combine = async () => {
     const [a, b] = pins.map((id) => candidates.find((c) => c.id === id));
@@ -113,16 +145,21 @@ export function DesignPanel() {
           const failed = c.checks.filter((r) => r.result === 'fail').length;
           const tone = failed > 0 ? 'chip-bad' : passed < c.checks.length ? 'chip-warn' : 'chip-ok';
           const nowFail = recheck.get(c.id) ?? 0;
+          const rep = reports[c.id];
+          const reasons = rep ? strongestReasons(rep) : [];
           return (
             <div key={c.id} className={`layout-card${c.id === activeId ? ' on' : ''}`} onClick={() => useStore.getState().previewCandidate(c.id)}>
               {sp && <Thumb model={model} cand={c} scale={scale * 0.6} />}
               <div className="layout-card-body">
                 <div className="layout-card-head">
                   <strong>{c.name}</strong>
-                  <span className={`chip ${tone}`}>{passed}/{c.checks.length} checks</span>
+                  {!rep && <span className={`chip ${tone}`}>{passed}/{c.checks.length} checks</span>}
                   {nowFail > 0 && <span className="chip chip-bad">{nowFail} now fail</span>}
+                  {rep && <ScoreRing value={c.metrics.score} />}
                 </div>
-                <div className="muted layout-reason" title={c.summary}>{c.summary}</div>
+                {reasons.length > 0 ? (
+                  <ul className="layout-reasons">{reasons.map((t) => <li key={t}>{t}</li>)}</ul>
+                ) : <div className="muted layout-reason" title={c.summary}>{c.summary}</div>}
                 <div className="layout-foot">
                   <span>{fmtSek(c.metrics.costSek)}</span>
                   {compare && (
@@ -132,6 +169,7 @@ export function DesignPanel() {
                   )}
                   <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>
                 </div>
+                {rep && c.id === activeId && <DecisionsPanel model={model} candidate={c} report={rep} />}
               </div>
             </div>
           );
