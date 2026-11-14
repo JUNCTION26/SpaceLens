@@ -8,7 +8,7 @@ import { catalogEntry, makeItem } from '../furniture/catalog';
 import { pointInPolygon, uid } from '../../core/geometry';
 import { explainInfeasible } from '../layout/solver';
 import { applyFixes, critique, type Critique } from './critic';
-import { planConcepts, type Concept } from './planner';
+import { planConcepts, rulesConcept, type Concept } from './planner';
 import { evaluateRules } from './rules';
 import { designScore } from './score';
 import { solveProgram } from './solve';
@@ -24,6 +24,11 @@ export interface DesignOpts {
   signal?: AbortSignal;
   /** The person's own words, given to the planner and critic for context. */
   brief?: string;
+  /**
+   * Called as better results arrive: first the rule-based layouts (right away), then the model's
+   * concepts, then the second opinion. The returned promise still resolves with the final result.
+   */
+  onProgress?: (result: DesignResult, phase: 'rules' | 'concepts' | 'critic') => void;
   /** Set false to skip the second opinion. */
   critic?: boolean;
   /**
@@ -111,8 +116,9 @@ export async function designRoom(model: SpaceModel, req: Requirements, opts: Des
   if (spaceId && model.spaces.length > 1) {
     const sub = subModelFor(model, spaceId);
     if (!sub) return { candidates: [], reports: [], infeasibility: { reasons: ['That room is not in this plan'], relaxations: [] }, stages: [] };
-    const res = await designOneRoom(sub.model, req, { ...opts, spaceId: undefined });
-    return { ...res, candidates: res.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) };
+    const back = (r: DesignResult): DesignResult => ({ ...r, candidates: r.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) });
+    const res = await designOneRoom(sub.model, req, { ...opts, spaceId: undefined, onProgress: opts.onProgress && ((r, ph) => opts.onProgress!(back(r), ph)) });
+    return back(res);
   }
   return designOneRoom(model, req, opts);
 }
@@ -141,7 +147,26 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
   // 2. Concepts
   const want = Math.min(3, Math.max(1, opts.variants ?? 3));
   t = start('plan', online ? `Planning ${want} concept${want > 1 ? 's' : ''}` : 'Planning with rules', modelName);
-  const concepts: Concept[] = await planConcepts(model, items, req, online ? want : 1, { signal: opts.signal, brief: opts.brief });
+  const planP = planConcepts(model, items, req, online ? want : 1, { signal: opts.signal, brief: opts.brief });
+  if (online && opts.onProgress) {
+    // Show rule-based layouts at once while the model is still thinking.
+    planP.catch(() => undefined);
+    try {
+      const early = await solveProgram(model, items, rulesConcept(model, items, req), { variants: Math.max(2, want), seed: model.version * 31 + 500, signal: opts.signal, req });
+      const cands = early.candidates.map((cand) => {
+        const verdicts = evaluateRules(model, cand.furniture, req);
+        return { cand, verdicts, ds: score100(verdicts) };
+      }).sort((a, b) => b.ds - a.ds);
+      if (cands.length) {
+        opts.onProgress({
+          candidates: cands.map(({ cand, ds }) => ({ ...cand, metrics: { ...cand.metrics, score: ds } })),
+          reports: cands.map(({ cand, verdicts, ds }) => ({ candidateId: cand.id, program: early.reports?.find((r) => r.candidateId === cand.id)?.program ?? rulesConcept(model, items, req), verdicts, designScore: ds, finalScore: ds })),
+          infeasibility: null, stages: stages.map((x) => ({ ...x })),
+        }, 'rules');
+      }
+    } catch (e) { if ((e as Error).name === 'AbortError') throw e; }
+  }
+  const concepts: Concept[] = await planP;
   const planned = concepts[0]?.by === 'gemini';
   end('plan', t, {
     label: planned ? `Planned ${concepts.length} concept${concepts.length > 1 ? 's' : ''}` : 'Planned with rules',
@@ -181,6 +206,12 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
   const ruleCount = new Set(reports.flatMap((r) => r.verdicts.map((v) => v.ruleId))).size;
   end('rules', t, { label: `Checked ${ruleCount} rules`, detail: `best ${Math.max(...reports.map((r) => r.designScore))}/100` });
   abortIf(opts.signal);
+  const snapshot = (): DesignResult => {
+    const ranked = entries.map((e, i) => ({ e, r: reports[i] })).sort((a, b) => b.r.finalScore - a.r.finalScore);
+    const candidates = ranked.map(({ e, r }) => ({ ...e.cand, metrics: { ...e.cand.metrics, score: r.finalScore }, generator: r.critique ? `${e.cand.generator} + critic` : e.cand.generator }));
+    return { candidates, reports: ranked.map((x) => x.r), infeasibility: null, stages: stages.map((x) => ({ ...x })) };
+  };
+  if (planned) opts.onProgress?.(snapshot(), 'concepts');
 
   // 5. Second opinion on the strongest few, in parallel; one round of relation fixes.
   if (online && opts.critic !== false) {
@@ -214,12 +245,11 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
       status: failed === order.length ? 'failed' : 'done',
       detail: failed === order.length ? 'unavailable' : revisedCount ? `${revisedCount} layout${revisedCount > 1 ? 's' : ''} revised` : 'no changes',
     });
+    opts.onProgress?.(snapshot(), 'critic');
   } else {
     stages.push({ id: 'critic', label: 'Second opinion', status: 'skipped', detail: online ? 'off' : 'no model key' }); emit();
   }
 
   // 6. Rank.
-  const ranked = entries.map((e, i) => ({ e, r: reports[i] })).sort((a, b) => b.r.finalScore - a.r.finalScore);
-  const candidates = ranked.map(({ e, r }) => ({ ...e.cand, metrics: { ...e.cand.metrics, score: r.finalScore }, generator: r.critique ? `${e.cand.generator} + critic` : e.cand.generator }));
-  return { candidates, reports: ranked.map((x) => x.r), infeasibility: null, stages };
+  return snapshot();
 }

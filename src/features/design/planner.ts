@@ -252,6 +252,9 @@ export { withTimeout };
 
 const fallback = (def: DesignProgram, error?: string): Concept => ({ ...def, name: 'Balanced', notes: error ? [...def.notes, `Planner unavailable, used rules (${error.slice(0, 80)}).`] : def.notes });
 
+/** The rule-based concept, instantly, with no model call. */
+export const rulesConcept = (model: SpaceModel, items: FurnitureItem[], req: Requirements): Concept => fallback(defaultProgram(model, items, req));
+
 /**
  * 1 to 3 alternative concepts from one fast call. Each is validated and merged with the rule
  * program so nothing is left unplaced. Without a key, or on any failure, returns the rule program.
