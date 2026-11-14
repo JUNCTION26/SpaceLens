@@ -65,6 +65,14 @@ erDiagram
 
 `src/features/drawings` extracts text with pdf.js in the browser and builds an index: text items with positions, dimension strings, scale, room labels and unit labels. `answer.ts` classifies the question and answers from that index. Each answer says whether it is printed on the page, calculated from printed values, or inferred, and carries the page regions that justify it. When the index cannot support an answer it abstains; Gemini is only asked when a key is set and the local index has nothing. The benchmark in `src/features/drawings/stoa.eval.test.ts` runs this same code with no model calls.
 
+## Plan to building
+
+Vector PDF plans are converted into a multi-room spatial model without a model call. Room outlines drawn in the PDF become spaces, wall thickness is read from the drawing, door symbols and window openings are attached to the walls they touch, and printed room areas are compared with the computed ones. Each wall carries evidence (page and region), so the page can be highlighted from the model. The benchmark runner is `scripts/stoa-build.mjs` and its results are `public/samples/stoa/build-results.json`. Door and window detection is the weak part, and rooms built from walls alone are less accurate than rooms with a drawn outline.
+
+## Whole buildings
+
+A built or generated floor can be furnished room by room through the same design pipeline, walked through its doors, and toured automatically. Shared walls are held by both rooms, so connectivity and routes work across rooms.
+
 ## Building from a programme
 
 `src/features/building`: `programme.ts` holds room programmes (area, minimum width, window need, zone), `partition.ts` divides an outer shell into rectangles that meet those needs, `connectivity.ts` checks that every room can be reached from the entrance, and `assemble.ts` converts the plan into the spatial model: one space per room, doors on both sides of a shared wall, windows on facades. Everything it makes is tagged as a generated estimate.
@@ -117,6 +125,10 @@ When no layout can satisfy the request, `layout/solver.ts` explains which constr
 ## The agent
 
 `src/features/agent`: `brain.ts` sends the person's words and a compact picture of the room to the model and parses a streamed reply of what to say, what to sketch and which actions to run. The first finished sentence is spoken while the rest arrives. `actions.ts` defines the action set and carries each one out through the store and the feature modules; each action is first sketched on the plan (`SketchLayer.tsx`) so the person sees what it means before it happens. `deixis.ts` resolves "that", "here" and wall names against the room and the latest sketch. `speech.ts` wraps browser speech recognition and synthesis. `offline.ts` handles commands that do not need a model.
+
+## Budget and render
+
+`src/features/budget` keeps the shopping list inside a budget (`optimise.ts` proposes swaps and checks them with the rules and the referee, `phases.ts` splits the purchase into now, next and later, `argue.ts` words the reasons). `src/features/render` captures the scene and asks an image model for a picture of the finished room; it is untested because the image models had no quota on the available key.
 
 ## Safety
 

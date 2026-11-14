@@ -6,17 +6,16 @@ The built-in tour (`?sample=1&open=demo`, or **Guided demo** at the bottom of th
 
 | Time | Link | Do | Say |
 | --- | --- | --- | --- |
-| 0:00 | [`?nav=drawings&sample=1`](https://junction26.github.io/SpaceLens/?nav=drawings&sample=1) | Open one of the sample Swiss floor plans. Ask "How many apartments are shown?" and click the answer. | A blueprint that answers. The page region that proves it is highlighted, and the answer says whether it is printed, calculated or inferred. |
-| 0:25 | same | Ask for the area of a room, then a question it cannot support. | When the page does not say, it abstains. On the Stoa questions that is 99.5% correct when it answers. |
-| 0:40 | [`?nav=building&sample=1&view=split`](https://junction26.github.io/SpaceLens/?nav=building&sample=1&view=split) | Pick a shell and a room programme, generate the floor. | From a programme to rooms with walls, doors and windows. These are labelled as estimates. |
-| 0:55 | [`?nav=layouts&sample=1&view=split`](https://junction26.github.io/SpaceLens/?nav=layouts&sample=1&view=split) | Describe a use, generate layouts, open the decisions for one. | Each placement has a reason, measured numbers and a verdict from an independent checker. |
-| 1:10 | [`?nav=create&sample=1&view=split`](https://junction26.github.io/SpaceLens/?nav=create&sample=1&view=split) | Describe a piece, give a width and height, place it. | Any object, built to your exact size. The layout rules treat it like a catalogue piece. |
-| 1:25 | [`?nav=shop&sample=1`](https://junction26.github.io/SpaceLens/?nav=shop&sample=1) | Search for a sofa with a budget and a maximum width. | Real listings, checked against the room, the door and the budget (needs a key). |
-| 1:35 | [`?nav=walk&sample=1&view=3d`](https://junction26.github.io/SpaceLens/?nav=walk&sample=1&view=3d) | Walk the room, run a route for the wheelchair profile, test a sofa through the door. | Walk it before you buy anything. |
-| 1:45 | [`?nav=safety&sample=1&view=2d`](https://junction26.github.io/SpaceLens/?nav=safety&sample=1&view=2d) | Run the check, open one finding, show the printable evacuation plan. | Exits, reach and an evacuation estimate, with every assumption on the page and what is not covered said plainly. |
-| 1:55 | any | Click the agent bar and say "move the desk under the window". | You can also just talk to it. It sketches the move first, then does it, and it can be undone. |
+| 0:00 | [`?nav=drawings&sample=1`](https://junction26.github.io/SpaceLens/?nav=drawings&sample=1) | Open the sample `floor10281` plan from the list. The page appears, then the building is built. | A real floor plan in, a building out: 21 rooms, doors and windows, with no model call. |
+| 0:20 | same | Click a room in the list: the page zooms to it and shows printed against computed area. Ask a question, such as how many rooms. | Every wall and room points back at the page, and answers show their evidence. 98.7% of printed areas match within 2%, and door and window counts are the weak part. |
+| 0:40 | 3D view | Switch to 3D, then walk through the doors or start the tour. | Walk it. The rooms are connected through real doors. |
+| 0:55 | [`?nav=building&view=split`](https://junction26.github.io/SpaceLens/?nav=building&view=split) | Use **Furnish every room**. | Every room furnished from the same design pipeline. |
+| 1:10 | agent bar | Say or type "add a pink princess bed". | Say what you want. It makes the object to size, sketches where it goes, then places it. |
+| 1:25 | [`?nav=layouts&sample=1&view=split`](https://junction26.github.io/SpaceLens/?nav=layouts&sample=1&view=split) | Open "Why this layout" on a candidate. | Each placement has a reason, measured numbers and a verdict from an independent checker. |
+| 1:40 | [`?nav=safety&sample=1&view=split`](https://junction26.github.io/SpaceLens/?nav=safety&sample=1&view=split) | Run the evacuation, open the assumptions. | Exits and reach, with every assumption visible and what is not covered stated plainly. |
+| 1:50 | [`?nav=export&sample=1`](https://junction26.github.io/SpaceLens/?nav=export&sample=1) | Show the PDF, schedule, 3D model and share link. | Hand it over. |
 
 Notes for presenters:
 
-- The agent, shop, object generation and the model fallback in Drawings need a Gemini key (Settings). Everything else, including the design solver, safety and the drawings index, runs locally.
+- The agent, shop, object generation and the model fallback in Drawings need a Gemini key (Settings). Building a floor from a PDF and the design solver do not. Everything else, including the design solver, safety and the drawings index, runs locally.
 - `?coach=0` skips the first-run tour, and `&theme=dark` or `&theme=light` sets the theme.
