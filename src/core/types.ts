@@ -101,6 +101,8 @@ export interface FurnitureItem {
   color: string;
   material?: string;
   sourceKind: SourceKind;
+  /** Present when the object was generated to the person's own description. */
+  custom?: ObjectSpec;
 }
 
 export interface SpaceModel {
@@ -235,4 +237,131 @@ export interface Layers {
   provenance: boolean;
   heat: boolean;
   sightlines: boolean;
+}
+
+// ---- Generated objects -------------------------------------------------------------------
+// A custom object is a list of parts in local metres: origin at the floor centre of the
+// footprint, +y up, front faces +z. The bounding box of all parts equals `size` exactly.
+
+export type PartShape = 'box' | 'rounded' | 'cylinder' | 'cone' | 'sphere' | 'cushion' | 'leg' | 'panel' | 'tube';
+
+export type MaterialId =
+  | 'oak' | 'walnut' | 'pine' | 'birch' | 'white-laminate' | 'black-laminate'
+  | 'black-metal' | 'steel' | 'brass' | 'chrome'
+  | 'fabric' | 'linen' | 'velvet' | 'leather' | 'wool'
+  | 'glass' | 'marble' | 'concrete' | 'plastic' | 'mattress' | 'rattan' | 'ceramic' | 'plant';
+
+export interface ObjectPart {
+  name: string;
+  shape: PartShape;
+  /** Full extents [x, y, z] in metres before rotation. */
+  size: [number, number, number];
+  /** Centre position [x, y, z] in metres. */
+  pos: [number, number, number];
+  /** Euler rotation in radians, optional. */
+  rot?: [number, number, number];
+  /** Corner radius for rounded parts, metres. */
+  radius?: number;
+  material: MaterialId;
+  /** Optional tint, hex. */
+  color?: string;
+}
+
+export type ObjectRole = 'seating' | 'surface' | 'storage' | 'sleeping' | 'decor' | 'lighting' | 'appliance' | 'divider' | 'floor';
+
+/** What an object is and how it wants to be used. Layout rules read this, not the name. */
+export interface ObjectSemantics {
+  category: string;
+  role: ObjectRole;
+  /** Wants its back against a wall. */
+  wallBacked: boolean;
+  /** Free space needed in front / at the sides to use it, metres. */
+  frontClearanceM: number;
+  sideClearanceM: number;
+  /** Categories it should be grouped with (a chair pairs with desk, a nightstand with bed). */
+  pairsWith: string[];
+  /** What its front should face. */
+  faces: 'room' | 'window' | 'screen' | 'table' | 'none';
+  /** Taller than 1.2 m: must not block windows or sightlines. */
+  tall: boolean;
+  /** One plain sentence describing the object. */
+  description: string;
+}
+
+export interface ObjectSpec {
+  id: string;
+  name: string;
+  /** The words the person used. */
+  prompt: string;
+  size: { w: number; d: number; h: number };
+  parts: ObjectPart[];
+  semantics: ObjectSemantics;
+  /** Which model produced it, or 'rules'. */
+  model: string;
+  latencyMs: number;
+  createdAt: number;
+}
+
+// ---- Design program ----------------------------------------------------------------------
+// The planner states intent as relations between named things; the solver finds exact poses.
+
+export type RelationKind =
+  | 'against-wall' | 'in-corner' | 'near-window' | 'away-from-door' | 'faces' | 'beside' | 'flanks'
+  | 'in-front-of' | 'centered-on' | 'paired-seat' | 'on-rug' | 'apart-from' | 'aligned-with';
+
+export interface Relation {
+  kind: RelationKind;
+  /** Item id (or requirement ref) the relation is about. */
+  subject: string;
+  /** Another item id, or 'window', 'door', 'wall:<index>', 'room-centre'. */
+  target?: string;
+  /** Preferred distance range in metres, when it applies. */
+  distanceM?: [number, number];
+  /** 0..1, how much it matters. */
+  weight: number;
+  /** One plain sentence: why. Shown to the person. */
+  reason: string;
+}
+
+export interface DesignZone { id: string; name: string; purpose: string; itemIds: string[] }
+
+export interface DesignProgram {
+  zones: DesignZone[];
+  relations: Relation[];
+  /** Item the room is organised around. */
+  focalItemId?: string;
+  notes: string[];
+  by: 'gemini' | 'rules';
+  model?: string;
+  latencyMs?: number;
+}
+
+export interface RuleVerdict {
+  ruleId: string;
+  /** Short human name, e.g. "Walkway width". */
+  name: string;
+  itemIds: string[];
+  /** 0 (broken) .. 1 (ideal). */
+  score: number;
+  pass: boolean;
+  severity: 'hard' | 'strong' | 'preference';
+  /** Plain sentence with numbers. */
+  message: string;
+}
+
+export interface DesignCritique {
+  by: string;
+  latencyMs: number;
+  summary: string;
+  decisions: Array<{ itemId: string; verdict: 'keep' | 'change'; reason: string }>;
+  /** Score 0..10 from the critic. */
+  score: number;
+}
+
+/** Extra design data attached to a layout candidate (kept separate so older code is unaffected). */
+export interface DesignReport {
+  candidateId: string;
+  program: DesignProgram;
+  verdicts: RuleVerdict[];
+  critique?: DesignCritique;
 }
