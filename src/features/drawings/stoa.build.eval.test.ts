@@ -27,6 +27,7 @@ describe.skipIf(!RUN)('stoa plan-to-building benchmark', () => {
     const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
     const rows = [];
     const areaErrs = [];
+    const fillErrs = []; // independent check: the space enclosed by walls, doors and windows vs the printed area
     const score = { labelCount: [0, 0], doors: [0, 0], windows: [0, 0], roomArea: [0, 0] };
     for (const f of files) {
       const t0 = performance.now();
@@ -46,6 +47,7 @@ describe.skipIf(!RUN)('stoa plan-to-building benchmark', () => {
       const closed = rep ? rep.rooms.filter((r) => r.no).length : 0;
       const converted = !!rep?.ok && numbered > 0 && closed / numbered >= 0.8;
       if (rep) for (const r of rep.rooms) if (r.errorPct != null) areaErrs.push(Math.abs(r.errorPct));
+      if (plan?.mPerPt) for (const r of plan.rooms) if (r.printedArea && r.rasterPt2 > 0) fillErrs.push(Math.abs((r.rasterPt2 * plan.mPerPt ** 2 - r.printedArea) / r.printedArea) * 100);
       // questions about this plan
       const mine = qs.filter((q) => q.path.endsWith('/' + f));
       const res = [];
@@ -79,6 +81,7 @@ describe.skipIf(!RUN)('stoa plan-to-building benchmark', () => {
       roomsWithPrintedArea: sorted.length,
       medianAreaErrorPct: med != null ? Math.round(med * 100) / 100 : null,
       within2PctPct: pct(sorted.filter((e) => e <= 2).length, sorted.length),
+      wallFillCheck: (() => { const f = [...fillErrs].sort((a, b) => a - b); return { rooms: f.length, medianErrorPct: f.length ? Math.round(f[Math.floor(f.length / 2)] * 100) / 100 : null, within2PctPct: pct(f.filter((e) => e <= 2).length, f.length) }; })(),
       questions: Object.fromEntries(Object.entries(score).map(([k, [ok, n]]) => [k, { correct: ok, asked: n, accuracy: pct(ok, n) }])),
       medianMsPerPlan: times[Math.floor(times.length / 2)] ?? null,
       modelCalls: 0,
