@@ -33,6 +33,10 @@ export interface WallEdge {
 }
 
 const NUDGE = 0.05;
+const HALL = /(hall|corrid|flur|diele|couloir|entr|ingresso|disimpegno|eingang)/i;
+const OUTDOOR = /(balcon|balkon|balcony|terrace|terrazz|terrasse|loggia|veranda|patio|parveke|sitzplatz|deck)/i;
+/** Balconies, terraces and loggias: open to the sky, edged by a railing instead of walls. */
+export const isOutdoor = (s: Pick<Space, 'name' | 'purpose'>) => s.purpose === 'balcony' || s.purpose === 'terrace' || OUTDOOR.test(`${s.purpose ?? ''} ${s.name}`);
 
 /** Room containing p, or null. */
 export function spaceAt(model: SpaceModel, p: Vec2): Space | null {
@@ -70,7 +74,7 @@ export function wallEdges(model: SpaceModel): WallEdge[] {
       const own = s.walls[i]?.thicknessM ?? 0.1;
       let neighbour: Space | null = null;
       let mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      probe: for (const d of [NUDGE, Math.min(0.65, own * 2 + NUDGE)]) {
+      probe: for (const d of [NUDGE, Math.min(0.65, own * 2 + NUDGE), 0.55]) {
         for (const t of [0.5, 0.25, 0.75]) {
           const m = { x: a.x + (b.x - a.x) * t - inward.x * d, y: a.y + (b.y - a.y) * t - inward.y * d };
           neighbour = roomAt(m, s.id);
@@ -181,12 +185,16 @@ export const yawFor = (d: Vec2) => Math.atan2(-d.x, -d.y);
  */
 export function entranceSpawn(model: SpaceModel, inset = 0.8): Spawn {
   const edges = wallEdges(model);
-  const facadeDoor = model.openings.find((o) => {
-    if (o.kind === 'window') return false;
+  const byId = new Map(model.spaces.map((x) => [x.id, x]));
+  const indoor = (o: Opening) => { const sp = byId.get(o.spaceId); return !!sp && !isOutdoor(sp); };
+  const passages = model.openings.filter((o) => o.kind !== 'window' && indoor(o));
+  const facadeDoor = passages.find((o) => {
     const e = edges.find((w) => w.spaceId === o.spaceId && w.wallIndex === o.wallIndex);
     return e && !e.neighbour;
   });
-  const door = facadeDoor ?? model.openings.find((o) => o.kind !== 'window');
+  // flats on a shared floor open onto a stair or corridor, not the street: start in a hallway
+  const hallDoor = passages.find((o) => HALL.test(`${byId.get(o.spaceId)?.purpose ?? ''} ${byId.get(o.spaceId)?.name ?? ''}`));
+  const door = facadeDoor ?? hallDoor ?? passages[0] ?? model.openings.find((o) => o.kind !== 'window');
   const s = door && model.spaces.find((x) => x.id === door.spaceId);
   if (door && s && door.wallIndex < s.polygon.length) {
     const seg = openingSegment(s, door);

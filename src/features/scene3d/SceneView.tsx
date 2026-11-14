@@ -758,6 +758,7 @@ export function SceneView() {
       walk: () => devRef.current.setMode('walk'),
       to: (x: number, y: number) => devRef.current.walkTo({ x, y }),
       tour: (record = false) => devRef.current.startTour(record),
+      info: () => { const i = glRef.current?.info; return i ? { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries } : null; },
       place: (x: number, y: number, yaw: number) => { const k = devRef.current.walk.current; k.pos = { x, y }; k.yaw = yaw; k.path = null; },
     };
     return () => { delete w.__spacelensWalk; };

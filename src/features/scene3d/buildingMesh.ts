@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { norm, openingSegment, sub } from '../../core/geometry';
 import type { Opening, Space, SpaceModel } from '../../core/types';
-import type { WallEdge } from '../sim/walls';
+import { isOutdoor, type WallEdge } from '../sim/walls';
 
 export type BoxMat = 'wall' | 'glass' | 'frame' | 'base' | 'rail' | 'door';
 export const BOX_MATS: BoxMat[] = ['wall', 'glass', 'frame', 'base', 'rail', 'door'];
@@ -21,9 +21,7 @@ export interface BuildingBoxes {
   cuttable: boolean[];
 }
 
-const OUTDOOR = /(balcon|balkon|balcony|terrace|terrazz|terrasse|loggia|veranda|patio|parveke|sitzplatz|deck)/i;
-/** Balconies, terraces and loggias: open to the sky, edged by a railing instead of walls. */
-export const isOutdoor = (s: Pick<Space, 'name' | 'purpose'>) => s.purpose === 'balcony' || s.purpose === 'terrace' || OUTDOOR.test(`${s.purpose ?? ''} ${s.name}`);
+export { isOutdoor };
 
 export const RAIL_M = 1.0;
 
