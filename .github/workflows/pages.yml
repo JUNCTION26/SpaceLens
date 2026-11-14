@@ -31,7 +31,7 @@ jobs:
           # API server URL (repository variable). Empty means the app uses a personal key or offline rules.
           VITE_API_BASE: ${{ vars.VITE_API_BASE }}
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
