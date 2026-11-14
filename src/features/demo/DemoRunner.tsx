@@ -136,7 +136,8 @@ export function DemoRunner() {
         await STEPS[i].run({ say, wait });
       } catch (e) {
         if (!alive()) return;
-        say(STEPS[i].title, `Skipped: ${e instanceof Error ? e.message : String(e)}`);
+        console.error(e);
+        say(STEPS[i].title, 'This step did not finish here, so the tour moves on.');
         skipRef.current = false;
         try { await wait(2500); } catch { return; }
       }

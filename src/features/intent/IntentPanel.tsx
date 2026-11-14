@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { notify } from '../../ui/notify';
 import { useStore } from '../../core/store';
 import type { Requirements } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
@@ -59,7 +60,13 @@ export function IntentPanel() {
       const { req: r, meta: m } = await compileWithMeta(q, useStore.getState().model);
       setReq(r); setMeta(m); setTriedGen(false); setThread([]);
       if (r.items.length) void generate(r);
-    } catch (e) { useStore.getState().toast(`Could not read that: ${(e as Error).message}`, 'error'); }
+    } catch (e) {
+      console.error(e);
+      notify('That brief could not be read just now. Nothing was changed.', { tone: 'warn', actions: [
+        { label: 'Try again', primary: true, run: () => void compileRef.current(q) },
+        ...(useStore.getState().settings.geminiKey ? [] : [{ label: 'Add a Gemini key', run: () => useUi.getState().setSettingsOpen(true) }]),
+      ] });
+    }
     finally { setCompiling(false); }
   }
   compileRef.current = compile;
@@ -73,7 +80,10 @@ export function IntentPanel() {
       setThread((th) => [...th, { ask, reply, diff, meta: m }].slice(-6));
       setFollow('');
       if (diff.length) { setReq(next); if (next.items.length) void generate(next); }
-    } catch (e) { useStore.getState().toast(`Refine failed: ${(e as Error).message}`, 'error'); }
+    } catch (e) {
+      console.error(e);
+      notify('That change could not be applied. The brief is as it was.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void refine(ask) }] });
+    }
     finally { setRefining(false); }
   }
 
@@ -98,9 +108,14 @@ export function IntentPanel() {
       if (res.candidates.length) {
         st.toast(`${res.candidates.length} layout${res.candidates.length > 1 ? 's' : ''} ready`, 'ok');
         useUi.getState().setTab('design', 'layouts');
-      } else st.toast('No layout fits. See reasons.', 'warn');
+      } else {
+        notify('Not everything fits. The Layouts panel shows what to drop or shrink.', { tone: 'warn', actions: [{ label: 'See options', primary: true, run: () => useUi.getState().setTab('design', 'layouts') }] });
+      }
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') st.toast(`Layout failed: ${(e as Error).message}`, 'error');
+      if ((e as Error).name !== 'AbortError') {
+        console.error(e);
+        notify('Layouts could not be made this time. Your room is unchanged.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
+      }
     } finally {
       if (runRef.current === ctrl) {
         runRef.current = null;
