@@ -124,4 +124,14 @@ describe('two rooms sharing a wall', () => {
     const c = runCrowd(pair(true), f, 6, 3)!;
     expect(c.stats.paths).toBe(12);
   });
+
+  it('the tour walks from the entrance into every room through the door', async () => {
+    const { planTour } = await import('./tour');
+    const { buildGrid } = await import('./grid');
+    const m = pair(true);
+    const t = planTour(m, buildGrid(m, []), { x: 0.8, y: 2 });
+    expect(t.stops.map((s) => s.name)).toEqual(['Hall', 'Kitchen']);
+    expect(t.points.at(-1)!.x).toBeGreaterThan(4);
+    expect(planTour(pair(false), buildGrid(pair(false), []), { x: 0.8, y: 2 }).stops.length).toBe(1);
+  });
 });

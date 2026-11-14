@@ -417,7 +417,8 @@ function homeView(room: ReturnType<typeof useRoom>, cam: THREE.Camera, kind: 'do
   }
   // Bounding sphere of the room box; the target sits a little low so the floor reads well.
   const r = 0.5 * Math.hypot(w, d, ceil);
-  const dist = r / Math.sin(Math.min(vHalf, hHalf));
+  // a little margin so corners and labels clear the pane edges and the floating bars
+  const dist = (r / Math.sin(Math.min(vHalf, hHalf))) * 1.12;
   const t = new THREE.Vector3(cx, ceil * 0.35, cy);
   return { p: t.clone().addScaledVector(new THREE.Vector3(0.75, 1.05, 1.0).normalize(), dist), t };
 }
