@@ -84,7 +84,7 @@ function Transcript() {
               ))}
             </ul>
           )}
-          {t.meta && <span className="ad-meta">{t.meta}</span>}
+          {t.meta && <details className="ad-meta"><summary>Details</summary>{t.meta}</details>}
         </div>
       ))}
       <NoKeyPrompt compact />
@@ -102,6 +102,9 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const hasMarks = useSketch((x) => x.marks.length > 0);
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
+  // The dock rests as a small pill (mic + Ask) and opens into the full bar on demand.
+  const [expanded, setExpanded] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const ear = useRef<Ear | null>(null);
   const pressAt = useRef(0);
   const supported = recognitionSupported();
@@ -185,7 +188,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   return (
     <>
       {overlay && <SketchOverlay />}
-      <div className={`agent-dock${open ? ' open' : ''}`}>
+      <div className={`agent-dock${open ? ' open' : ''}${expanded || drawing || s.handsFree ? '' : ' is-pill'}`}>
         {open && <Transcript />}
         {(caption || s.status || s.error || phase !== 'idle') && (
           <div className="ad-caption">
@@ -194,10 +197,13 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
               <span className={s.interim ? 'ad-interim' : undefined}>{caption || PHASE_LABEL[phase]}</span>
               {(s.status || s.error) && <small className={s.error && !s.status ? 'ad-error' : undefined}>{s.status || s.error}</small>}
             </div>
-            {s.timing && !s.interim && <span className="ad-timing">{s.timing}</span>}
           </div>
         )}
-        <form className="ad-bar" onSubmit={submit}>
+        <form className="ad-bar" onSubmit={submit}
+          onBlur={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+            if (!text.trim() && !open && !drawing && !s.handsFree) setExpanded(false);
+          }}>
           <button
             type="button" className={`ad-mic${s.listening ? ' on' : ''}${s.handsFree ? ' free' : ''}`}
             aria-label={s.handsFree ? 'Turn hands-free off' : s.listening ? 'Stop listening' : 'Talk (hold, or press V)'}
@@ -209,7 +215,12 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
           >
             <Icon name="mic" size={20} aria-hidden="true" />
           </button>
+          {!(expanded || drawing || s.handsFree) && (
+            <button type="button" className="ad-ask" onClick={() => { setExpanded(true); setTimeout(() => inputRef.current?.focus(), 0); }}>Ask</button>
+          )}
+          {(expanded || drawing || s.handsFree) && <>
           <input
+            ref={inputRef}
             className="ad-input" value={text} onChange={(e) => setText(e.target.value)}
             placeholder={drawing ? 'Say what goes here' : 'Type a change'}
             aria-label="Message the design partner"
@@ -230,6 +241,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
           <button type="button" className="ad-icon" aria-expanded={open} aria-label={open ? 'Hide conversation' : 'Show conversation'} onClick={() => setOpen(!open)}>
             <Icon name="chevronDown" size={16} aria-hidden="true" style={{ transform: open ? undefined : 'rotate(180deg)' }} />
           </button>
+          </>}
         </form>
       </div>
     </>

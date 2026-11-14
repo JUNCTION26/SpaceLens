@@ -99,3 +99,11 @@
   .sk-draw, .sk-fade, .sk-pop, .sk-label { animation: none; }
   .ad-wave > span { animation: none !important; }
 }
+
+/* Resting state: a small pill with the mic and Ask. */
+.agent-dock.is-pill { width: auto; align-items: center; }
+.agent-dock.is-pill .ad-bar { padding: 4px; gap: 2px; }
+.agent-dock.is-pill .ad-mic { width: 32px; height: 32px; }
+.ad-ask { height: 32px; padding: 0 14px 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-weight: var(--fw-strong, 560); cursor: pointer; }
+.ad-ask:hover { background: var(--hover); }
+.ad-meta summary { font-size: var(--fs-sm, 12px); }
