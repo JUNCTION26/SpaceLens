@@ -62,3 +62,12 @@
 .home-quick-text strong { font-weight: var(--fw-strong); font-size: var(--fs); }
 .home-quick-text span { color: var(--muted); font-size: var(--fs-sm); line-height: 1.4; }
 .home-quick + .home-start { margin-top: 20px; }
+
+.home-start > summary { list-style: none; display: flex; align-items: center; height: 32px; padding: 0 4px; color: var(--muted); font-size: var(--fs); font-weight: var(--fw-strong); }
+.home-start > summary::-webkit-details-marker { display: none; }
+.home-start > summary::after { content: '+'; margin-left: 8px; color: var(--faint); }
+.home-start[open] > summary::after { content: '\2212'; }
+.home-copy h1 { margin-bottom: 8px; }
+.home-start { border: 0; background: none; overflow: visible; }
+.home-start .home-row { border-radius: var(--radius-sm); border-top: 0; }
+.home-quick { margin-top: 8px; }

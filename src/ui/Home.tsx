@@ -9,16 +9,16 @@ import './home.css';
 
 /** One-click starts: each lands on a finished result in seconds, no key needed. */
 const STARTS: Array<{ kind: StartKind; title: string; text: string; icon: string }> = [
-  { kind: 'plan', title: 'Open a real floor plan in 3D', text: 'A Swiss apartment drawing becomes rooms, doors and walls.', icon: 'file' },
-  { kind: 'villa', title: 'Plan a villa', text: 'Three bedrooms on a 10 by 12 m plot, furnished.', icon: 'grid' },
-  { kind: 'room', title: 'Design a room', text: 'A home office brief, three layouts and the reasons.', icon: 'layout' },
+  { kind: 'plan', title: 'Plan to 3D', text: 'Real apartment', icon: 'file' },
+  { kind: 'villa', title: 'Plan a villa', text: '3 bedrooms', icon: 'grid' },
+  { kind: 'room', title: 'Design a room', text: 'Home office', icon: 'layout' },
 ];
 
 const OPTIONS: Array<{ kind: CaptureKind; title: string; icon: string }> = [
   { kind: 'scan', title: 'Scan with phone', icon: 'camera' },
   { kind: 'photos', title: 'Use photos', icon: 'image' },
-  { kind: 'import', title: 'Import a floor plan', icon: 'file' },
-  { kind: 'draw', title: 'Draw with measurements', icon: 'ruler' },
+  { kind: 'import', title: 'Import a plan', icon: 'file' },
+  { kind: 'draw', title: 'Draw by hand', icon: 'ruler' },
 ];
 
 /** Isometric hero drawn from the real sample room polygon and ceiling height. */
@@ -106,13 +106,6 @@ export function Home() {
       <main className="home-hero">
         <div className="home-copy">
           <h1>Measure a room.<br />Design it. Walk through it.</h1>
-          <p className="home-pitch">For offices, new homes and dream bedrooms. Every size checked.</p>
-          <div className="home-cta">
-            {recent
-              ? <button className="btn btn-primary btn-xl" onClick={() => setMode('design')}>Continue {recent}<Icon name="chevronRight" /></button>
-              : <button className="btn btn-primary btn-xl" onClick={openSample}>Open the sample room<Icon name="chevronRight" /></button>}
-            <button className="btn btn-ghost btn-xl" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}><Icon name="play" />Watch demo</button>
-          </div>
           <div className="home-quick" role="group" aria-label="Try it in one click">
             {STARTS.map((s) => (
               <button key={s.kind} className="home-quick-card" onClick={() => { void runStart(s.kind); }}>
@@ -122,15 +115,16 @@ export function Home() {
               </button>
             ))}
           </div>
-          <div className="home-start" role="group" aria-labelledby="home-start-label">
-            <div className="home-start-head" id="home-start-label">Start from your space</div>
+          <details className="home-start">
+            <summary>Your own space</summary>
+            {recent && <button className="home-row" onClick={() => setMode('design')}><Icon name="home" size={16} /><span>Continue {recent}</span><Icon name="chevronRight" size={14} className="home-row-go" /></button>}
             {OPTIONS.map((o) => (
               <button key={o.kind} className="home-row" onClick={() => openCapture(o.kind)}>
                 <Icon name={o.icon} size={16} /><span>{o.title}</span><Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}
-          </div>
-          {recent && <button className="home-link" onClick={openSample}>Or open the sample room</button>}
+            <button className="home-row" onClick={openSample}><Icon name="sofa" size={16} /><span>Sample room</span><Icon name="chevronRight" size={14} className="home-row-go" /></button>
+          </details>
         </div>
         <div className="home-art" aria-hidden="false"><Hero /></div>
       </main>
