@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { ContactShadows, Edges, Environment, Html, Lightformer, OrbitControls } from '@react-three/drei';
+import { ContactShadows, Edges, Environment, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../../core/geometry';
 import type { FurnitureItem, Opening, Space, Vec2 } from '../../core/types';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
+import { Icon } from '../../ui/icons';
 import './scene3d.css';
 
 type CamMode = 'dollhouse' | 'top' | 'walk';
@@ -20,46 +21,37 @@ const EYES = [
 
 interface CamReq { toP: THREE.Vector3; toT: THREE.Vector3; n: number }
 
-function woodTexture(): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
-  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
-  const g = c.getContext('2d'); if (!g) return null;
-  const plank = 64;
-  for (let row = 0; row < 512 / plank; row++) {
-    let x = -((row * 197) % 400);
-    while (x < 512) {
-      const len = 260 + ((row * 31 + Math.abs(x)) % 128);
-      const l = 58 + ((row * 13 + Math.abs(x)) % 9) - 4;
-      g.fillStyle = `hsl(32, 42%, ${l}%)`;
-      g.fillRect(x, row * plank, len, plank);
-      for (let k = 0; k < 14; k++) {
-        g.strokeStyle = `rgba(90,55,25,${0.04 + Math.random() * 0.06})`;
-        g.beginPath(); const yy = row * plank + Math.random() * plank;
-        g.moveTo(x, yy); g.bezierCurveTo(x + len / 3, yy + 3, x + len * 0.66, yy - 3, x + len, yy); g.stroke();
-      }
-      g.fillStyle = 'rgba(60,35,15,0.35)'; g.fillRect(x, row * plank, 2, plank);
-      x += len;
-    }
-    g.fillStyle = 'rgba(60,35,15,0.4)'; g.fillRect(0, row * plank, 512, 2);
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  t.repeat.set(0.5, 0.5);
+const BASE = import.meta.env.BASE_URL;
+const loader = typeof document !== 'undefined' ? new THREE.TextureLoader() : null;
+function tex(file: string, repeat: number, srgb = false): THREE.Texture | null {
+  if (!loader) return null;
+  const t = loader.load(BASE + 'assets/textures/' + file);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-const woodTex = woodTexture();
-const floorMat = new THREE.MeshStandardMaterial({ map: woodTex ?? undefined, color: woodTex ? '#ffffff' : '#c9a882', roughness: 0.68 });
+// Floor UVs are world metres (ShapeGeometry), so repeat 0.5 = one texture tile per 2 m.
+const floorMat = new THREE.MeshStandardMaterial({
+  map: tex('laminate_floor_02_diff_1k.jpg', 0.5, true), normalMap: tex('laminate_floor_02_nor_gl_1k.jpg', 0.5),
+  roughnessMap: tex('laminate_floor_02_rough_1k.jpg', 0.5), color: '#fff8ee', roughness: 0.9, envMapIntensity: 0.9,
+});
+floorMat.normalScale.set(0.6, 0.6);
 const SNAP = 0.05;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
 interface Walk { pos: Vec2; goal?: Vec2 | null; yaw: number; pitch: number; joy: { x: number; y: number }; keys: Set<string> }
 
-const wallMat = new THREE.MeshStandardMaterial({ color: '#efebe4', roughness: 0.96, metalness: 0 });
+const wallMat = new THREE.MeshStandardMaterial({
+  map: tex('painted_plaster_wall_diff_1k.jpg', 1, true), normalMap: tex('painted_plaster_wall_nor_gl_1k.jpg', 1),
+  roughnessMap: tex('painted_plaster_wall_rough_1k.jpg', 1), color: '#f6f2ea', roughness: 1, metalness: 0,
+});
+wallMat.normalScale.set(0.35, 0.35);
+const ceilMat = new THREE.MeshStandardMaterial({ color: '#f7f5f0', roughness: 0.95 });
 const wallSelMat = new THREE.MeshStandardMaterial({ color: '#9fd0ff', roughness: 0.8 });
-const glassMat = new THREE.MeshPhysicalMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, depthWrite: false });
-const frameMat = new THREE.MeshStandardMaterial({ color: '#f7f7f5', roughness: 0.5 });
+const glassMat = new THREE.MeshPhysicalMaterial({ color: '#eef6ff', transmission: 1, thickness: 0.01, ior: 1.5, roughness: 0.04, metalness: 0, transparent: true, opacity: 1, depthWrite: false });
+const frameMat = new THREE.MeshStandardMaterial({ color: '#fafaf8', roughness: 0.35 });
 const doorMat = new THREE.MeshStandardMaterial({ color: '#d9cbb5', roughness: 0.6 });
-const baseMat = new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: 0.55 });
+const baseMat = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 0.4 });
 
 function useRoom() {
   const model = useStore((s) => s.model);
@@ -90,6 +82,11 @@ function Floor({ space, onWalkTo }: { space: Space; onWalkTo?: (p: Vec2) => void
   );
 }
 
+function Ceiling({ space, h }: { space: Space; h: number }) {
+  const geo = useMemo(() => new THREE.ShapeGeometry(new THREE.Shape(space.polygon.map((p) => new THREE.Vector2(p.x, p.y)))), [space]);
+  return <mesh geometry={geo} material={ceilMat} position={[0, h, 0]} rotation={[Math.PI / 2, 0, 0]} receiveShadow raycast={() => null} />;
+}
+
 interface Box { pos: [number, number, number]; size: [number, number, number]; mat: THREE.Material }
 
 function wallBoxes(space: Space, i: number, openings: Opening[], ceiling: number): { boxes: Box[]; extras: Box[]; doors: Opening[] } {
@@ -114,6 +111,9 @@ function wallBoxes(space: Space, i: number, openings: Opening[], ceiling: number
     if (o.kind === 'window') {
       extras.push({ pos: [(s + e) / 2, (sill + head) / 2, t / 2], size: [e - s, head - sill, 0.012], mat: glassMat });
       extras.push({ pos: [(s + e) / 2, sill + 0.02, t / 2 - 0.02], size: [e - s, 0.04, t + 0.06], mat: frameMat });
+      extras.push({ pos: [(s + e) / 2, head - 0.02, t / 2], size: [e - s, 0.04, t + 0.02], mat: frameMat });
+      extras.push({ pos: [s + 0.02, (sill + head) / 2, t / 2], size: [0.04, head - sill, t + 0.02], mat: frameMat });
+      extras.push({ pos: [e - 0.02, (sill + head) / 2, t / 2], size: [0.04, head - sill, t + 0.02], mat: frameMat });
     }
     cur = e;
   }
@@ -161,7 +161,7 @@ function Wall({ space, i, openings, ceiling, selected, cutaway }: { space: Space
           </mesh>
         ))}
         {extras.map((bx, k) => (
-          <mesh key={'x' + k} position={bx.pos} material={bx.mat}><boxGeometry args={bx.size} /></mesh>
+          <mesh key={'x' + k} position={bx.pos} material={bx.mat} receiveShadow={bx.mat !== glassMat} castShadow={bx.mat === frameMat}><boxGeometry args={bx.size} /></mesh>
         ))}
       </group></group>
     </group>
@@ -462,7 +462,7 @@ function Sun({ hour, room }: { hour: number; room: ReturnType<typeof useRoom> })
     const c = ref.current.shadow.camera;
     c.left = -s; c.right = s; c.top = s; c.bottom = -s; c.far = R * 3; c.updateProjectionMatrix();
   }, [room, scene, R]);
-  return <directionalLight ref={ref} position={pos} intensity={1.6 + Math.sin(Math.PI * t)} color={warm} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} shadow-normalBias={0.02} />;
+  return <directionalLight ref={ref} position={pos} intensity={1.2 + 1.3 * Math.sin(Math.PI * t)} color={warm} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} shadow-normalBias={0.02} shadow-radius={4} />;
 }
 
 /* ---------- Joystick ---------- */
@@ -500,7 +500,7 @@ export function SceneView() {
   const [figure, setFigure] = useState(false);
   const [showBefore, setShowBefore] = useState(true);
   const [hour, setHour] = useState(15);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const eye = EYES.find((e) => e.id === eyeId)!.h;
   const walk = useRef<Walk>({ pos: { x: room.cx, y: room.cy }, yaw: 0, pitch: 0, joy: { x: 0, y: 0 }, keys: new Set() });
   const wrap = useRef<HTMLDivElement>(null);
@@ -554,6 +554,12 @@ export function SceneView() {
   }, []);
 
   useEffect(() => {
+    const h = () => setMode('walk');
+    window.addEventListener('spacelens:walk', h);
+    return () => window.removeEventListener('spacelens:walk', h);
+  }, []);
+
+  useEffect(() => {
     if (mode !== 'walk') return;
     const isField = (t: EventTarget | null) => t instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
     const down = (e: KeyboardEvent) => {
@@ -593,22 +599,19 @@ export function SceneView() {
   return (
     <div className="scene3d" ref={wrap} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <Canvas shadows dpr={[1, 2]} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
-        gl={{ antialias: true }} onCreated={({ gl }) => { gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
+        gl={{ antialias: true }} onCreated={({ gl }) => { gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         <color attach="background" args={['#1b1e24']} />
         <fog attach="fog" args={['#1b1e24', room.size * 2.5, room.size * 7]} />
-        <hemisphereLight args={['#f4f1ea', '#5b5348', 0.55]} />
+        <hemisphereLight args={['#f4f1ea', '#5b5348', 0.18]} />
         <Sun hour={hour} room={room} />
-        <Environment resolution={128}>
-          <Lightformer form="rect" intensity={2} position={[0, 5, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[10, 10, 1]} />
-          <Lightformer form="rect" intensity={0.8} color="#ffe9d0" position={[-5, 2, 0]} rotation={[0, Math.PI / 2, 0]} scale={[10, 3, 1]} />
-          <Lightformer form="rect" intensity={0.6} color="#dbe8ff" position={[5, 2, 0]} rotation={[0, -Math.PI / 2, 0]} scale={[10, 3, 1]} />
-        </Environment>
+        <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
 
         {model.spaces.map((s) => <Floor key={s.id} space={s} onWalkTo={mode === 'walk' ? walkTo : undefined} />)}
         {model.spaces.map((s) => s.polygon.map((_, i) => (
           <Wall key={s.id + i + ':' + model.version} space={s} i={i} openings={model.openings} ceiling={model.ceilingM}
             selected={selection?.kind === 'wall' && selection.id === wallId(s.id, i)} cutaway={cutaway && mode !== 'walk'} />
         )))}
+        {mode === 'walk' && model.spaces.map((s) => <Ceiling key={'c' + s.id} space={s} h={model.ceilingM} />)}
         {model.openings.filter((o) => o.kind === 'door').map((o) => {
           const s = model.spaces.find((x) => x.id === o.spaceId);
           return s && s.polygon.length > o.wallIndex ? <DoorLeaf key={o.id} space={s} o={o} /> : null;
@@ -622,7 +625,7 @@ export function SceneView() {
         <Passage items={shown} />
         {figure && mode !== 'walk' && <Figure at={figAt} />}
 
-        <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.45} blur={2.4} far={2} resolution={512} frames={1} />
+        <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.55} blur={2.8} far={1.6} resolution={512} color="#2a2118" frames={1} />
         <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={room.size * 5} />
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} />
       </Canvas>
@@ -631,13 +634,17 @@ export function SceneView() {
       {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate, double-click to focus</div>}
       <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
         <div className="scene3d-modes">
-          {(['dollhouse', 'top', 'walk'] as CamMode[]).map((m) => (
-            <button key={m} className={`btn btn-sm ${mode === m ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode(m)} aria-pressed={mode === m}>
-              {m === 'dollhouse' ? '3D' : m === 'top' ? 'Top' : 'Walk'}
-            </button>
-          ))}
-          <button className="btn btn-sm btn-ghost" onClick={fit} title="Fit room in view">Fit</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="View options">{open ? '−' : '⋯'}</button>
+          {(['dollhouse', 'top', 'walk'] as CamMode[]).map((m) => {
+            const label = m === 'dollhouse' ? '3D view' : m === 'top' ? 'Top view' : 'Walk';
+            return (
+              <button key={m} className={`scene3d-ib${mode === m ? ' on' : ''}`} onClick={() => setMode(m)} aria-pressed={mode === m} aria-label={label} title={label}>
+                <Icon name={m === 'dollhouse' ? 'cube' : m === 'top' ? 'grid' : 'walk'} />
+              </button>
+            );
+          })}
+          <span className="scene3d-sep" aria-hidden="true" />
+          <button className="scene3d-ib" onClick={fit} aria-label="Fit room in view" title="Fit room in view"><Icon name="maximize" /></button>
+          <button className={`scene3d-ib${open ? ' on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-label="View options" title="View options"><Icon name="settings" /></button>
         </div>
         {open && (
           <div className="scene3d-opts">
