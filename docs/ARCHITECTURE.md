@@ -39,7 +39,7 @@ flowchart TB
   Browser -.->|model calls without a browser key| S[API server]
 ```
 
-The built site is static files. The API server is described in `server/` (its README and code are the source of truth for routes and configuration).
+The built site is static files. The API server (`server/`, Node built-ins only) exposes `GET /healthz`, `GET /v1/models`, `POST /v1/generate` and `POST /v1/generate/stream`. It validates the request against a strict schema, checks origin and rate limits, adds its own key and forwards to Gemini. It stores no design data. The app does not call it yet; it calls Gemini directly with the visitor's own key.
 
 ## Layers
 
