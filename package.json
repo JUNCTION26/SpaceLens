@@ -1,6 +1,7 @@
 {
   "name": "spacelens",
   "private": true,
+  "description": "SpaceLens: turn blueprints and rooms into a measured, explainable 3D model you can design in, walk through and check.",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -9,7 +10,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "docs:rules": "vite-node scripts/docs-rules.mjs rules",
+    "docs:safety": "vite-node scripts/docs-rules.mjs safety",
+    "eval:stoa": "node scripts/stoa-eval.mjs"
   },
   "dependencies": {
     "@react-three/drei": "9.114.0",
