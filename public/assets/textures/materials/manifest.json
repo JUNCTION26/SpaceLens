@@ -1,0 +1,47 @@
+{
+  "oak": {
+    "folder": "oak",
+    "source": "oak_veneer_01",
+    "tileM": 1.83
+  },
+  "walnut": {
+    "folder": "walnut",
+    "source": "walnut_veneer",
+    "tileM": 1.8
+  },
+  "pine": {
+    "folder": "pine",
+    "source": "stained_pine",
+    "tileM": 0.9
+  },
+  "birch": {
+    "folder": "birch",
+    "source": "white_maple_veneer",
+    "tileM": 1.0
+  },
+  "fabric": {
+    "folder": "fabric",
+    "source": "stretch_poplin",
+    "tileM": 0.29
+  },
+  "velvet": {
+    "folder": "velvet",
+    "source": "velour_velvet",
+    "tileM": 0.28
+  },
+  "leather": {
+    "folder": "leather",
+    "source": "brown_leather",
+    "tileM": 0.4
+  },
+  "marble": {
+    "folder": "marble",
+    "source": "marble_01",
+    "tileM": 1.5
+  },
+  "concrete": {
+    "folder": "concrete",
+    "source": "smooth_concrete_floor",
+    "tileM": 2.0
+  }
+}
