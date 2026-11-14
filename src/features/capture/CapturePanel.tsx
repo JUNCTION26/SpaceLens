@@ -3,7 +3,9 @@ import { useStore } from '../../core/store';
 import { dataUrlToInlineData, gemini, hasGemini } from '../../core/gemini';
 import { useUi } from '../../ui/uiStore';
 import { buildModel, type RoomDraft } from './build';
-import { Calibrate, type TapPoint } from './Calibrate';
+import { Calibrate, type AiOpening, type TapPoint } from './Calibrate';
+import { Stepper } from './Stepper';
+import { signedArea } from '../../core/geometry';
 import { DrawRoom } from './DrawRoom';
 import './capture.css';
 
@@ -76,7 +78,29 @@ function ScanMode({ shots, setShots }: { shots: Shot[]; setShots: (f: (s: Shot[]
   );
 }
 
-interface GeminiFloor { corners: { x: number; y: number }[]; doors: number; windows: number }
+interface Pt { x: number; y: number }
+interface GeminiFloor { corners: Pt[]; a4?: Pt[]; openings?: { kind: string; x: number; y: number }[] }
+const PT = { type: 'OBJECT', properties: { x: { type: 'NUMBER' }, y: { type: 'NUMBER' } }, required: ['x', 'y'] };
+const inBox = (p: Pt) => p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+
+interface Summary { areaM2: number; measured: number; estimated: number; errCm: number | null; openings: number }
+
+function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => void; onAgain: () => void }) {
+  return (
+    <div className="card capture-summary">
+      <Stepper step={4} hint="Room created. Check the numbers, then start designing." />
+      <div className="capture-stats">
+        <div><b>{s.areaM2.toFixed(1)} m²</b><span>Floor area</span></div>
+        <div><b>{s.measured}</b><span>Walls measured</span></div>
+        <div><b>{s.estimated}</b><span>Walls estimated</span></div>
+        <div><b>{s.errCm == null ? 'n/a' : `${Math.abs(s.errCm).toFixed(1)} cm`}</b><span>Tape check error</span></div>
+      </div>
+      {s.openings > 0 && <p className="muted">{s.openings} door or window{s.openings === 1 ? '' : 's'} added.</p>}
+      <button className="btn btn-primary capture-big" onClick={onDesign}>Design this room</button>
+      <button className="btn btn-ghost" onClick={onAgain}>Capture another</button>
+    </div>
+  );
+}
 
 export function CapturePanel() {
   const kind = useUi((s) => s.captureKind);
@@ -85,20 +109,24 @@ export function CapturePanel() {
   const [addRoom, setAddRoom] = useState(false);
   const [shots, setShots] = useState<Shot[]>([]);
   const [pick, setPick] = useState(-1);
-  const [aiPts, setAiPts] = useState<{ key: number; pts: TapPoint[] } | null>(null);
+  const [stage, setStage] = useState<'photo' | 'cal'>('photo');
+  const [ai, setAi] = useState<{ key: number; room: TapPoint[]; ref?: TapPoint[]; openings: AiOpening[] } | null>(null);
   const [aiNote, setAiNote] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const [calKey, setCalKey] = useState(0);
-  const { dispatch, toast, setMode, setBusy, model } = useStore();
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const { dispatch, toast, setMode, model, settings } = useStore();
   const hasRooms = model.sourceLabel !== 'Sample' && model.spaces.length > 0;
 
   useEffect(() => { if (kind === 'scan' || kind === 'photos' || kind === 'draw') setSub(kind); }, [kind]);
 
-  const create = (draft: RoomDraft, source: string) => {
+  const create = (draft: RoomDraft, source: string, errCm: number | null = null) => {
     const keep = addRoom && hasRooms ? model : undefined;
     const next = buildModel([draft], { name: 'My room', ceilingM: ceilingCm / 100, sourceLabel: source, keep });
     dispatch({ type: 'REPLACE_MODEL', model: next });
     toast(keep ? 'Room added. Join rooms by placing a doorway by hand.' : 'Room created', 'ok');
-    setMode('design');
+    const measured = draft.walls.filter((w) => w.status === 'verified').length;
+    setSummary({ areaM2: Math.abs(signedArea(draft.polygon)), measured, estimated: draft.walls.length - measured, errCm, openings: draft.openings.length });
   };
 
   const onFiles = async (files: FileList | null) => {
@@ -107,25 +135,45 @@ export function CapturePanel() {
     setShots((s) => { if (pick < 0) setPick(s.length); return [...s, ...add]; });
   };
 
+  const choose = (i: number) => { setPick(i); setAi(null); setAiNote(null); setCalKey((k) => k + 1); };
+
   const askGemini = async () => {
     const shot = shots[pick];
     if (!shot) return;
-    setBusy('Asking Gemini for floor corners');
+    setAiBusy(true);
+    const t0 = performance.now();
     try {
-      const r = await gemini<GeminiFloor>([dataUrlToInlineData(shot.url), { text: 'Find the corners where the floor meets the walls in this room photo. Return them in order going around the room, as x,y normalised to 0..1 of image width and height. Only include corners you can see. Also count visible doors and windows.' }], {
+      const r = await gemini<GeminiFloor>([dataUrlToInlineData(shot.url), { text: 'Room photo. Return as x,y normalised 0..1 of image width and height: (1) corners where the floor meets the walls, in order around the room, only visible ones; (2) if an A4 sheet of paper lies on the floor, its 4 corners in order top left, top right, bottom right, bottom left, else an empty list; (3) doors and windows, each with kind "door" or "window" and the point where its centre meets the floor line.' }], {
         json: true,
-        schema: { type: 'OBJECT', properties: { corners: { type: 'ARRAY', items: { type: 'OBJECT', properties: { x: { type: 'NUMBER' }, y: { type: 'NUMBER' } }, required: ['x', 'y'] } }, doors: { type: 'INTEGER' }, windows: { type: 'INTEGER' } }, required: ['corners', 'doors', 'windows'] },
+        schema: { type: 'OBJECT', properties: { corners: { type: 'ARRAY', items: PT }, a4: { type: 'ARRAY', items: PT }, openings: { type: 'ARRAY', items: { type: 'OBJECT', properties: { kind: { type: 'STRING', enum: ['door', 'window'] }, x: { type: 'NUMBER' }, y: { type: 'NUMBER' } }, required: ['kind', 'x', 'y'] } } }, required: ['corners'] },
       });
-      const pts = (r.corners ?? []).filter((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1).map((p) => ({ x: p.x, y: p.y, method: 'gemini' as const }));
+      const ms = Math.round(performance.now() - t0);
+      const room = (r.corners ?? []).filter(inBox).map((p) => ({ x: p.x, y: p.y, method: 'gemini' as const }));
+      const a4 = (r.a4 ?? []).filter(inBox);
+      const ref = a4.length === 4 ? a4.map((p) => ({ x: p.x, y: p.y, method: 'gemini' as const })) : undefined;
+      const openings = (r.openings ?? []).filter((o) => inBox(o) && (o.kind === 'door' || o.kind === 'window')).map((o) => ({ kind: o.kind as 'door' | 'window', x: o.x, y: o.y }));
       const k = calKey + 1;
-      setCalKey(k); setAiPts({ key: k, pts });
-      setAiNote(`Gemini found ${pts.length} floor corners, ${r.doors} doors and ${r.windows} windows. Check each corner. Add doors and windows in Design.`);
+      setCalKey(k); setAi({ key: k, room, ref, openings });
+      setAiNote(`${settings.geminiModel}, ${(ms / 1000).toFixed(1)} s: ${room.length} corners${ref ? ', A4 sheet' : ''}, ${openings.length} doors or windows.`);
+      setStage('cal');
     } catch (e) {
-      toast(`Gemini failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
-    } finally { setBusy(null); }
+      toast(`Auto-detect failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
+    } finally { setAiBusy(false); }
   };
 
   const shot = shots[pick];
+  const restart = () => { setSummary(null); setStage('photo'); setCalKey((k) => k + 1); };
+  const aiBox = sub !== 'draw' && shot && (
+    <div className="row capture-wrap">
+      {hasGemini()
+        ? <button className="btn btn-sm" disabled={aiBusy} onClick={askGemini}>{aiBusy ? 'Detecting...' : 'Auto-detect'}</button>
+        : <span className="muted capture-small">Add a Gemini key in Settings for auto-detect.</span>}
+      {aiNote && <span className="chip chip-ai">{aiNote}</span>}
+    </div>
+  );
+
+  if (summary) return <div className="panel capture"><SummaryCard s={summary} onDesign={() => setMode('design')} onAgain={restart} /></div>;
+
   return (
     <div className="panel capture">
       <div className="capture-seg" role="tablist" aria-label="Capture method">
@@ -140,27 +188,31 @@ export function CapturePanel() {
 
       {sub === 'draw' && <><p className="muted">Most reliable. Type what you measured with a tape.</p><DrawRoom ceilingCm={ceilingCm} setCeilingCm={setCeilingCm} onCreate={(d) => create(d, 'Measured by hand')} /></>}
 
-      {sub === 'scan' && <ScanMode shots={shots} setShots={(f) => setShots((s) => { const n = f(s); if (pick < 0 && n.length) setPick(0); return n; })} />}
-
-      {sub === 'photos' && (
-        <label className="btn capture-big capture-upload">
-          Add photos
-          <input type="file" accept="image/*" multiple capture="environment" onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-        </label>
+      {sub !== 'draw' && (stage === 'photo' || !shot) && (
+        <Stepper step={0} hint="Add a photo that shows the floor and an A4 sheet lying flat on it."
+          onNext={() => setStage('cal')} nextOk={!!shot}>
+          {sub === 'scan' && <ScanMode shots={shots} setShots={(f) => setShots((s) => { const n = f(s); if (pick < 0 && n.length) setPick(0); return n; })} />}
+          {sub === 'photos' && (
+            <label className="btn capture-big capture-upload">
+              Add photos
+              <input type="file" accept="image/*" multiple capture="environment" onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
+            </label>
+          )}
+          {shots.length > 0 && <ShotPicker shots={shots} pick={pick} onPick={choose} />}
+          {aiBox}
+        </Stepper>
       )}
 
-      {sub !== 'draw' && shots.length > 0 && (
+      {sub !== 'draw' && stage === 'cal' && shot && (
         <>
-          <p className="muted">Pick a photo that shows an A4 sheet (or other known rectangle) flat on the floor.</p>
-          <ShotPicker shots={shots} pick={pick} onPick={(i) => { setPick(i); setAiPts(null); setAiNote(null); setCalKey((k) => k + 1); }} />
-          {sub === 'photos' && hasGemini() && shot && <button className="btn btn-sm" onClick={askGemini}>Ask Gemini for floor corners</button>}
-          {aiNote && <p className="chip chip-warn">{aiNote}</p>}
-          {shot && (
-            <Calibrate key={`${pick}-${calKey}`} imageUrl={shot.url} label={shot.label} thicknessM={0.12}
-              initialRoom={aiPts?.key === calKey ? aiPts.pts : undefined}
-              onDone={(d) => create(d, sub === 'scan' ? 'Phone scan' : 'Photos')} />
-          )}
-          {shot && <label className="field capture-field"><span>Ceiling (cm, not measured from photo)</span><input type="number" value={ceilingCm} onChange={(e) => setCeilingCm(+e.target.value)} /></label>}
+          <Calibrate key={`${pick}-${calKey}`} imageUrl={shot.url} label={shot.label} thicknessM={0.12}
+            initialRoom={ai?.key === calKey ? ai.room : undefined}
+            initialRef={ai?.key === calKey ? ai.ref : undefined}
+            aiOpenings={ai?.key === calKey ? ai.openings : undefined}
+            aiSlot={aiBox}
+            onBack={() => setStage('photo')}
+            onDone={(d, info) => create(d, sub === 'scan' ? 'Phone scan' : 'Photos', info.errCm)} />
+          <label className="field capture-field"><span>Ceiling (cm, not measured from photo)</span><input type="number" value={ceilingCm} onChange={(e) => setCeilingCm(+e.target.value)} /></label>
         </>
       )}
     </div>
