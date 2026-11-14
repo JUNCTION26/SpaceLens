@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
   add, area, bounds, centroid, closestPointOnSegment, convexOverlap, dist, fmtCm, fmtM2, itemCorners, lerp, mul, norm,
-  openingSegment, perp, polygonInside, sub, uid, wallId, wallInwardNormal, wallLength, wallSegment,
+  openingSegment, perp, pointInPolygon, polygonInside, sub, uid, wallId, wallInwardNormal, wallLength, wallSegment,
 } from '../../core/geometry';
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { catalogEntry, makeItem } from '../furniture/catalog';
@@ -269,6 +269,28 @@ export function PlanView() {
     anim.current = requestAnimationFrame(step);
   };
   const animRef = useRef(animateTo); animRef.current = animateTo;
+
+  // Keep a newly selected item clear of the inspector sheet that opens over the stage.
+  useEffect(() => {
+    if (selection?.kind !== 'furniture') return;
+    const id = selection.id;
+    const t = setTimeout(() => {
+      const el = svgRef.current, sheet = document.querySelector('.inspector-sheet');
+      const f = useShownList().find((x) => x.id === id);
+      if (!el || !sheet || !f || dragRef.current) return;
+      const r = el.getBoundingClientRect(), s = sheet.getBoundingClientRect();
+      const b = aabb(itemCorners(f));
+      const toX = (x: number) => r.left + ((x - view.x) / view.w) * r.width;
+      const right = toX(b.maxX), left = toX(b.minX);
+      if (right < s.left - 8 || left > s.right || s.left <= r.left + 80) return;
+      // Shift the view so the item sits in the middle of the uncovered part.
+      const freeMid = (r.left + Math.max(r.left, s.left - 12)) / 2;
+      const dx = ((toX(f.x) - freeMid) / r.width) * view.w;
+      animRef.current({ ...vb, x: vb.x + dx });
+    }, 60);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection?.kind, selection?.id]);
 
   // Other parts of the app can ask the plan to reset its view.
   useEffect(() => {
@@ -693,10 +715,6 @@ export function PlanView() {
                 </g>
               );
             })}
-            <text {...centroid(sp.polygon)} className="plan2d-room-label" fontSize={fs * 1.2} textAnchor="middle">
-              <tspan x={centroid(sp.polygon).x} dy={0}>{sp.name}</tspan>
-              <tspan x={centroid(sp.polygon).x} dy={fs * 1.4} className="plan2d-room-area">{fmtM2(area(sp.polygon))}</tspan>
-            </text>
           </g>
         ))}
 
@@ -787,6 +805,17 @@ export function PlanView() {
             <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))}
               drag={dragging ? (dragBad ? 'bad' : 'ok') : null} focus={focusIds.has(f.id) || card?.key === `f:${f.id}`}
               hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
+          );
+        })}
+
+        {/* Room names sit on free floor so furniture never covers them */}
+        {spaces.map((sp) => {
+          const at = labelSpot(sp, furniture, fs, sp.name);
+          return (
+            <text key={`rl${sp.id}`} x={at.x} y={at.y} className="plan2d-room-label plan2d-halo" fontSize={fs * 1.2} textAnchor="middle" pointerEvents="none">
+              <tspan x={at.x} dy={0}>{sp.name}</tspan>
+              <tspan x={at.x} dy={fs * 1.4} className="plan2d-room-area">{fmtM2(area(sp.polygon))}</tspan>
+            </text>
           );
         })}
 
@@ -1015,6 +1044,23 @@ export function PlanView() {
 const LAYER_LABEL: Record<keyof Layers, string> = {
   dimensions: 'Sizes', clearance: 'Clearance', routes: 'Routes', provenance: 'Sources', heat: 'Heat', sightlines: 'Views',
 };
+
+/** A spot near the room centre where the two-line room label does not cover any furniture. */
+function labelSpot(sp: Space, items: FurnitureItem[], fs: number, name: string): Vec2 {
+  const c = centroid(sp.polygon);
+  const hw = Math.max(name.length * 0.62 * fs * 1.2, 4.2 * fs) / 2;
+  const boxes = items.map((f) => aabb(itemCorners(f)));
+  const free = (p: Vec2) => pointInPolygon(p, sp.polygon) && !boxes.some((b) =>
+    p.x + hw > b.minX && p.x - hw < b.maxX && p.y + 2 * fs > b.minY && p.y - 1.3 * fs < b.maxY);
+  if (free(c)) return c;
+  for (const r of [0.25, 0.5, 0.75, 1, 1.4, 1.8]) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, p = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
+      if (free(p)) return p;
+    }
+  }
+  return c;
+}
 
 function usedKinds(m: { spaces: Space[]; openings: Opening[] }) {
   const s = new Set<SourceKind>();
