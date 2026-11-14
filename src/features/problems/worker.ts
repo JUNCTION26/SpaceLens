@@ -6,5 +6,6 @@ const scope = self as unknown as { onmessage: ((e: MessageEvent<RunInput>) => vo
 scope.onmessage = (e) => {
   const input = e.data;
   latest = input.gen;
-  void runProblems(input, (m) => scope.postMessage(m), () => input.gen !== latest);
+  runProblems(input, (m) => scope.postMessage(m), () => input.gen !== latest)
+    .catch((err: unknown) => scope.postMessage({ type: 'done', gen: input.gen, error: String((err as Error)?.stack ?? err) }));
 };

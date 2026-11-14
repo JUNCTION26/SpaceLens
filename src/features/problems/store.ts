@@ -70,6 +70,7 @@ function onMessage(m: EngineMessage) {
   } else if (m.type === 'core-done') {
     for (let i = coreWaiters.length - 1; i >= 0; i--) if (coreWaiters[i].gen <= m.gen) { coreWaiters[i].resolve(); coreWaiters.splice(i, 1); }
   } else if (m.type === 'done') {
+    if ((m as { error?: string }).error) console.error('Problem checks stopped:', (m as { error?: string }).error);
     useProblems.setState({ finding: false });
   }
 }
@@ -79,7 +80,7 @@ function post(input: RunInput) {
     try {
       worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
       worker.onmessage = (e: MessageEvent<EngineMessage>) => onMessage(e.data);
-      worker.onerror = () => { worker?.terminate(); worker = null; workerFailed = true; post(input); };
+      worker.onerror = (e) => { console.error('Problem checks worker failed, running here instead:', e.message); worker?.terminate(); worker = null; workerFailed = true; post(input); };
     } catch { worker = null; workerFailed = true; }
   }
   if (worker) { worker.postMessage(input); return; }
@@ -193,6 +194,8 @@ let started = false;
 export function startProblems() {
   if (started || typeof window === 'undefined') return;
   started = true;
+  // Development-only handle for the browser test scripts.
+  if (import.meta.env.DEV) (window as unknown as { __problems: unknown }).__problems = { useProblems, worker: () => ({ worker: !!worker, failed: workerFailed, gen }) };
   useStore.subscribe((s, prev) => {
     if (s.model !== prev.model || s.activeCandidateId !== prev.activeCandidateId || s.candidates !== prev.candidates || s.requirements !== prev.requirements) {
       if (!useProblems.getState().fixingAll) useProblems.getState().refresh();

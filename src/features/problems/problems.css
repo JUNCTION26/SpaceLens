@@ -35,3 +35,9 @@
 @keyframes pb-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes pb-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
 @media (prefers-reduced-motion: reduce) { .pb-card { animation: none; } .pb-fix { transition: none; } }
+
+/* Phones: the card docks above the bottom bar so a sheet never hides it. */
+@media (max-width: 640px) {
+  .pb-card { position: fixed; left: 8px !important; right: 8px; top: auto !important; bottom: calc(72px + env(safe-area-inset-bottom)); max-width: none; width: auto; z-index: 55; box-shadow: var(--shadow-lg); }
+  .pb-fix { height: 36px; padding: 0 12px; }
+}

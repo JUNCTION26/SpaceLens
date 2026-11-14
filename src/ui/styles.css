@@ -158,7 +158,7 @@ details > summary:hover { color: var(--text); }
 
 /* App shell: top bar, section sidebar, panel column, canvas */
 .app { height: 100%; display: flex; flex-direction: column; }
-.topbar { position: relative; height: var(--top-h); flex: none; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s2) 0 var(--s3); background: var(--panel); border-bottom: 1px solid var(--line); }
+.topbar { position: relative; z-index: 30; height: var(--top-h); flex: none; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s2) 0 var(--s3); background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 8px; height: var(--ctl); padding: 0 6px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: var(--fs); font-weight: var(--fw-strong); }
 button.brand:hover { background: var(--hover); }
 .logo { width: 18px; height: 18px; color: var(--text); flex: none; }
@@ -254,7 +254,7 @@ button.brand:hover { background: var(--hover); }
 .toast-error i { background: var(--bad); }
 .toast { align-items: center; flex-wrap: wrap; row-gap: 8px; padding: 8px 6px 8px 12px; }
 .toast i { margin-top: 0; }
-.toast-text { flex: 1 1 160px; min-width: 0; line-height: 1.4; }
+.toast-text { flex: 1 1 auto; min-width: 0; max-width: 260px; line-height: 1.4; }
 .toast-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .toast-act { height: 26px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: 500 12px var(--font); cursor: pointer; white-space: nowrap; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 .toast-act:hover, .toast-act:focus-visible { background: var(--hover); border-color: var(--accent); outline: none; }
