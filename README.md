@@ -1,6 +1,6 @@
 # SpaceLens
 
-**Make blueprints talk: read a drawing or a room, turn it into a measured 3D building, design it with layouts that explain themselves, and check that people can walk, reach and get out.**
+**Make blueprints talk: drop in a floor plan and get a measured 3D building, then furnish it with layouts that explain themselves, walk through it, and check that people can reach and get out.**
 
 [![Deploy to GitHub Pages](https://github.com/JUNCTION26/SpaceLens/actions/workflows/pages.yml/badge.svg)](https://github.com/JUNCTION26/SpaceLens/actions/workflows/pages.yml)
 [![CI](https://github.com/JUNCTION26/SpaceLens/actions/workflows/ci.yml/badge.svg)](https://github.com/JUNCTION26/SpaceLens/actions/workflows/ci.yml)
@@ -10,27 +10,47 @@
 
 **Live demo:** https://junction26.github.io/SpaceLens/ (runs in the browser, no account, works without a key)
 
-![SpaceLens: a layout with its reasons, the editable plan and the 3D model](docs/img/hero.jpg)
+![A Swiss apartment floor plan turned into a 21-room 3D model, with every room labelled](docs/img/hero.jpg)
 
 Built at Junction 2026 (Espoo) for the Stoa "Make Blueprints Talk" challenge.
 
 ## What it does
 
-- **Reads blueprints.** Open a PDF or image plan, ask a question in plain language, and get the answer with the evidence highlighted on the page. On the Stoa questions it is right 99.5% of the time it chooses to answer, and it abstains otherwise ([numbers](#the-stoa-benchmark)).
-- **Builds from a blueprint or a room.** Trace a drawing, measure a room with a phone camera and an A4 sheet, type dimensions, or generate a whole floor from a room programme. Everything lands in one spatial model.
-- **Designs with reasons.** Say who uses the space. The app proposes layouts, and every placement carries the rule it satisfies, the measured numbers, and a verdict from an independent checker.
-- **Creates objects and finds real ones.** Describe a piece of furniture and it is generated to your exact dimensions, or search real shops for products that fit the room and the door.
-- **Tests the result.** Walk through it, test routes against body profiles, check exits and wheelchair reach, simulate an evacuation, and export the plan, schedule, model and a printable evacuation plan.
+- **Blueprint to building.** Drop in a vector floor plan (PDF) and SpaceLens builds the whole floor in 3D: one space per room, walls, doors and windows, each wall with evidence pointing back at the page. No model call is needed ([benchmark](#blueprint-to-building)).
+- **Blueprints that answer.** Ask a question in plain language and get the answer with the evidence highlighted on the page. On the Stoa questions it is right 99.5% of the time it chooses to answer, and it abstains otherwise ([numbers](#the-stoa-benchmark)).
+- **Furnish a whole building.** Furnish every room, walk through the doors, take an automatic tour. Layouts come with their reasons, the measured numbers, and a verdict from an independent checker.
+- **Create any object, find real ones.** Describe a piece and it is generated to your exact dimensions, or search real shops for products that fit the room, the door and the budget.
+- **Test the result.** Walk it, test routes against body profiles, check exits and wheelchair reach, simulate an evacuation, and export plans, a schedule, a 3D model and a printable evacuation plan.
 
-An agent you can talk to sits over all of it: it answers about the room, sketches what it means on the plan, and then makes the change.
+An agent you can talk to sits over all of it: say "add a pink princess bed" and it sketches what it means on the plan, then makes the change.
+
+## Blueprint to building
+
+The Drawings panel turns a vector floor plan into a spatial model: room outlines become spaces, wall thickness comes from the drawing, door symbols and window openings are placed on the walls they sit in, and printed room areas are checked against the computed ones. It runs in the browser in about 0.2 s per plan with zero model calls.
+
+Benchmark on the 65 Swiss Dwellings plans of the Stoa dataset (`node scripts/stoa-build.mjs`, results in [`public/samples/stoa/build-results.json`](public/samples/stoa/build-results.json)):
+
+| Measure | Result |
+| --- | --- |
+| Plans built | 63 of 65 (96.9%) |
+| Rooms closed into an outline | 1 602 of 1 618 numbered rooms (99%) |
+| Printed room areas matched within 2% | 98.7% of 550, median error 0% |
+| Same check on rooms built from walls alone | 84.4% of 390 within 2%, median error 0.32% |
+| Room-area questions answered from the built model | 130 of 130 |
+| Room-count questions (by label) | 388 of 405 (95.8%) |
+| Door counts exactly right | 49.2% (32 of 65), weak |
+| Window counts exactly right | 12.3% (8 of 65), weak |
+| Median time per plan, model calls | 201 ms, 0 |
+
+Read these plainly. The 98.7% figure relies on room outlines that are drawn in the PDFs; when a room is built from its walls alone the share within 2% is 84.4%. Door and window detection is the weak part of the build and its counts should be checked by eye on the highlighted page. Plans that are scans rather than vector drawings are not handled.
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![Drawings: ask a question, see the evidence](docs/img/drawings.jpg) **Drawings.** Open a sample plan or your own PDF, then ask about it. Answers highlight their evidence on the page. | ![Building: a floor from a room programme](docs/img/building.jpg) **Building.** Outer shell and room programme become walls, doors and windows. |
-| ![Layouts compared with their reasons](docs/img/layouts.jpg) **Layouts.** Candidates with rule verdicts and the decisions behind them. | ![Create object](docs/img/create.jpg) **Create object.** A described piece, fitted to your dimensions and validated. |
-| ![Shop](docs/img/shop.jpg) **Shop.** Real listings checked against budget, free floor and the door. | ![Walk and test](docs/img/walk.jpg) **Walk and test.** First-person walk, routes, door passage, sightlines. |
+| ![Drawings: a built plan with printed and computed areas](docs/img/drawings.jpg) **Drawings.** 21 rooms, 18 doors and 11 windows found on a real plan, with printed and computed areas side by side. | ![Building: a villa from a room programme](docs/img/building.jpg) **Building.** Outer shell and room programme become a furnished-ready floor. |
+| ![Layouts compared with their reasons](docs/img/layouts.jpg) **Layouts.** Candidates with rule verdicts and the decisions behind them. | ![Create object](docs/img/create.jpg) **Create object.** A described piece generated by Gemini, fitted to your dimensions. |
+| ![Shop](docs/img/shop.jpg) **Shop.** Real listings checked against budget, free floor and the door. | ![Walk and test](docs/img/walk.jpg) **Walk and test.** First-person walk, routes by body profile, door passage. |
 | ![Safety](docs/img/safety.jpg) **Safety.** Exits, travel distance, wheelchair access and an evacuation estimate. | ![Export](docs/img/export.jpg) **Export.** Plans, schedules, a 3D model and a share link. |
 
 ## Features
@@ -43,6 +63,10 @@ An agent you can talk to sits over all of it: it answers about the room, sketche
 - Open PDF or image blueprints and index their text, dimensions, scale and room labels in the browser.
 - Ask about counts, areas, lengths and labels, in several languages. Answers come from the local index first and name their kind: printed on the page, calculated, or inferred. Gemini is a fallback, never the first choice.
 - Highlighted evidence regions on the page for every answer.
+
+**Blueprint to building**
+- Vector PDF plans become a multi-room model with evidence on every wall; see the benchmark above.
+- Whole buildings can be furnished room by room, walked through doors, and toured automatically.
 
 **Building**
 - Pick an outer shell (rectangle, L-shape or the current room), an entrance and windows, then a room programme (for example a villa with three bedrooms) or describe one in words.
@@ -61,11 +85,15 @@ An agent you can talk to sits over all of it: it answers about the room, sketche
 - Describe any piece in words, or from a photo. The model streams its parts, the object assembles on screen while it is written, and the result is fitted to your exact dimensions.
 - Each object has semantics (role, use zones, how it opens or unfolds) so the design rules treat it like a catalogue piece.
 - Geometry is validated and repaired automatically; without a key a parametric template library takes over.
+- Measured on 18 varied prompts with the lite Gemini models: 14 recognisable at a glance and 4 partly so, first parts on screen after about 1.15 s and the complete object after about 2.2 s (median). Results and renders are kept with the generation scripts.
 
 **Shop**
 - Search real listings for a request such as "grey 3-seat sofa under 6 000 kr, max 220 cm wide". Prices and sizes are read from the product page itself.
 - Each listing is checked against the budget, a free spot in the room and the door, and can be placed into the plan as a stand-in.
 - The choice is decided by measured facts; a model only words the reasons.
+
+**Budget**
+- Keep the shopping list inside a budget: it suggests swaps, phases the purchase and words the argument for each choice.
 
 **Walk and test**
 - Dollhouse and first-person walk, with optional WebXR where the device supports it.
@@ -77,6 +105,7 @@ An agent you can talk to sits over all of it: it answers about the room, sketche
 - Every threshold is a visible, editable default with its reason ([assumptions](docs/SAFETY-ASSUMPTIONS.md)).
 
 **Deliver**
+- A Render section asks an image model for a picture of the finished room. It is untested here: the image models had no quota on the key available while building, so treat it as unverified.
 - SVG and PDF plan, CSV schedule and quantities, GLB model, JSON, a share link, and the evacuation plan.
 
 **The talking agent**
@@ -165,7 +194,8 @@ src/
   features/
     capture/         phone camera, A4 calibration, manual drawing
     drawings/        PDF and image reader, text index, evidence answers
-    building/        shell, programme, partition, connectivity, assembly into a model
+    building/        shell, programme, partition, connectivity, assembly into a model, whole-building tour
+    budget/ render/  budget optimiser and argument, room picture
     intent/          request to typed requirements
     design/          planner, relations, solver, rules, critic, pipeline, scoring
     layout/          layout panel and infeasibility explanations
@@ -180,7 +210,7 @@ src/
     export/          SVG and PDF, CSV, GLB, JSON, share link
     plan2d/ scene3d/ xr/   plan editor, 3D scene, WebXR
   ui/                app shell, sidebar, coach, settings, themes
-scripts/             benchmark runner, rule table generator, headless screenshots
+scripts/             benchmark runners (answers, plan-to-building), object generation checks, rule table generator, headless screenshots
 docs/                architecture, design rules, safety assumptions, demo script
 public/              sample drawings, Poly Haven models and textures
 ```
@@ -190,7 +220,7 @@ public/              sample drawings, Poly Haven models and textures
 ```mermaid
 flowchart LR
   C[Capture] --> M[(Spatial model)]
-  D[Drawings] --> M
+  D[Drawings: plan to building] --> M
   B[Building] --> M
   F[Create object] --> M
   S[Shop] --> M
@@ -258,6 +288,8 @@ Tests cover geometry, the store, the design solver and rules (including room sce
 
 - A prototype with no backend: models live in your browser and are not synced.
 - Single-photo scale needs a reference object, such as an A4 sheet.
+- Door and window counts from the plan-to-building step are weak (49% and 12% exact); room areas depend on outlines drawn in the PDF.
+- The Render section is unverified for lack of image-model quota.
 - The drawings answerer abstains on about half of the Stoa questions and is weakest on areas; it reads text-based PDFs, not scans.
 - Safety and accessibility checks are planning aids on stated defaults, not a code compliance check.
 - Generated floors and rooms are estimates; walls are straight and rectilinear.
@@ -274,6 +306,7 @@ Tests cover geometry, the store, the design solver and rules (including room sce
 - Curved and angled walls in the building step.
 - Real furniture catalogue feeds.
 - Scanned drawings through vision, with the same evidence highlighting.
+- Better door and window detection in the plan-to-building step.
 
 ## Credits
 
