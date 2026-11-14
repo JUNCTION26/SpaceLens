@@ -153,11 +153,9 @@ export function IntentPanel() {
     ? `${model.furniture.find((f) => f.id === it.keepExistingId)?.name ?? it.catalogId} (kept)`
     : CATALOG.find((c) => c.id === it.catalogId)?.name ?? it.catalogId;
   const summary = req ? [
-    req.purpose || null,
+    req.purpose ? req.purpose.split(/\s+/).slice(0, 3).join(' ') : null,
     `${req.people} ${req.people === 1 ? 'person' : 'people'}`,
-    req.budgetSek != null ? `${req.budgetSek} kr` : null,
-    ...req.items.map((it) => `${it.qty > 1 ? `${it.qty} ` : ''}${itemName(it)}`),
-    `${Math.round(req.minRouteWidthM * 100)} cm route`,
+    `${req.items.reduce((n, it) => n + it.qty, 0)} items`,
   ].filter(Boolean).join(' · ') : '';
 
   return (
@@ -173,11 +171,6 @@ export function IntentPanel() {
           </button>
         </div>
       </div>
-      {!req && (
-        <div className="intent-examples">
-          {EXAMPLES.map((ex) => <button key={ex} className="intent-example" onClick={() => setText(ex)}>{ex}</button>)}
-        </div>
-      )}
       {meta?.error && <CompilerBadge meta={meta} />}
       {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
@@ -223,7 +216,6 @@ export function IntentPanel() {
       {triedGen && candidates.length === 0 && infeasibility && (
         <div className="intent-infeasible">
           <strong>No layout fits</strong>
-          <ul>{infeasibility.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
           <div className="row">
             {infeasibility.relaxations.map((rx) => (
               <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)}>{rx.label}</button>
@@ -237,13 +229,12 @@ export function IntentPanel() {
           {thread.map((t, i) => (
             <div key={i} className="intent-turn">
               <div className="intent-ask">{t.ask}</div>
-              <div>{t.reply}</div>
-              {t.diff.length > 0 ? <div className="intent-diff muted">{t.diff.join(' · ')}</div> : <div className="muted">Nothing changed.</div>}
+              <div className="intent-diff muted" title={t.reply}>{t.diff.length > 0 ? t.diff.slice(0, 3).join(' · ') : 'No change'}</div>
               {t.meta.error && <CompilerBadge meta={t.meta} />}
             </div>
           ))}
           <div className="intent-follow">
-            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Refine, e.g. cozier or cheaper"
+            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Cozier, cheaper..."
               onChange={(e) => setFollow(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void refine(follow); }} />
             <MicButton onText={(t) => setFollow(t)} />
             <button className="btn btn-sm btn-primary intent-send" aria-label="Send refinement" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>
@@ -255,11 +246,8 @@ export function IntentPanel() {
 
       {req && (
         <details className="intent-details">
-        <summary>More options</summary>
+        <summary>More</summary>
         <div className="intent-form card">
-          {req.questions.length > 0 && (
-            <ul className="intent-questions">{req.questions.map((q) => <li key={q}>{q}</li>)}</ul>
-          )}
 
           <div className="intent-grid">
             <label className="field"><span>Purpose</span>
@@ -307,7 +295,6 @@ export function IntentPanel() {
             ))}
           </>)}
 
-          {req.notes.length > 0 && <ul className="intent-notes muted">{req.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
 
         </div>
         </details>
@@ -318,37 +305,25 @@ export function IntentPanel() {
 
 const STATUS_ICON: Record<Stage['status'], string> = { running: '', done: 'check', skipped: 'minus', failed: 'alert' };
 
-/** What the pipeline is doing right now, with honest timings and the model behind each step. */
+/** One quiet line while the design runs: the current step and Stop. Nothing stays behind afterwards. */
 function StageList({ stages, running, onStop }: { stages: Stage[]; running: boolean; onStop: () => void }) {
-  const total = stages.reduce((s, x) => s + (x.ms ?? 0), 0);
+  if (!running) return null;
+  const now = stages.find((x) => x.status === 'running');
+  const done = stages.filter((x) => x.status === 'done').length;
   return (
-    <div className="intent-stages" role="status" aria-live="polite" aria-busy={running}>
-      <ol>
-        {stages.map((s) => (
-          <li key={s.id} className={`intent-stage is-${s.status}`}>
-            <span className="intent-stage-mark">{s.status === 'running' ? <i aria-hidden="true" /> : <Icon name={STATUS_ICON[s.status]} size={12} />}</span>
-            <span className="intent-stage-label">{s.label}{s.detail && <span className="muted"> · {s.detail}</span>}</span>
-            <span className="intent-stage-meta">{[s.model, s.ms != null ? fmtMs(s.ms) : null].filter(Boolean).join(' · ')}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="intent-stage-foot muted">
-        {running ? <button className="btn btn-ghost btn-sm" onClick={onStop}>Stop</button> : <span>{fmtMs(total)} total</span>}
-      </div>
+    <div className="intent-stages intent-stage-line" role="status" aria-live="polite" aria-busy={running}>
+      <span className="intent-stage-mark"><i aria-hidden="true" /></span>
+      <span className="intent-stage-label" title={now?.label}>{`Step ${Math.min(done + 1, stages.length)} of ${stages.length}`}</span>
+      <button className="btn btn-ghost btn-sm" onClick={onStop}>Stop</button>
     </div>
   );
 }
 
 const fmtMs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 
+/** Only shown when the model failed and rules took over; the detail sits in the tooltip. */
 function CompilerBadge({ meta }: { meta: CompileMeta }) {
-  const tokens = meta.inTokens + meta.outTokens;
-  return (
-    <div className={`intent-badge ${meta.error ? 'intent-badge-warn' : ''}`}>
-      {meta.by === 'gemini' ? `${meta.model ?? 'Gemini'} · ${(meta.ms / 1000).toFixed(1)} s · ${tokens} tokens` : 'Rules'}
-      {meta.error && <span> · {meta.error}</span>}
-    </div>
-  );
+  return <div className={`intent-badge ${meta.error ? 'intent-badge-warn' : ''}`} title={meta.error ?? undefined}>{meta.by === 'gemini' ? 'Gemini' : 'Offline'}</div>;
 }
 
 type Rec = { lang: string; interimResults: boolean; onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void; onend: () => void; onerror: () => void; start: () => void; stop: () => void };
