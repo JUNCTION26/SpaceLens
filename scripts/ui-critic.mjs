@@ -74,7 +74,7 @@ const METRICS = `(() => {
     while (b && b !== document.body && getComputedStyle(b).display.startsWith('inline')) b = b.parentElement;
     if (!b.matches('button, [role=button], a, label, option, select')) blocks.set(b, (blocks.get(b) ?? 0) + n2);
   }
-  for (const [b, c] of blocks) if (c > longest) { longest = c; longText = (b.innerText || '').replace(/\s+/g, ' ').slice(0, 90); }
+  for (const [b, c] of blocks) if (c > longest) { longest = c; longText = (b.innerText || '').replace(/\\s+/g, ' ').slice(0, 90); }
   const stage = document.querySelector('.stage');
   let overlays = 0;
   if (stage) {
@@ -108,14 +108,15 @@ Return only JSON: {"score": number, "visibleControlCount": number, "topProblems"
 "remove": [string] (elements to delete outright), "hide": [string] (move behind More/Details/hover), "keep": [string] (what works)}.
 Be concrete: name elements by their visible text.`;
 
-const MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash'];
-let modelIdx = 0;
+const MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+let firstModel = 0; // a model that answers 404/400 is skipped for the rest of the run
+let lastError = '';
 async function critique(png, screen) {
   if (!KEY) return null;
-  for (; modelIdx < MODELS.length; modelIdx++) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+  for (let mi = firstModel; mi < MODELS.length; mi++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODELS[modelIdx]}:generateContent`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODELS[mi]}:generateContent`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-goog-api-key': KEY },
           body: JSON.stringify({
@@ -123,16 +124,22 @@ async function critique(png, screen) {
             generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
           }),
         });
-        if (res.status === 404 || res.status === 400) break; // model not available: try the next one
-        if (res.status === 429 || res.status >= 500) { await sleep(3000 * (attempt + 1)); continue; }
+        if (res.status === 404) { firstModel = Math.max(firstModel, mi + 1); break; }
+        if (!res.ok) {
+          lastError = `${res.status} ${(await res.text()).slice(0, 160)}`;
+          if (res.status === 400) break;
+          // An exhausted daily quota will not recover within this run: move to the next model.
+          if (res.status === 429 && /quota/i.test(lastError)) { firstModel = Math.max(firstModel, mi + 1); break; }
+          await sleep(4000 * (attempt + 1)); continue;
+        }
         const j = await res.json();
         const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
         const parsed = JSON.parse(text.replace(/^```json|```$/g, '').trim());
-        return { ...parsed, model: MODELS[modelIdx] };
-      } catch (e) { if (attempt === 2) return { error: String(e.message ?? e).slice(0, 200) }; }
+        return { ...parsed, model: MODELS[mi] };
+      } catch (e) { lastError = String(e.message ?? e).slice(0, 160); await sleep(2000); }
     }
   }
-  return { error: 'no vision model answered' };
+  return { error: `no vision model answered (${lastError})` };
 }
 
 const rows = [];
@@ -146,7 +153,10 @@ try {
       page = await launch({ width: w, height: h });
       pageSize = `${w}x${h}`;
     }
+    let cancelled = false;
+    const pg = page;
     const run = async () => {
+      const page = pg;
       await page.goto(`${base}?coach=0&${s.q}`, 800);
       await sleep(s.wait ?? 3500);
       if (s.after) { await page.evaluate(s.after).catch(() => {}); await sleep(800); }
@@ -155,6 +165,7 @@ try {
       await page.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))').catch(() => {});
       const shot = await page.send('Page.captureScreenshot', { format: 'png' }, 120000).catch(() => null);
       const errors = page.takeProblems().map((p) => `[${p.kind}] ${p.text.slice(0, 160)}`);
+      if (cancelled) return;
       const row = { name: s.name, q: s.q, size: pageSize, ...m, errors, critic: null };
       rows.push(row);
       if (shot) {
@@ -165,6 +176,7 @@ try {
     // A screen that hangs (a stuck 3D page) is recorded as such and the browser is replaced.
     const timedOut = await Promise.race([run().then(() => false).catch((e) => { process.stderr.write(`! ${s.name}: ${e.message}\n`); return false; }), sleep(Number(flag('--timeout', '90000'))).then(() => true)]);
     if (timedOut) {
+      cancelled = true;
       rows.push({ name: s.name, q: s.q, size: pageSize, controls: -1, texts: -1, words: -1, overlays: -1, longest: -1, panelWords: -1, longText: '', errors: ['[hang] screen did not finish in time'], critic: null });
       await page.close(); page = null; pageSize = '';
     }
