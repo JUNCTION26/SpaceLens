@@ -2,6 +2,7 @@
 // verdicts with a 0..1 score and a plain sentence with the measured numbers.
 import type { FurnitureItem, Opening, OpeningKind, ObjectSemantics, Requirements, RuleVerdict, Space, SpaceModel } from '../../core/types';
 import { distPointRect, distToBoundary, overlapDepth, pointInPolygon, rectOutside, signedArea, corners as rectCorners, type ORect, type P } from '../referee/geom';
+import { isMounted } from '../layout/wallItems';
 import { isHostCategory, isSeatCategory, isSoftSeat, normaliseItem, semanticsOf, zoneKindOf, type ZoneKind } from './semantics';
 
 // ---------------------------------------------------------------- small maths
@@ -1226,5 +1227,7 @@ export function evaluateRules(model: SpaceModel, furniture: FurnitureItem[], req
   const space = spaceOf(model, opts.spaceId);
   if (!space || space.polygon.length < 3) return [];
   const room = buildRoom(model, space.id);
-  return evaluateCtx(analyse(room, furniture, req, opts.cache), opts);
+  // Wall-mounted pieces take no floor space; the referee checks them on their walls.
+  const floor = furniture.some(isMounted) ? furniture.filter((f) => !isMounted(f)) : furniture;
+  return evaluateCtx(analyse(room, floor, req, opts.cache), opts);
 }

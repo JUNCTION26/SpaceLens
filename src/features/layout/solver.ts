@@ -9,6 +9,8 @@ import { defaultProgram } from '../design/program';
 import { evaluateRules } from '../design/rules';
 import { designScore } from '../design/score';
 import { solveProgram } from '../design/solve';
+import { isMounted } from './wallItems';
+export { isMounted, placeWallItems, wallElevation } from './wallItems';
 
 export interface SolveOptions {
   variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number, bestOpenM2?: number) => void;
@@ -66,7 +68,8 @@ function makeCtx(model: SpaceModel, req: Requirements, spaceId?: string): Ctx {
   return { model, space, req, doorZones, windowZones, windowCentres, routeCache: new Map() };
 }
 
-const isRug = (f: FurnitureItem) => f.category === 'rug';
+/** Items that take no floor: rugs lie under things, wall items hang above them. */
+const isRug = (f: FurnitureItem) => f.category === 'rug' || isMounted(f);
 
 type Side = keyof FurnitureItem['clearance'];
 const SIDES: Side[] = ['front', 'back', 'left', 'right'];
@@ -133,6 +136,7 @@ export function hardViolations(ctx: Ctx, items: FurnitureItem[]): string[] {
   const rel = relations(items);
   for (let i = 0; i < items.length; i++) {
     const f = items[i], { fp, env, wallEnv } = rel[i];
+    if (isMounted(f)) continue;
     if (!polygonInside(shrink(fp, WALL_TOL), poly)) out.push(`${f.name} is outside the room`);
     if (!env || !wallEnv) continue;
     if (!polygonInside(shrink(wallEnv, WALL_TOL), poly)) out.push(`${f.name} has no room for its use space`);

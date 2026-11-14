@@ -18,6 +18,7 @@ import {
 import { deductions, designScore, explainDetailed, pointsOf } from './score';
 import { isHostCategory, isSeatCategory, normaliseItem, semanticsOf } from './semantics';
 import { assignSeatHosts } from './program';
+import { isMounted, placeWallItems } from '../layout/wallItems';
 
 export interface SolveProgramOptions {
   variants?: number;
@@ -989,6 +990,19 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   const space = spaceOf(model, opts.spaceId);
   if (!space || space.polygon.length < 3) return { candidates: [], reports: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] } };
   if (!items.length) return { candidates: [], reports: [], infeasibility: { reasons: ['Nothing to place yet'], relaxations: [] } };
+  // Wall-mounted pieces take no floor: solve the floor, then hang them on the walls of each layout.
+  const mounted = items.filter(isMounted);
+  if (mounted.length && mounted.length < items.length) {
+    const ids = new Set(mounted.map((f) => f.id));
+    const prog: DesignProgram = {
+      ...programIn,
+      relations: programIn.relations.filter((r) => !ids.has(r.subject) && !(r.target && ids.has(r.target))),
+      zones: programIn.zones.map((z) => ({ ...z, itemIds: z.itemIds.filter((id) => !ids.has(id)) })),
+      focalItemId: programIn.focalItemId && ids.has(programIn.focalItemId) ? undefined : programIn.focalItemId,
+    };
+    const res = await solveProgram(model, items.filter((f) => !isMounted(f)), prog, opts);
+    return { ...res, candidates: res.candidates.map((c) => ({ ...c, furniture: [...c.furniture, ...placeWallItems(model, c.furniture, mounted, opts.spaceId).placed] })) };
+  }
   const room = buildRoom(model, space.id);
   const req = opts.req ?? null;
   const r = rng(seed * 2654435761);

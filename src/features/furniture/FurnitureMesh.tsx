@@ -366,7 +366,7 @@ function CustomBody({ item, selected, ghost, open }: { item: FurnitureItem; sele
 function FurnitureMeshImpl({ item, selected, ghost, open }: { item: FurnitureItem; selected?: boolean; ghost?: boolean; open?: number }) {
   if (item.custom) {
     return (
-      <group position={[item.x, 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
+      <group position={[item.x, item.elevationM ?? 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
         <CustomBody item={item} selected={!!selected} ghost={!!ghost} open={open} />
         {selected && (
           <lineSegments position={[0, item.h / 2, 0]}>
@@ -387,7 +387,7 @@ function StockFurniture({ item, selected, ghost }: { item: FurnitureItem; select
   const spec = modelSpecFor(item);
   const body = <Body w={item.w} d={item.d} h={item.h} m={mats} shadow={shadow} category={item.category} catalogId={item.catalogId} />;
   return (
-    <group position={[item.x, 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
+    <group position={[item.x, item.elevationM ?? 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
       {spec ? (
         <Suspense fallback={body}>
           <ModelBody spec={spec} item={item} selected={!!selected} ghost={!!ghost} />

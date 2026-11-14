@@ -75,7 +75,9 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
   if (only) model = { ...model, spaces: [only], openings: model.openings.filter((o) => o.spaceId === only.id) };
   const out: ValidationResult[] = [];
   const add = (r: ValidationResult) => { out.push(r); };
-  const solid = furniture.filter((f) => f.category !== 'rug');
+  // Rugs lie under things and wall items hang above them: neither takes floor space.
+  const hung = furniture.filter((f) => f.mount === 'wall' || f.mount === 'ceiling');
+  const solid = furniture.filter((f) => f.category !== 'rug' && !hung.includes(f));
 
   // Room polygons
   const validSpaces = new Set<string>();
@@ -112,7 +114,7 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
   // Inside room, ceiling
   const ceilFails: FurnitureItem[] = [];
   for (const f of furniture) {
-    if (f.h > model.ceilingM + 1e-9) ceilFails.push(f);
+    if (f.h + (f.elevationM ?? 0) > model.ceilingM + 1e-9) ceilFails.push(f);
     const s = spaceFor(model, f);
     if (!s || s.polygon.length < 3) { add({ id: `inside:${f.id}`, rule: 'Inside room', result: 'unknown', subjectIds: [f.id], details: `No room outline to test ${f.name} against.` }); continue; }
     const outBy = rectOutside(footprint(f), s.polygon);
@@ -124,6 +126,41 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
   }
   for (const f of ceilFails) add({ id: `ceiling:${f.id}`, rule: 'Ceiling height', result: 'fail', measured: f.h, threshold: model.ceilingM, subjectIds: [f.id], details: `${f.name} is ${cm(f.h)} tall; the ceiling is ${cm(model.ceilingM)}.` });
   if (furniture.length && !ceilFails.length) add({ id: 'ceiling:all', rule: 'Ceiling height', result: 'pass', threshold: model.ceilingM, subjectIds: [], details: `All items are under the ${cm(model.ceilingM)} ceiling.` });
+
+  // Wall items: flat on a wall, facing the room, clear of doors, windows and each other.
+  const hungSpans: Array<{ f: FurnitureItem; s: Space; wall: number; t0: number; t1: number; y0: number; y1: number }> = [];
+  for (const f of hung.filter((x) => x.mount === 'wall')) {
+    const s = spaceFor(model, f);
+    if (!s || s.polygon.length < 3) continue;
+    // Back edge centre and facing direction of the item.
+    const c = Math.cos(f.rotation), sn = Math.sin(f.rotation);
+    const front = { x: -sn, y: c }, back = { x: f.x - front.x * f.d / 2, y: f.y - front.y * f.d / 2 };
+    let best: { i: number; gap: number; t: number } | null = null;
+    for (let i = 0; i < s.polygon.length; i++) {
+      const w = wallFrame(s, i);
+      const t = (back.x - w.a.x) * w.t.x + (back.y - w.a.y) * w.t.y, gap = Math.abs((back.x - w.a.x) * w.n.x + (back.y - w.a.y) * w.n.y);
+      const facing = front.x * w.n.x + front.y * w.n.y;
+      if (t < -TOL || t > w.length + TOL || facing < 0.98) continue;
+      if (!best || gap < best.gap) best = { i, gap, t };
+    }
+    const y0 = f.elevationM ?? 0, y1 = y0 + f.h;
+    if (!best || best.gap > 0.05) {
+      add({ id: `wall:${f.id}`, rule: 'Hangs on a wall', result: 'fail', measured: best ? r2(best.gap) : undefined, threshold: 0.05, subjectIds: [f.id], details: `${f.name} is not flat against a wall facing the room${best ? ` (${cm(best.gap)} off the wall)` : ''}.` });
+      continue;
+    }
+    const t0 = best.t - f.w / 2, t1 = best.t + f.w / 2;
+    const covers = model.openings.filter((o) => o.spaceId === s.id && o.wallIndex === best!.i && Math.min(t1, o.offsetM + o.widthM / 2) - Math.max(t0, o.offsetM - o.widthM / 2) > TOL
+      && Math.min(y1, o.sillM + o.heightM) - Math.max(y0, o.kind === 'door' || o.kind === 'opening' ? 0 : o.sillM) > TOL);
+    add({
+      id: `wall:${f.id}`, rule: 'Hangs on a wall', result: covers.length ? 'fail' : 'pass', subjectIds: [f.id, ...covers.map((o) => o.id)],
+      details: covers.length ? `${f.name} covers a ${covers.map((o) => o.kind).join(' and a ')}.` : `${f.name} hangs on a wall at ${cm(y0)} to ${cm(y1)}, clear of doors and windows.`,
+    });
+    for (const o of hungSpans) {
+      if (o.s !== s || o.wall !== best.i) continue;
+      if (Math.min(t1, o.t1) - Math.max(t0, o.t0) > TOL && Math.min(y1, o.y1) - Math.max(y0, o.y0) > TOL) add({ id: `overlap:${o.f.id}:${f.id}`, rule: 'No overlap', result: 'fail', subjectIds: [o.f.id, f.id], details: `${o.f.name} and ${f.name} overlap on the wall.` });
+    }
+    hungSpans.push({ f, s, wall: best.i, t0, t1, y0, y1 });
+  }
 
   // Pairwise overlap
   let overlaps = 0;
