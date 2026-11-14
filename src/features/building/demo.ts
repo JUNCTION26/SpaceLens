@@ -5,23 +5,33 @@ import type { SpaceModel } from '../../core/types';
 import { toSpaceModel } from './assemble';
 import { furnishBuilding } from './furnish';
 import { lShell, planBuilding, rectShell } from './partition';
+import { planBuildingAsync } from './planAsync';
 import { officeProgramme, villaProgramme } from './programme';
 
 export type DemoKind = 'villa' | 'office' | 'lshape';
 
+const inputs = (kind: DemoKind) =>
+  kind === 'office' ? [rectShell(20, 15), { wallIndex: 2, offsetM: 10 }, officeProgramme(24)] as const
+  : kind === 'lshape' ? [lShell(14, 12, 6, 6), { wallIndex: 0, offsetM: 9 }, villaProgramme(3)] as const
+  : [rectShell(10, 12), { wallIndex: 2, offsetM: 5 }, villaProgramme(3)] as const;
+
 /** A planned building as a SpaceModel (deterministic: seed 1, best option). */
 export function demoBuilding(kind: DemoKind): SpaceModel | null {
-  const [shell, entrance, programme] =
-    kind === 'office' ? [rectShell(20, 15), { wallIndex: 2, offsetM: 10 }, officeProgramme(24)] as const
-    : kind === 'lshape' ? [lShell(14, 12, 6, 6), { wallIndex: 0, offsetM: 9 }, villaProgramme(3)] as const
-    : [rectShell(10, 12), { wallIndex: 2, offsetM: 5 }, villaProgramme(3)] as const;
+  const [shell, entrance, programme] = inputs(kind);
   const plans = planBuilding(shell, [entrance], [], programme, { count: 1, seed: 1 });
+  return plans[0] ? toSpaceModel(plans[0], undefined, { now: 0 }) : null;
+}
+
+/** Same as demoBuilding, planned in a worker so the page stays responsive while it loads. */
+export async function demoBuildingAsync(kind: DemoKind): Promise<SpaceModel | null> {
+  const [shell, entrance, programme] = inputs(kind);
+  const plans = await planBuildingAsync(shell, [entrance], [], programme, { count: 1, seed: 1 });
   return plans[0] ? toSpaceModel(plans[0], undefined, { now: 0 }) : null;
 }
 
 /** Load a demo building into the app, optionally furnishing every room with the rule engine. */
 export async function loadDemo(kind: DemoKind, furnish = false): Promise<boolean> {
-  const m = demoBuilding(kind);
+  const m = await demoBuildingAsync(kind);
   if (!m) return false;
   const st = getState();
   st.dispatch({ type: 'REPLACE_MODEL', model: m });

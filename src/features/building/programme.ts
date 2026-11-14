@@ -36,8 +36,7 @@ export interface RoomProgramme {
   by: 'template' | 'gemini' | 'rules';
 }
 
-export const WET_PURPOSES = new Set(['bathroom', 'wc', 'utility', 'kitchen', 'shower', 'laundry']);
-export const isWet = (r: Pick<ProgrammeRoom, 'purpose'>) => WET_PURPOSES.has(r.purpose);
+export { WET_PURPOSES, isWet } from './purposes';
 
 type RoomSpec = Omit<ProgrammeRoom, 'id' | 'adjacentTo'> & { id?: string; adjacentTo?: string[] };
 

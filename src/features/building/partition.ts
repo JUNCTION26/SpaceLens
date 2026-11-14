@@ -6,7 +6,8 @@
 // of named criteria (area fit, daylight, adjacency, circulation share, privacy gradient, wall
 // length, wet rooms grouped) and every option reports those criteria with numbers.
 import type { Vec2 } from '../../core/types';
-import { isWet, type ProgrammeRoom, type RoomProgramme } from './programme';
+import type { ProgrammeRoom, RoomProgramme } from './programme';
+import { isWet } from './purposes';
 import {
   decompose, mergeSegs, rArea, rect, rectPoly, rLong, rShort, rCentre, snap, touching, unionOutline,
   type Rect, type Seg, segLen, r2,
