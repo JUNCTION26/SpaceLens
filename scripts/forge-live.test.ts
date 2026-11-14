@@ -17,17 +17,23 @@ const live = penv.FORGE_LIVE === '1';
 
 export const DEFAULT_PROMPTS = [
   'pink Barbie dream bed 90x200 with a heart headboard',
-  'built-in fold-down wall bed 160 wide in a white cabinet',
-  'walnut desk 160 by 80 with a three-drawer pedestal on the right',
-  'curved green velvet sofa 240 wide',
-  'round marble dining table for six, 140 diameter, brass pedestal',
+  'built-in fold-down wall bed 160 wide',
+  'walnut desk 160x80 with a three-drawer pedestal on the right',
+  'curved green velvet sofa 240',
+  'round marble dining table 140 for six with a brass pedestal',
   'kids bunk bed with a slide',
-  'gaming chair, black and red',
-  'kitchen island 200x90 with two bar stools side',
-  'low oak TV bench 180 wide with sliding doors',
-  'reception desk, curved, white with wood top 300 wide',
+  'black and red gaming chair',
+  'kitchen island 200x90',
+  'low oak TV bench 180 with sliding doors',
+  'curved white reception desk 300',
   'arcade machine',
   'grand piano',
+  'office phone booth',
+  'hospital bed',
+  'bar counter',
+  'baby cot',
+  'standing desk',
+  'bookshelf wall with a ladder',
 ];
 
 function devKey(): string {
@@ -75,11 +81,12 @@ describe.skipIf(!live)('forge live', () => {
       }
       const firstToken = events.find((e) => e.phase === 'streaming');
       const v = validateSpec(spec);
+      const gen = (spec as { gen?: Record<string, unknown> }).gen ?? {};
       const row = {
         i, prompt, slug: `${String(i).padStart(2, '0')}-${slug(prompt)}`, model: spec.model, name: spec.name,
         firstTokenMs: firstToken?.ms ?? null, firstPartsMs, firstPartsN, totalMs, parts: spec.parts.length,
         motions: spec.motions?.length ?? 0, calls, inTok, outTok, partials,
-        size: spec.size, issuesAfter: v.issues.length,
+        size: spec.size, issuesAfter: v.issues.length, tier: gen.tier, items: gen.items, passes: gen.passes, fixes: gen.fixes,
         stages: events.filter((e) => e.phase === 'done' || e.phase === 'error').map((e) => `${e.id}:${e.phase}:${e.model ?? ''}:${e.ms}`),
       };
       writeFileSync(join(out, `${row.slug}.json`), JSON.stringify(spec, null, 1));
@@ -94,4 +101,18 @@ describe.skipIf(!live)('forge live', () => {
     rows.sort((a, b) => (a as { i: number }).i - (b as { i: number }).i);
     writeFileSync(join(out, 'results.json'), JSON.stringify(rows, null, 1));
   }, 900_000);
+});
+
+// FORGE_DUMP=<dir>: write the few-shot examples and the no-key templates for all prompts as spec
+// JSON (no network), so scripts/forge-shot.mjs --specs <dir> can render them.
+describe.skipIf(!penv.FORGE_DUMP)('forge dump', () => {
+  it('writes example and template specs', async () => {
+    const { KIT_EXAMPLES } = await import('../src/features/forge/kitExamples');
+    const { forgeSpec } = await import('../src/features/forge/validate');
+    const { rulesObject } = await import('../src/features/forge/rulesFallback');
+    const out = resolve(penv.FORGE_DUMP!);
+    mkdirSync(out, { recursive: true });
+    KIT_EXAMPLES.forEach((e, i) => writeFileSync(join(out, `ex-${String(i).padStart(2, '0')}-${slug(e.prompt)}.json`), JSON.stringify(forgeSpec(e.json, { prompt: e.prompt }).fixed)));
+    DEFAULT_PROMPTS.forEach((pr, i) => writeFileSync(join(out, `rules-${String(i).padStart(2, '0')}-${slug(pr)}.json`), JSON.stringify(rulesObject(pr))));
+  });
 });

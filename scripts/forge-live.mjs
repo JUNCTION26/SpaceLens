@@ -28,8 +28,8 @@ if (existsSync(rowsFile)) {
   const rows = JSON.parse(readFileSync(rowsFile, 'utf8'));
   const vf = resolve(out, 'verdicts.json');
   const verdicts = existsSync(vf) ? JSON.parse(readFileSync(vf, 'utf8')) : {};
-  const lines = ['| # | prompt | model | first token ms | first parts ms | total ms | parts | moving | out tok | verdict |', '|---|---|---|---|---|---|---|---|---|---|'];
-  for (const r of rows) lines.push(`| ${r.i} | ${r.prompt} | ${r.model.replace(/^gemini-/, '')} | ${r.firstTokenMs ?? '-'} | ${r.firstPartsMs ?? '-'} | ${r.totalMs} | ${r.parts} | ${r.motions} | ${r.outTok} | ${verdicts[r.slug] ?? verdicts[r.i] ?? ''} |`);
+  const lines = ['| # | prompt | model | tier | first token ms | first parts ms | total ms | items | parts | moving | out tok | fixes | verdict |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|'];
+  for (const r of rows) lines.push(`| ${r.i} | ${r.prompt} | ${r.model.replace(/^gemini-/, '')} | ${r.tier ?? '-'} | ${r.firstTokenMs ?? '-'} | ${r.firstPartsMs ?? '-'} | ${r.totalMs} | ${r.items ?? '-'} | ${r.parts} | ${r.motions} | ${r.outTok} | ${(r.fixes ?? []).join(', ')} | ${verdicts[r.slug] ?? verdicts[r.i] ?? ''} |`);
   const med = (k) => { const v = rows.map((r) => r[k]).filter((x) => typeof x === 'number').sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : '-'; };
   lines.push('', `Median: first token ${med('firstTokenMs')} ms, first parts ${med('firstPartsMs')} ms, total ${med('totalMs')} ms, ${med('parts')} parts, ${med('outTok')} output tokens.`);
   writeFileSync(resolve(out, 'results.md'), lines.join('\n') + '\n');
