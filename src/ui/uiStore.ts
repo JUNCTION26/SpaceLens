@@ -79,7 +79,7 @@ export const useUi = create<UiState>((set, get) => ({
 }));
 
 /**
- * Deep links for demos and review: ?nav=<section>&sample=1&view=<2d|split|3d>&theme=<dark|light|system>&coach=0&open=<settings|command|checks|demo>
+ * Deep links for demos and review: ?start=<plan|villa|room>&nav=<section>&sample=1&view=<2d|split|3d>&theme=<dark|light|system>&coach=0&open=<settings|command|checks|demo>
  * Runs once before the first render.
  */
 export function applyDeepLink(search: string = typeof location !== 'undefined' ? location.search : '') {
@@ -94,6 +94,8 @@ export function applyDeepLink(search: string = typeof location !== 'undefined' ?
   if (view === '2d' || view === 'split' || view === '3d') s.setView(view);
   const nav = q.get('nav');
   if (nav) useUi.getState().openSection(nav);
+  const start = q.get('start');
+  if (start) setTimeout(() => { void import('../features/demo/starts').then((m) => m.runStart(start)); }, 0);
   const open = q.get('open');
   if (open === 'settings') useUi.getState().setSettingsOpen(true);
   else if (open) setTimeout(() => window.dispatchEvent(new Event(`spacelens:${open}`)), 300);

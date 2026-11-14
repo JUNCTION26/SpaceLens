@@ -4,7 +4,15 @@ import { sampleRoom } from '../core/sample';
 import { useUi, type CaptureKind } from './uiStore';
 import { Settings } from './Settings';
 import { Icon } from './icons';
+import { runStart, type StartKind } from '../features/demo/starts';
 import './home.css';
+
+/** One-click starts: each lands on a finished result in seconds, no key needed. */
+const STARTS: Array<{ kind: StartKind; title: string; text: string; icon: string }> = [
+  { kind: 'plan', title: 'Open a real floor plan in 3D', text: 'A Swiss apartment drawing becomes rooms, doors and walls.', icon: 'file' },
+  { kind: 'villa', title: 'Plan a villa', text: 'Three bedrooms on a 10 by 12 m plot, furnished.', icon: 'grid' },
+  { kind: 'room', title: 'Design a room', text: 'A home office brief, three layouts and the reasons.', icon: 'layout' },
+];
 
 const OPTIONS: Array<{ kind: CaptureKind; title: string; icon: string }> = [
   { kind: 'scan', title: 'Scan with phone', icon: 'camera' },
@@ -104,6 +112,15 @@ export function Home() {
               ? <button className="btn btn-primary btn-xl" onClick={() => setMode('design')}>Continue {recent}<Icon name="chevronRight" /></button>
               : <button className="btn btn-primary btn-xl" onClick={openSample}>Open the sample room<Icon name="chevronRight" /></button>}
             <button className="btn btn-ghost btn-xl" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}><Icon name="play" />Watch demo</button>
+          </div>
+          <div className="home-quick" role="group" aria-label="Try it in one click">
+            {STARTS.map((s) => (
+              <button key={s.kind} className="home-quick-card" onClick={() => { void runStart(s.kind); }}>
+                <span className="home-quick-icon"><Icon name={s.icon} size={18} /></span>
+                <span className="home-quick-text"><strong>{s.title}</strong><span>{s.text}</span></span>
+                <Icon name="chevronRight" size={14} className="home-row-go" />
+              </button>
+            ))}
           </div>
           <div className="home-start" role="group" aria-labelledby="home-start-label">
             <div className="home-start-head" id="home-start-label">Start from your space</div>

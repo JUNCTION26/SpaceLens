@@ -9,6 +9,7 @@ import { useUi } from '../../ui/uiStore';
 import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from '../layout/progress';
+import { takePendingBrief } from '../demo/starts';
 import './intent.css';
 
 const EXAMPLES = [
@@ -46,6 +47,9 @@ export function IntentPanel() {
       setText(t);
       void compileRef.current(t);
     };
+    // A one-click start may have left a brief to run as soon as this panel opens.
+    const pending = takePendingBrief();
+    if (pending) { setText(pending); void compileRef.current(pending); }
     window.addEventListener('spacelens:request', on);
     return () => window.removeEventListener('spacelens:request', on);
   }, []);
