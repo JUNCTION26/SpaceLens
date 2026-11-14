@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { useUi, type CaptureKind } from './uiStore';
 import { Settings } from './Settings';
+import './home.css';
 
 const OPTIONS: Array<{ kind: CaptureKind; title: string; text: string; icon: string }> = [
   { kind: 'scan', title: 'Scan with phone', text: 'Walk the room with your camera.', icon: 'M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2M7 12h10' },
@@ -31,12 +32,31 @@ function Hero() {
       const mid = iso((a.x + b.x) / 2, (a.y + b.y) / 2, 0);
       return { x: mid[0], y: mid[1] + 16, t: `${Math.hypot(b.x - a.x, b.y - a.y).toFixed(2)} m` };
     });
-    return { floor: path(0), ceil: path(h), verticals, vb, labels };
+    const cx = poly.reduce((a, p) => a + p.x, 0) / poly.length;
+    const cy = poly.reduce((a, p) => a + p.y, 0) / poly.length;
+    const boxAt = (x: number, y: number, w: number, d: number, bh: number) => {
+      const c = [[x, y], [x + w, y], [x + w, y + d], [x, y + d]];
+      const top = c.map(([a, b], i) => `${i ? 'L' : 'M'}${iso(a, b, bh).join(' ')}`).join(' ') + ' Z';
+      const front = [[x + w, y], [x + w, y + d], [x + w, y + d, bh], [x + w, y, bh]].map(([a, b, z = 0], i) => `${i ? 'L' : 'M'}${iso(a, b, z).join(' ')}`).join(' ') + ' Z';
+      const side = [[x, y + d], [x + w, y + d], [x + w, y + d, bh], [x, y + d, bh]].map(([a, b, z = 0], i) => `${i ? 'L' : 'M'}${iso(a, b, z).join(' ')}`).join(' ') + ' Z';
+      return { top, front, side };
+    };
+    const furniture = [
+      boxAt(cx - 1.4, cy - 1.2, 2, 0.9, 0.45),
+      boxAt(cx + 0.2, cy + 0.3, 0.9, 0.9, 0.42),
+      boxAt(cx - 1.2, cy + 0.4, 0.6, 0.6, 0.75),
+    ];
+    return { floor: path(0), ceil: path(h), verticals, vb, labels, furniture };
   }, []);
   return (
     <svg className="hero-svg" viewBox={geo.vb} role="img" aria-label="Sample room outline rising into 3D">
       <path className="hero-floor" d={geo.floor} pathLength={1} />
       <path className="hero-walls" d={geo.verticals} />
+      {geo.furniture.map((f, i) => (
+        <g key={i} className="hero-furn" style={{ animationDelay: `${1.6 + i * 0.25}s` }}>
+          <path className="hf-side" d={f.side} /><path className="hf-front" d={f.front} /><path className="hf-top" d={f.top} />
+        </g>
+      ))}
       <path className="hero-ceil" d={geo.ceil} pathLength={1} />
       {geo.labels.map((l, i) => <text key={i} className="hero-label" x={l.x} y={l.y} textAnchor="middle">{l.t}</text>)}
     </svg>
@@ -56,7 +76,13 @@ export function Home() {
   const setMode = useStore((s) => s.setMode);
   const openCapture = useUi((s) => s.openCapture);
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
-  const [open, setOpen] = useState(false);
+  const recent = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('spacelens.model.v1');
+      const m = raw ? (JSON.parse(raw) as { name?: string; spaces?: unknown[] }) : null;
+      return m && m.spaces && m.spaces.length ? (m.name || 'Untitled room') : null;
+    } catch { return null; }
+  }, []);
   return (
     <div className="home">
       <header className="home-top">
@@ -67,21 +93,27 @@ export function Home() {
         <div className="home-copy">
           <h1>Measure a room, redesign it, walk through it.</h1>
           <p className="muted">Turn a scan, photo or floor plan into a measured room. Try layouts that fit, then step inside.</p>
-          {!open ? (
-            <button className="btn btn-primary btn-xl" onClick={() => setOpen(true)} aria-expanded={false}>Create a space</button>
-          ) : (
-            <div className="home-options">
-              {OPTIONS.map((o, i) => (
-                <button key={o.kind} className="card home-option" style={{ animationDelay: `${i * 50}ms` }} onClick={() => openCapture(o.kind)}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d={o.icon} /></svg>
-                  <span><strong>{o.title}</strong><span className="muted">{o.text}</span></span>
-                </button>
-              ))}
+          <h2 className="home-create">Create a space</h2>
+          <div className="home-options">
+            {OPTIONS.map((o, i) => (
+              <button key={o.kind} className="card home-option" style={{ animationDelay: `${i * 50}ms` }} onClick={() => openCapture(o.kind)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d={o.icon} /></svg>
+                <span><strong>{o.title}</strong><span className="muted">{o.text}</span></span>
+              </button>
+            ))}
+          </div>
+          <div className="home-secondary">
+            <button className="btn" onClick={() => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); }}>
+              Try the sample room <span className="chip">Sample</span>
+            </button>
+            <button className="btn btn-ghost home-demo" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Watch a guided demo</button>
+          </div>
+          {recent && (
+            <div className="home-recent">
+              <span className="muted">Recent</span>
+              <button className="card home-recent-item" onClick={() => setMode('design')}>{recent}<span className="muted">Open</span></button>
             </div>
           )}
-          <button className="btn btn-ghost" onClick={() => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); }}>
-            Open sample room <span className="chip">Sample</span>
-          </button>
         </div>
         <div className="home-art"><Hero /></div>
       </section>

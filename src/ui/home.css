@@ -1,0 +1,22 @@
+.home-create { font-size: 1.1rem; margin: 1.25rem 0 .6rem; }
+.home .home-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.home .home-option { display: flex; gap: .7rem; align-items: flex-start; text-align: left; padding: .9rem; min-height: 84px; }
+.home .home-option svg { width: 30px; height: 30px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.home .home-option strong { display: block; margin-bottom: .2rem; }
+.home-secondary { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; align-items: center; }
+.home-demo { text-decoration: underline; text-underline-offset: 3px; }
+.home-recent { margin-top: 1rem; display: grid; gap: .35rem; }
+.home-recent-item { display: flex; justify-content: space-between; padding: .6rem .8rem; text-align: left; }
+.hero-furn { opacity: 0; animation: heroFurn .6s ease-out forwards; }
+.hero-furn path { stroke: currentColor; stroke-width: .8; }
+.hf-top { fill: color-mix(in srgb, currentColor 30%, transparent); }
+.hf-front { fill: color-mix(in srgb, currentColor 18%, transparent); }
+.hf-side { fill: color-mix(in srgb, currentColor 10%, transparent); }
+@keyframes heroFurn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.coach-ring { position: fixed; z-index: 90; border: 2px solid var(--accent, #4f8cff); border-radius: 10px; pointer-events: none; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent, #4f8cff) 25%, transparent); transition: all .2s; }
+.coach-tip { position: fixed; z-index: 91; background: var(--panel, #fff); color: var(--text, inherit); border: 1px solid var(--border, #ccc); border-radius: 12px; padding: .8rem .9rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); display: grid; gap: .3rem; }
+.coach-tip p { margin: 0; }
+.coach-count { font-size: .75rem; opacity: .7; }
+.coach-actions { display: flex; justify-content: flex-end; gap: .4rem; margin-top: .3rem; }
+@media (max-width: 640px) { .home .home-options { grid-template-columns: 1fr; } .home .home-option { min-height: 0; } }
+@media (prefers-reduced-motion: reduce) { .hero-furn { animation: none; opacity: 1; } }
