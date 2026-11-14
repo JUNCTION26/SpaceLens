@@ -1,22 +1,23 @@
-.export { display: grid; gap: 10px; }
-.export-card { display: grid; gap: 8px; }
-.export-card p { margin: 0; }
-.export-head { display: flex; align-items: center; gap: 8px; }
-.export-head b { margin-right: auto; }
-.export-preview { background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 8px; }
-.export-preview svg { width: 100%; height: auto; max-height: 62vh; display: block; }
-.export-toggles { align-items: center; gap: 12px; flex-wrap: wrap; }
-.export-toggles .btn { margin-left: auto; }
-.export-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
-.export-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.export-tile { display: grid; gap: 3px; justify-items: start; text-align: left; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s, transform .15s; }
-.export-tile:hover, .export-tile:focus-visible { border-color: var(--accent, #4a8); transform: translateY(-1px); }
-.export-tile .muted { font-size: 12px; }
-.export-icon { color: var(--accent, #4a8); margin-bottom: 2px; }
-.export-size { font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
-.export-copied { margin: 0; font-size: 13px; color: var(--ok, #3a8); }
-.export-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.export-table td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
-.export-table td:not(:first-child) { text-align: right; }
-.export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.export { display: grid; gap: 12px; font-size: 13px; }
+.export-primary { width: 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; }
+.export-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+.export-list li + li { border-top: 1px solid var(--line); }
+.export-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.export-row:hover, .export-row:focus-visible { background: var(--panel-2); }
+.export-row svg { color: var(--muted, currentColor); opacity: .8; flex: none; }
+.export-name { flex: 1; }
+.export-size { font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+.export-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+.export-preview svg { width: 100%; height: auto; max-height: 160px; display: block; }
+.export-more { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: inherit; font: inherit; opacity: .75; cursor: pointer; justify-self: start; }
+.export-more:hover { opacity: 1; }
+.export-section { display: grid; gap: 8px; }
+.export-section > .btn { justify-self: start; }
+.export-label { font-size: 12px; opacity: .6; }
+.export-toggles { display: flex; gap: 12px; flex-wrap: wrap; }
+.export-toggle { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.export-table { width: 100%; border-collapse: collapse; }
+.export-table td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.export-table td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; }
 .export-rates input { width: 100%; }

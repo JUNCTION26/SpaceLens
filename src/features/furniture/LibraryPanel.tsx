@@ -5,6 +5,7 @@ import type { FurnitureItem, PriceStatus } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, makeOwnItem, variantsFor } from './catalog';
 import type { CatalogEntry } from './catalog';
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
+import { Icon } from '../../ui/icons';
 import './furniture.css';
 
 const cm = (m: number) => Math.round(m * 100);
@@ -27,11 +28,11 @@ function Footprint({ e }: { e: Pick<CatalogEntry, 'w' | 'd' | 'category' | 'colo
   );
 }
 
-const STATUS: Record<PriceStatus, { text: string; cls: string }> = {
-  estimated: { text: 'estimated', cls: 'chip-warn' },
-  catalog: { text: 'catalog', cls: 'chip-ok' },
-  user: { text: 'your price', cls: 'chip-ok' },
-  owned: { text: 'owned', cls: 'chip-ok' },
+const STATUS: Record<PriceStatus, { text: string }> = {
+  estimated: { text: 'estimated' },
+  catalog: { text: 'catalog' },
+  user: { text: 'your price' },
+  owned: { text: 'owned' },
 };
 
 export function LibraryPanel() {
@@ -44,6 +45,7 @@ export function LibraryPanel() {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<string | null>(null);
   const [fits, setFits] = useState(false);
+  const [billOpen, setBillOpen] = useState(false);
   const [own, setOwn] = useState({ open: false, name: '', w: '', d: '', h: '', category: 'storage-cabinet' });
 
   const center = () => {
@@ -104,11 +106,25 @@ export function LibraryPanel() {
     if (Number.isFinite(n) && n >= 0) dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { priceSek: n, priceStatus: 'user', owned: false } });
   };
 
+  const catValue = fits ? '__fits' : cat ?? '';
   return (
     <div className="furniture-panel">
+      <div className="furniture-filters">
+        <div className="furniture-search">
+          <Icon name="search" size={14} />
+          <input type="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search furniture" />
+        </div>
+        <select className="furniture-select" value={catValue} aria-label="Category"
+          onChange={(e) => { const v = e.target.value; setFits(v === '__fits'); setCat(v && v !== '__fits' ? v : null); }}>
+          <option value="">All</option>
+          {room && <option value="__fits">Fits room</option>}
+          {CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}
+        </select>
+      </div>
+
       {sel && (
-        <section className="card furniture-sel">
-          <div className="row furniture-head"><strong>{sel.name}</strong><span className="muted">{dims(sel)}</span></div>
+        <section className="furniture-sel">
+          <div className="furniture-head"><strong>{sel.name}</strong><span className="muted">{dims(sel)}</span></div>
           <div className="furniture-swatches" role="group" aria-label="Finish">
             {variantsFor(sel).map((v) => (
               <button key={v.color + v.material} title={v.material || v.color} aria-label={v.material || v.color} aria-pressed={sel.color === v.color}
@@ -117,44 +133,35 @@ export function LibraryPanel() {
             ))}
             {sel.material && <span className="muted">{sel.material}</span>}
           </div>
-          <div className="row furniture-actions">
+          <div className="furniture-actions">
             <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { locked: !sel.locked } })}>{sel.locked ? 'Unlock' : 'Lock'}</button>
             <button className="btn btn-sm" onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: sel.owned ? { owned: false, priceStatus: 'estimated' } : { owned: true, priceStatus: 'owned' } })}>{sel.owned ? 'Not owned' : 'I own this'}</button>
-            <button className="btn btn-sm" onClick={() => setPrice(sel)}>Set my price</button>
-            <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); select(null); }}>Remove</button>
+            <button className="btn btn-sm" onClick={() => setPrice(sel)}>Set price</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); select(null); }} aria-label="Remove"><Icon name="trash" size={14} /></button>
           </div>
         </section>
       )}
 
-      <input className="field" type="search" placeholder="Search furniture" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search furniture" />
-      <div className="furniture-chips">
-        <button className={`chip${fits ? ' furniture-on' : ''}`} aria-pressed={fits} onClick={() => setFits(!fits)} title="Only items that fit this room">Fits room</button>
-        <button className={`chip${cat === null ? ' furniture-on' : ''}`} onClick={() => setCat(null)}>All</button>
-        {CATEGORIES.map((c) => <button key={c} className={`chip${cat === c ? ' furniture-on' : ''}`} onClick={() => setCat(cat === c ? null : c)}>{label(c)}</button>)}
-      </div>
-
       <div className="furniture-grid">
         {list.map((e) => (
-          <div key={e.id} className="card furniture-card" draggable title="Drag onto the plan"
+          <button key={e.id} className="furniture-card" draggable title="Drag onto the plan, or click to add"
+            onClick={() => addFromCatalog(e.id)}
             onDragStart={(ev) => { ev.dataTransfer.setData(CATALOG_DND, e.id); ev.dataTransfer.setData('text/plain', e.name); ev.dataTransfer.effectAllowed = 'copy'; }}>
             <Footprint e={e} />
-            <div className="furniture-info">
-              <strong>{e.name}</strong>
-              <span className="muted">{dims(e)}</span>
-              <span className="muted">~{fmtSek(e.priceSek)}</span>
-            </div>
-            <button className="btn btn-sm btn-primary" onClick={() => addFromCatalog(e.id)} aria-label={`Add ${e.name}`}>Add</button>
-          </div>
+            <span className="furniture-name">{e.name}</span>
+            <span className="furniture-meta">{cm(e.w)}×{cm(e.d)} cm</span>
+            <span className="furniture-meta">{fmtSek(e.priceSek)}</span>
+          </button>
         ))}
         {list.length === 0 && <p className="muted">No matches.</p>}
       </div>
 
       {own.open ? (
-        <section className="card furniture-own">
+        <section className="furniture-own">
           <input className="field" placeholder="Name" value={own.name} onChange={(e) => setOwn({ ...own, name: e.target.value })} />
           <div className="row">
             {(['w', 'd', 'h'] as const).map((k) => (
-              <input key={k} className="field" inputMode="numeric" placeholder={{ w: 'Width cm', d: 'Depth cm', h: 'Height cm' }[k]} value={own[k]} onChange={(e) => setOwn({ ...own, [k]: e.target.value })} />
+              <input key={k} className="field" inputMode="numeric" placeholder={{ w: 'W cm', d: 'D cm', h: 'H cm' }[k]} value={own[k]} onChange={(e) => setOwn({ ...own, [k]: e.target.value })} />
             ))}
           </div>
           <select className="field" value={own.category} onChange={(e) => setOwn({ ...own, category: e.target.value })}>
@@ -166,37 +173,45 @@ export function LibraryPanel() {
           </div>
         </section>
       ) : (
-        <button className="btn" onClick={() => setOwn({ ...own, open: true })}>Add my own item</button>
+        <button className="furniture-link" onClick={() => setOwn({ ...own, open: true })}><Icon name="plus" size={14} />Custom item</button>
       )}
 
-      <section className="furniture-bill">
-        <h3>Bill of furniture</h3>
-        {groups.map(([g, items]) => (
-          <div key={g} className="furniture-group">
-            <div className="row furniture-ghead"><span>{label(g)}</span><span className="muted">{fmtSek(items.reduce((n, f) => n + (f.owned ? 0 : f.priceSek), 0))}</span></div>
-            <ul className="list">
-              {items.map((f) => (
-                <li key={f.id} className="furniture-line" onClick={() => select({ kind: 'furniture', id: f.id })}>
-                  <span>{f.name}{f.locked ? ' (locked)' : ''}<br /><span className="muted">{dims(f)}</span></span>
-                  <span className={`chip ${STATUS[f.priceStatus].cls}`}>{STATUS[f.priceStatus].text}</span>
-                  <span className="furniture-price">{f.owned ? '0 kr' : fmtSek(f.priceSek)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-        {model.furniture.length > 0 && <div className="row furniture-split muted"><span>Owned {ownedN}</span><span>To buy {model.furniture.length - ownedN}</span></div>}
-        <div className="row furniture-total"><strong>Total</strong><strong>{fmtSek(total)}</strong></div>
-        {budget != null && budget > 0 && (<>
-          <div className="furniture-bar" role="meter" aria-valuemin={0} aria-valuemax={budget} aria-valuenow={total} aria-label="Budget used">
-            <span className={`furniture-bar-fill ${tone}`} style={{ width: `${Math.min(100, (total / budget) * 100)}%` }} />
-          </div>
-          <div className={`chip ${total <= budget ? 'chip-ok' : 'chip-bad'}`}>
-            {total <= budget ? `${fmtSek(budget - total)} under budget` : `${fmtSek(total - budget)} over budget (${fmtSek(budget)})`}
-          </div>
-        </>)}
-        {model.furniture.length > 0 && <button className="btn btn-sm" onClick={copyCsv}>Copy CSV</button>}
-      </section>
+      {model.furniture.length > 0 && (
+        <section className="furniture-bill">
+          <button className="furniture-summary" aria-expanded={billOpen} onClick={() => setBillOpen(!billOpen)}>
+            <Icon name={billOpen ? 'chevronDown' : 'chevronRight'} size={14} />
+            <span>{model.furniture.length} items</span>
+            <span className={`furniture-sum ${tone}`}>{fmtSek(total)}{budget ? ` / ${fmtSek(budget)}` : ''}</span>
+          </button>
+          {budget != null && budget > 0 && (
+            <div className="furniture-bar" role="meter" aria-valuemin={0} aria-valuemax={budget} aria-valuenow={total} aria-label="Budget used">
+              <span className={`furniture-bar-fill ${tone}`} style={{ width: `${Math.min(100, (total / budget) * 100)}%` }} />
+            </div>
+          )}
+          {billOpen && (<>
+            {groups.map(([g, items]) => (
+              <div key={g} className="furniture-group">
+                <div className="furniture-ghead"><span>{label(g)}</span><span>{fmtSek(items.reduce((n, f) => n + (f.owned ? 0 : f.priceSek), 0))}</span></div>
+                <ul className="furniture-lines">
+                  {items.map((f) => (
+                    <li key={f.id}>
+                      <button className="furniture-line" onClick={() => select({ kind: 'furniture', id: f.id })}>
+                        <span>{f.name}{f.locked ? ' (locked)' : ''}</span>
+                        <span className="furniture-status">{STATUS[f.priceStatus].text}</span>
+                        <span className="furniture-price">{f.owned ? '0 kr' : fmtSek(f.priceSek)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <div className="furniture-foot muted">
+              <span>{ownedN} owned · {model.furniture.length - ownedN} to buy</span>
+              <button className="furniture-link" onClick={copyCsv}><Icon name="copy" size={14} />Copy CSV</button>
+            </div>
+          </>)}
+        </section>
+      )}
     </div>
   );
 }

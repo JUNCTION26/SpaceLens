@@ -7,6 +7,7 @@ import { quantities } from './quantities';
 import { exportGlb } from './glb';
 import { validateModel } from './validate';
 import { shareLink } from './share';
+import { Icon } from '../../ui/icons';
 import './export.css';
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'spacelens';
@@ -20,18 +21,6 @@ function download(name: string, data: Blob | string, type = 'text/plain') {
 }
 
 const kb = (n: number) => (n < 1024 ? `${Math.max(1, Math.round(n))} B` : n < 1048576 ? `~${Math.round(n / 1024)} KB` : `~${(n / 1048576).toFixed(1)} MB`);
-
-const ICONS: Record<string, string> = {
-  pdf: 'M6 2h9l5 5v15H6z M15 2v5h5 M9 13h6 M9 17h6',
-  svg: 'M4 4h16v16H4z M4 12h16 M12 4v16',
-  csv: 'M4 5h16v14H4z M4 10h16 M4 15h16 M10 5v14',
-  glb: 'M12 2l9 5v10l-9 5-9-5V7z M12 12l9-5 M12 12v10 M12 12L3 7',
-  json: 'M8 4c-2 0-2 2-2 4s-2 4-2 4 2 0 2 4 0 4 2 4 M16 4c2 0 2 2 2 4s2 4 2 4-2 0-2 4 0 4-2 4',
-  link: 'M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1 M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1',
-};
-const Icon = ({ k }: { k: string }) => (
-  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICONS[k]} /></svg>
-);
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -122,60 +111,67 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
   const anyCost = qRows.some((r) => r[2] !== null);
 
   const glbEst = 2000 + furniture.length * 1500 + model.spaces.reduce((t, sp) => t + sp.walls.length * 900, 0);
-  const tiles: Array<{ k: string; name: string; desc: string; size: string; run: () => void }> = [
-    { k: 'pdf', name: 'PDF', desc: 'Plan and schedule, via print', size: '2 pages', run: printPdf },
-    { k: 'svg', name: 'SVG', desc: 'Scalable dimensioned plan', size: kb(svg.length), run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
-    { k: 'csv', name: 'CSV', desc: `Schedule, ${furniture.length} items, ${fmtSek(total)}`, size: kb(csv.length), run: () => download(`${base}-schedule.csv`, csv, 'text/csv') },
-    { k: 'glb', name: '3D GLB', desc: 'For Blender, SketchUp or a viewer', size: kb(glbEst), run: () => void glb() },
-    { k: 'json', name: 'Project file', desc: 'Full model, re-importable', size: kb(json.length), run: () => download(`${base}.json`, json, 'application/json') },
-    { k: 'link', name: 'Share link', desc: 'Read-only copy, no photos', size: kb(json.length / 4), run: () => void share() },
+  const rows: Array<{ k: string; icon: string; name: string; desc: string; size: string; run: () => void }> = [
+    { k: 'svg', icon: 'image', name: 'SVG', desc: 'Dimensioned plan', size: kb(svg.length), run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
+    { k: 'csv', icon: 'grid', name: 'CSV', desc: `${furniture.length} items, ${fmtSek(total)}`, size: kb(csv.length), run: () => download(`${base}-schedule.csv`, csv, 'text/csv') },
+    { k: 'glb', icon: 'cube', name: '3D model', desc: 'GLB for Blender or SketchUp', size: kb(glbEst), run: () => void glb() },
+    { k: 'json', icon: 'file', name: 'Project file', desc: 'Re-importable JSON', size: kb(json.length), run: () => download(`${base}.json`, json, 'application/json') },
+    { k: 'link', icon: 'share', name: 'Share link', desc: 'Read-only, no photos', size: '', run: () => void share() },
   ];
+  const [more, setMore] = useState(false);
   const toggle = (k: keyof PlanOptions, label: string) => (
     <label className="export-toggle"><input type="checkbox" checked={layers[k]} onChange={(e) => setLayers({ ...layers, [k]: e.target.checked })} />{label}</label>
   );
 
   return (
     <div className="export">
-      <div className="card export-card">
-        <div className="export-head"><b>Floor plan</b></div>
-        <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
-        <div className="row export-toggles">
-          {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
-          <button className="btn btn-primary btn-sm" onClick={printSheet}>Print room sheet</button>
-        </div>
-      </div>
+      <button className="btn btn-primary export-primary" onClick={printPdf}><Icon name="download" size={14} />Download PDF</button>
 
-      <div className="export-tiles">
-        {tiles.map((t) => (
-          <button key={t.k} className="card export-tile" onClick={t.run}>
-            <span className="export-icon"><Icon k={t.k} /></span>
-            <b>{t.k === 'link' && shared ? 'Link copied' : t.name}</b>
-            <span className="muted">{t.desc}</span>
-            <span className="export-size">{t.size}</span>
-          </button>
+      <ul className="export-list">
+        {rows.map((r) => (
+          <li key={r.k}>
+            <button className="export-row" onClick={r.run} title={r.desc}>
+              <Icon name={r.icon} size={15} />
+              <span className="export-name">{r.k === 'link' && shared ? 'Link copied' : r.name}</span>
+              <span className="export-size">{r.size}</span>
+            </button>
+          </li>
         ))}
-      </div>
-      <div className="row">
-        <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}>Import JSON</button>
-        <input ref={fileRef} type="file" accept=".json,application/json" hidden
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
-      </div>
+        <li>
+          <button className="export-row" onClick={() => fileRef.current?.click()}>
+            <Icon name="plus" size={15} /><span className="export-name">Import project</span><span className="export-size" />
+          </button>
+          <input ref={fileRef} type="file" accept=".json,application/json" hidden
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
+        </li>
+      </ul>
 
-      <div className="card export-card">
-        <div className="export-head"><b>Renovation quantities</b><span className="chip">Estimate</span></div>
-        <table className="export-table">
-          <tbody>
-            {qRows.map(([k, v, cost]) => (
-              <tr key={k}><td>{k}</td><td>{v}</td>{anyCost && <td>{cost !== null && Number.isFinite(cost) ? fmtSek(cost) : ''}</td>}</tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="export-rates">
-          <label className="field">Floor kr/m²<input inputMode="decimal" value={rates.floor} onChange={(e) => setRates({ ...rates, floor: e.target.value })} /></label>
-          <label className="field">Paint kr/l<input inputMode="decimal" value={rates.paint} onChange={(e) => setRates({ ...rates, paint: e.target.value })} /></label>
-          <label className="field">Skirting kr/m<input inputMode="decimal" value={rates.skirting} onChange={(e) => setRates({ ...rates, skirting: e.target.value })} /></label>
+      <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+
+      <button className="export-more" aria-expanded={more} onClick={() => setMore(!more)}>
+        <Icon name={more ? 'chevronDown' : 'chevronRight'} size={14} />More
+      </button>
+      {more && (
+        <div className="export-section">
+          <div className="export-toggles">
+            {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
+          </div>
+          <button className="btn btn-sm" onClick={printSheet}>Print room sheet</button>
+          <div className="export-label">Quantities (estimate)</div>
+          <table className="export-table">
+            <tbody>
+              {qRows.map(([k, v, cost]) => (
+                <tr key={k}><td>{k}</td><td>{v}</td>{anyCost && <td>{cost !== null && Number.isFinite(cost) ? fmtSek(cost) : ''}</td>}</tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="export-rates">
+            <label className="field">Floor kr/m²<input inputMode="decimal" value={rates.floor} onChange={(e) => setRates({ ...rates, floor: e.target.value })} /></label>
+            <label className="field">Paint kr/l<input inputMode="decimal" value={rates.paint} onChange={(e) => setRates({ ...rates, paint: e.target.value })} /></label>
+            <label className="field">Skirting kr/m<input inputMode="decimal" value={rates.skirting} onChange={(e) => setRates({ ...rates, skirting: e.target.value })} /></label>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
