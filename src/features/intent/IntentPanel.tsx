@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import type { Requirements } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
-import { generateLayouts } from '../layout/solver';
+import { designRoom, type Stage } from '../design/pipeline';
+import { useReports } from '../design/reportStore';
 import { useUi } from '../../ui/uiStore';
 import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
@@ -30,6 +31,11 @@ export function IntentPanel() {
   const [adjust, setAdjust] = useState(false);
   const [thread, setThread] = useState<Array<{ ask: string; reply: string; diff: string[]; meta: CompileMeta }>>([]);
   const compileRef = useRef<(t?: string) => Promise<void>>(async () => {});
+  const runRef = useRef<AbortController | null>(null);
+  const briefRef = useRef('');
+  const stages = useReports((s) => s.stages);
+  const running = useReports((s) => s.running);
+  useEffect(() => () => runRef.current?.abort(), []);
 
   useEffect(() => {
     const on = (e: Event) => {
@@ -48,6 +54,7 @@ export function IntentPanel() {
     const q = input ?? text;
     if (!q.trim()) return;
     setCompiling(true);
+    briefRef.current = q;
     try {
       const { req: r, meta: m } = await compileWithMeta(q, useStore.getState().model);
       setReq(r); setMeta(m); setTriedGen(false); setThread([]);
@@ -71,24 +78,35 @@ export function IntentPanel() {
   }
 
   async function generate(r: Requirements) {
+    runRef.current?.abort();
+    const ctrl = new AbortController();
+    runRef.current = ctrl;
     const st = useStore.getState();
-    st.setBusy('Generating layouts');
+    const rs = useReports.getState();
+    st.setBusy('Designing');
+    rs.setStages([], true);
     try {
-      const { candidates, infeasibility } = await generateLayouts(st.model, r, {
-        variants: 4,
-        onProgress: (p) => useStore.getState().setBusy(`Generating layouts ${Math.round(p * 100)}%`),
+      const res = await designRoom(st.model, r, {
+        variants: 3, signal: ctrl.signal, brief: briefRef.current,
+        onStage: (s) => { if (runRef.current === ctrl) useReports.getState().setStages(s); },
       });
-      st.setCandidates(candidates, infeasibility);
+      if (runRef.current !== ctrl) return;
+      useReports.getState().setReports(res.reports);
+      st.setCandidates(res.candidates, res.infeasibility);
       st.setRequirements(r);
       setTriedGen(true);
-      if (candidates.length) {
-        st.toast(`${candidates.length} layout${candidates.length > 1 ? 's' : ''} ready`, 'ok');
+      if (res.candidates.length) {
+        st.toast(`${res.candidates.length} layout${res.candidates.length > 1 ? 's' : ''} ready`, 'ok');
         useUi.getState().setTab('design', 'layouts');
       } else st.toast('No layout fits. See reasons.', 'warn');
     } catch (e) {
-      st.toast(`Layout failed: ${(e as Error).message}`, 'error');
+      if ((e as Error).name !== 'AbortError') st.toast(`Layout failed: ${(e as Error).message}`, 'error');
     } finally {
-      useStore.getState().setBusy(null);
+      if (runRef.current === ctrl) {
+        runRef.current = null;
+        useStore.getState().setBusy(null);
+        useReports.getState().setStages(useReports.getState().stages, false);
+      }
     }
   }
 
@@ -136,6 +154,7 @@ export function IntentPanel() {
         </div>
       )}
       {meta?.error && <CompilerBadge meta={meta} />}
+      {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
       {req && (
         <div className="intent-summary">
@@ -271,6 +290,31 @@ export function IntentPanel() {
     </div>
   );
 }
+
+const STATUS_ICON: Record<Stage['status'], string> = { running: '', done: 'check', skipped: 'minus', failed: 'alert' };
+
+/** What the pipeline is doing right now, with honest timings and the model behind each step. */
+function StageList({ stages, running, onStop }: { stages: Stage[]; running: boolean; onStop: () => void }) {
+  const total = stages.reduce((s, x) => s + (x.ms ?? 0), 0);
+  return (
+    <div className="intent-stages" role="status" aria-live="polite" aria-busy={running}>
+      <ol>
+        {stages.map((s) => (
+          <li key={s.id} className={`intent-stage is-${s.status}`}>
+            <span className="intent-stage-mark">{s.status === 'running' ? <i aria-hidden="true" /> : <Icon name={STATUS_ICON[s.status]} size={12} />}</span>
+            <span className="intent-stage-label">{s.label}{s.detail && <span className="muted"> · {s.detail}</span>}</span>
+            <span className="intent-stage-meta">{[s.model, s.ms != null ? fmtMs(s.ms) : null].filter(Boolean).join(' · ')}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="intent-stage-foot muted">
+        {running ? <button className="btn btn-ghost btn-sm" onClick={onStop}>Stop</button> : <span>{fmtMs(total)} total</span>}
+      </div>
+    </div>
+  );
+}
+
+const fmtMs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 
 function CompilerBadge({ meta }: { meta: CompileMeta }) {
   const tokens = meta.inTokens + meta.outTokens;
