@@ -489,7 +489,23 @@ function Joystick({ walk }: { walk: MutableRefObject<Walk> }) {
 
 /* ---------- Main ---------- */
 
+/** Backdrop colour for the 3D view that sits quietly next to the rest of the UI in either theme. */
+function useBackdrop() {
+  const theme = useStore((s) => s.settings.theme);
+  const [sysLight, setSysLight] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: light)').matches);
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return;
+    const mq = matchMedia('(prefers-color-scheme: light)');
+    const on = () => setSysLight(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const light = theme === 'light' || (theme === 'system' && sysLight);
+  return light ? '#e4e4e8' : '#18181b';
+}
+
 export function SceneView() {
+  const backdrop = useBackdrop();
   const room = useRoom();
   const { model } = room;
   const shown = useShownFurniture();
@@ -609,11 +625,11 @@ export function SceneView() {
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
 
   return (
-    <div className="scene3d" ref={wrap} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+    <div className="scene3d" ref={wrap} style={{ background: backdrop }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <Canvas shadows dpr={[1, 2]} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
         gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
-        {xrMode !== 'immersive-ar' && <color attach="background" args={['#1b1e24']} />}
-        <fog attach="fog" args={['#1b1e24', room.size * 2.5, room.size * 7]} />
+        {xrMode !== 'immersive-ar' && <color attach="background" args={[backdrop]} />}
+        <fog attach="fog" args={[backdrop, room.size * 2.5, room.size * 7]} />
         <hemisphereLight args={['#f4f1ea', '#5b5348', 0.18]} />
         <Sun hour={hour} room={room} />
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
