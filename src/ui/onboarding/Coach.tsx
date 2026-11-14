@@ -4,9 +4,11 @@ import { useStore } from '../../core/store';
 const KEY = 'spacelens.coach.done.v1';
 
 const nav = (k: string) => () => document.querySelector(`[data-nav="${k}"]`);
+const visible = (el: Element | null) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? el : null; };
 
 const STEPS: Array<{ title: string; text: string; find: () => Element | null }> = [
-  { title: 'Edit the room', text: 'Drag corners or click a size to edit.', find: () => document.querySelector('.plan2d-toolbar') ?? document.querySelector('.pane-2d') },
+  // Points at a real size label on the plan; skipped when the plan is hidden (3D only).
+  { title: 'Edit the room', text: 'Click a size to type the real length, or drag a corner.', find: () => visible(document.querySelector('.pane-2d .plan2d-dim-label')) ?? visible(document.querySelector('.pane-2d .plan2d-vertex')) },
   { title: 'Describe it', text: 'Say how you use the room.', find: nav('describe') },
   { title: 'Pick a layout', text: 'Compare layouts that fit.', find: nav('layouts') },
   { title: 'Walk through', text: 'Step inside in 3D.', find: nav('walk') },
