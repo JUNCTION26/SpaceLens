@@ -7,6 +7,25 @@
 .scene3d-ib:hover { color: var(--text); background: var(--hover); }
 .scene3d-ib.on { color: var(--text); background: var(--press); }
 .scene3d-sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
+.scene3d-q { font-size: 14px; font-weight: 700; line-height: 1; }
+.scene3d-tb { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 6px 0 9px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.scene3d-tb svg { width: 14px; height: 14px; }
+.scene3d-tb:hover, .scene3d-tb.on { color: var(--text); background: var(--hover); }
+.scene3d-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scene3d-chip { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.scene3d-chip:hover, .scene3d-chip.on { background: var(--hover); }
+.scene3d-help dl { display: grid; gap: 6px; margin: 0; }
+.scene3d-help dl > div { display: flex; justify-content: space-between; gap: 12px; }
+.scene3d-help dt { font: 12px var(--mono); color: var(--muted); }
+.scene3d-help dd { margin: 0; text-align: right; }
+.scene3d-reticle { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .45); pointer-events: none; z-index: 2; }
+.scene3d-fade { animation: scene3d-fade 3.6s ease forwards; }
+@keyframes scene3d-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+.scene3d:fullscreen { width: 100vw; height: 100vh; min-height: 0; }
+.scene3d-ui, .scene3d-hint { transition: opacity .3s; }
+.scene3d.is-idle .scene3d-ui { opacity: 0; pointer-events: none; }
+.scene3d.is-idle { cursor: none; }
+@media (prefers-reduced-motion: reduce) { .scene3d-fade { animation-duration: 0s; animation-delay: 3s; } }
 .scene3d-opts { display: flex; flex-direction: column; gap: 10px; width: 232px; max-width: 100%; padding: 12px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); font-size: 13px; color: var(--text); }
 .scene3d-row { display: flex; align-items: center; gap: 8px; }
 .scene3d-row select { flex: 1; min-height: 28px; }
