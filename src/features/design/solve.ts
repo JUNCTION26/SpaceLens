@@ -233,9 +233,9 @@ function routeCheck(bases: RouteBase[], items: FurnitureItem[]): { ok: boolean; 
 // ---------------------------------------------------------------- groups
 type Spec =
   | { kind: 'fixed' }
-  | { kind: 'wall'; wall: number; t: number }
+  | { kind: 'wall'; wall: number; t: number; /** A single bed with its long side on the wall (daybed), open side +1 / -1. */ side?: 1 | -1 }
   | { kind: 'free'; x: number; y: number; rot: number }
-  | { kind: 'array'; x0: number; y0: number; x1: number; y1: number; rows: number; cols: number; rot: number; strategy: number; hug?: number; bench?: { gap: number } };
+  | { kind: 'array'; x0: number; y0: number; x1: number; y1: number; rows: number; cols: number; rot: number; strategy: number; hug?: number; bench?: { gap: number; per: number; align: number } };
 interface Group { id: string; roots: string[]; members: string[]; priority: number; fixed: boolean; kind: 'wall' | 'array' | 'free' | 'fixed'; optional: boolean; bench?: boolean }
 interface Placed { group: Group; spec: Spec; mirror: boolean; items: FurnitureItem[] }
 interface State { placed: Placed[]; items: FurnitureItem[]; deferred: string[]; dropped: string[]; score: number }
@@ -303,8 +303,13 @@ function buildGroups(ctx: Ctx, items: FurnitureItem[], fixed: Set<string>): Grou
 
 const withPose = (f: FurnitureItem, p: Pose): FurnitureItem => ({ ...f, x: p.x, y: p.y, rotation: p.rotation });
 
-function wallPose(ctx: Ctx, f: FurnitureItem, wall: number, t: number): Pose {
+function wallPose(ctx: Ctx, f: FurnitureItem, wall: number, t: number, side?: 1 | -1): Pose {
   const w = ctx.room.walls[wall];
+  if (side) {
+    // Long side on the wall: the item's right (side 1) or left (side -1) faces the wall.
+    const off = f.w / 2 + 0.006, n = w.n;
+    return { x: w.a.x + w.dir.x * t + n.x * off, y: w.a.y + w.dir.y * t + n.y * off, rotation: side === 1 ? Math.atan2(-n.y, -n.x) : Math.atan2(n.y, n.x) };
+  }
   const off = f.d / 2 + (f.clearance.back ?? 0) + 0.006;
   return { x: w.a.x + w.dir.x * t + w.n.x * off, y: w.a.y + w.dir.y * t + w.n.y * off, rotation: rotationFacing(w.n) };
 }
@@ -312,7 +317,7 @@ function wallPose(ctx: Ctx, f: FurnitureItem, wall: number, t: number): Pose {
 /** Root poses for a spec (several for a table array). */
 function rootPoses(ctx: Ctx, g: Group, spec: Spec): Pose[] | null {
   if (spec.kind === 'fixed') return g.roots.map((id) => { const f = ctx.byId.get(id)!; return { x: f.x, y: f.y, rotation: f.rotation }; });
-  if (spec.kind === 'wall') return [wallPose(ctx, ctx.byId.get(g.roots[0])!, spec.wall, spec.t)];
+  if (spec.kind === 'wall') return [wallPose(ctx, ctx.byId.get(g.roots[0])!, spec.wall, spec.t, spec.side)];
   if (spec.kind === 'free') return [{ x: spec.x, y: spec.y, rotation: spec.rot }];
   if (spec.bench) return benchPoses(ctx, g, spec);
   const n = g.roots.length, out: Pose[] = [];
@@ -336,31 +341,33 @@ function rootPoses(ctx: Ctx, g: Group, spec: Spec): Pose[] | null {
 }
 
 /**
- * Desk benches: pairs of desks back to back (users face each other across the pair), pairs side by
- * side in rows of `cols`, rows spread across the region with the chairs' pull-out space between them.
+ * Desk clusters: pairs of desks back to back (users face each other across the pair), `per` pairs side
+ * by side form a cluster, clusters in a row are split by an aisle of `gap`, rows spread across the
+ * region with the chairs' pull-out space between them. `align` -1 starts the rows at the region's
+ * low end along the row axis (next to the windows when the rows run away from them).
  */
 function benchPoses(ctx: Ctx, g: Group, spec: Extract<Spec, { kind: 'array' }>): Pose[] | null {
   const n = g.roots.length, f0 = ctx.byId.get(g.roots[0])!, W = f0.w, D = f0.d, pairs = Math.ceil(n / 2);
-  const gap = spec.bench!.gap;
+  const { gap, per, align } = spec.bench!;
   const u = { x: Math.cos(spec.rot), y: Math.sin(spec.rot) }, v = { x: -Math.sin(spec.rot), y: Math.cos(spec.rot) };
   const cx = (spec.x0 + spec.x1) / 2, cy = (spec.y0 + spec.y1) / 2;
-  // Half extents of the region along the bench axes (the region is axis aligned, rot is a multiple of 90 degrees).
   const ex = Math.abs(u.x) * (spec.x1 - spec.x0) / 2 + Math.abs(u.y) * (spec.y1 - spec.y0) / 2;
   const ey = Math.abs(v.x) * (spec.x1 - spec.x0) / 2 + Math.abs(v.y) * (spec.y1 - spec.y0) / 2;
   const rows = spec.rows, cols = spec.cols;
   if (rows * cols < pairs) return null;
   const half = D + Math.max(f0.clearance.front, 0.75); // a pair with its chairs' pull-out, from the centre line
-  const total = cols * W + (cols - 1) * gap;
-  if (total / 2 > ex + 1e-6) return null;
+  const rowLen = (k: number) => k * W + (Math.ceil(k / per) - 1) * gap;
+  if (rowLen(cols) / 2 > ex + 1e-6) return null;
   const ys = rows === 1 ? [0] : Array.from({ length: rows }, (_, i) => -ey + half + (i * (2 * ey - 2 * half)) / (rows - 1));
-  if (rows > 1 && ys[1] - ys[0] < 2 * half + 0.3) return null; // chairs of neighbouring rows would collide
+  if (rows > 1 && ys[1] - ys[0] < 2 * half + 0.6) return null; // a walkway between the chairs of neighbouring rows
   const out: Pose[] = [];
   let k = 0;
   for (let i = 0; i < rows && k < n; i++) {
     const inRow = Math.min(cols, pairs - i * cols);
-    const rowW = inRow * W + (inRow - 1) * gap;
+    const len = rowLen(inRow);
+    const start = align < 0 ? -ex : align > 0 ? ex - len : -len / 2;
     for (let j = 0; j < inRow && k < n; j++) {
-      const lx = -rowW / 2 + W / 2 + j * (W + gap), ly = ys[i];
+      const lx = start + W / 2 + j * W + Math.floor(j / per) * gap, ly = ys[i];
       const at = (dy: number) => ({ x: cx + u.x * lx + v.x * (ly + dy), y: cy + u.y * lx + v.y * (ly + dy) });
       out.push({ ...at(D / 2 + 0.002), rotation: spec.rot }); k++;
       if (k < n) { out.push({ ...at(-D / 2 - 0.002), rotation: spec.rot + Math.PI }); k++; }
@@ -380,7 +387,7 @@ function placeGroup(ctx: Ctx, others: FurnitureItem[], g: Group, spec: Spec, mir
   const fail = (cand: FurnitureItem[]) => (check ? fits(ctx, [...others, ...out], cand) : null);
   for (let k = 0; k < g.roots.length; k++) {
     let f = withPose(ctx.byId.get(g.roots[k])!, poses[k]);
-    if (mirror && spec.kind !== 'array' && asymmetric(f)) { f = { ...f, clearance: swapSides(f.clearance) }; ctx.swapped.add(f); }
+    if (mirror && spec.kind !== 'array' && !(spec.kind === 'wall' && spec.side) && asymmetric(f)) { f = { ...f, clearance: swapSides(f.clearance) }; ctx.swapped.add(f); }
     const why = fail([f]);
     if (why) return { fail: why, root: true };
     out.push(f); placed.set(f.id, f);
@@ -481,13 +488,13 @@ function extentsAlong(ctx: Ctx, items: FurnitureItem[], root: FurnitureItem, dir
   return [lo, hi];
 }
 
-function wallSlots(ctx: Ctx, g: Group): Spec[] {
+function wallSlots(ctx: Ctx, g: Group, side?: 1 | -1): Spec[] {
   const out: Spec[] = [];
   const root = ctx.byId.get(g.roots[0])!;
   for (const w of ctx.room.walls) {
-    if (w.len < root.w + 0.02) continue;
+    if (w.len < (side ? root.d : root.w) + 0.02) continue;
     const t0 = w.len / 2;
-    const trial = placeGroup(ctx, [], g, { kind: 'wall', wall: w.i, t: t0 }, false, false);
+    const trial = placeGroup(ctx, [], g, { kind: 'wall', wall: w.i, t: t0, side }, false, false);
     if ('fail' in trial) continue;
     const r = trial.items[0];
     const [lo, hi] = extentsAlong(ctx, trial.items.filter((f) => !OPTIONAL.has(f.category)), r, w.dir);
@@ -498,9 +505,18 @@ function wallSlots(ctx: Ctx, g: Group): Spec[] {
     for (const [s, e] of w.windows) ts.add(Math.min(tHi, Math.max(tLo, (s + e) / 2 - centreOff)));
     const span = tHi - tLo, n = Math.min(10, Math.floor(span / 0.2));
     for (let k = 1; k < n; k++) ts.add(tLo + (span * k) / n);
-    for (const t of [...ts].sort((a, b) => a - b)) out.push({ kind: 'wall', wall: w.i, t: Math.round(t * 1000) / 1000 });
+    for (const t of [...ts].sort((a, b) => a - b)) out.push({ kind: 'wall', wall: w.i, t: Math.round(t * 1000) / 1000, side });
   }
   return out;
+}
+const isSingleBed = (f: FurnitureItem) => (f.category === 'bed' || f.category === 'bunk-bed') && f.w < 1.2;
+/** Daybed slots: a single bed side-on to a wall, for rooms too narrow to walk past its foot. */
+function daybedSlots(ctx: Ctx, g: Group): Spec[] {
+  return [...wallSlots(ctx, g, 1), ...wallSlots(ctx, g, -1)];
+}
+function narrowFor(ctx: Ctx, f: FurnitureItem): boolean {
+  const b = ctx.room.box;
+  return f.d + f.clearance.front + 0.6 > Math.min(b.maxX - b.minX, b.maxY - b.minY);
 }
 
 /** Largest axis-aligned rectangle of floor not taken by placed pieces, their use zones or door landings. */
@@ -567,10 +583,13 @@ function arraySlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   const rots = Math.abs(f0.w - f0.d) < 0.01 ? [base] : [base, base + Math.PI / 2];
   const out: Spec[] = [];
   const reach = Math.max(f0.w, f0.d) / 2 + Math.max(f0.clearance.front, f0.clearance.back, f0.clearance.left, f0.clearance.right) + 0.17;
-  for (const reg of regions) for (const [rows, cols] of shapes) for (const rot of rots) for (const strategy of n > 1 ? [1, 0, 2] : [0]) {
+  // Many tables: the grid shape and region decide; fewer seat strategies keep the search small.
+  const strategies = n > 4 ? [1, 0] : n > 1 ? [1, 0, 2] : [0];
+  const hugs = n > 4 ? [reach + 0.45] : [reach + 0.45, reach + 0.3];
+  for (const reg of regions) for (const [rows, cols] of shapes) for (const rot of rots) for (const strategy of strategies) {
     out.push({ kind: 'array', ...reg, rows, cols, rot, strategy });
-    // Tables pushed out to the walls only make sense with seats on the outer sides (strategy 1).
-    if (n > 1) for (const hug of [reach, reach - 0.15]) out.push({ kind: 'array', ...reg, rows, cols, rot, strategy, hug });
+    // Tables pushed out towards the walls, seats with pull-out room behind them, central aisles.
+    if (n > 1) for (const hug of hugs) out.push({ kind: 'array', ...reg, rows, cols, rot, strategy, hug });
     if (n === 1) {
       // A lone table also tries the middle of the room and nudges off the region centre.
       const cx = (reg.x0 + reg.x1) / 2, cy = (reg.y0 + reg.y1) / 2;
@@ -582,22 +601,32 @@ function arraySlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
 
 function benchSlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   const pairs = Math.ceil(g.roots.length / 2);
-  const base = ctx.room.walls[0]?.rot ?? 0, b = ctx.room.box;
+  const b = ctx.room.box, base = ctx.room.walls[0]?.rot ?? 0;
+  // Rows run away from the main window wall, so every desk gets daylight from the side.
+  const winLen = new Map<number, number>();
+  for (const w of ctx.room.windows) winLen.set(w.wall, (winLen.get(w.wall) ?? 0) + w.o.widthM);
+  const main = [...winLen.entries()].sort((a, c) => c[1] - a[1])[0];
+  const options: Array<{ rot: number; align: number }> = [];
+  if (main) {
+    const n = ctx.room.walls[main[0]].n;
+    // u (the row axis) points away from the window wall; align -1 starts each row at the window.
+    options.push({ rot: Math.atan2(n.y, n.x), align: -1 }, { rot: Math.atan2(n.y, n.x), align: 0 });
+  } else options.push({ rot: base, align: 0 }, { rot: base + Math.PI / 2, align: 0 });
   const regions: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
   const fr = freeRegion(ctx, items);
   if (fr) regions.push(fr);
-  regions.push({ x0: b.minX, y0: b.minY, x1: b.maxX, y1: b.maxY });
-  // Leave a band along one wall (storage, a booth, the walkway to the windows).
-  for (const band of [0.8, 1.5]) {
-    regions.push({ x0: b.minX + band, y0: b.minY, x1: b.maxX, y1: b.maxY }, { x0: b.minX, y0: b.minY, x1: b.maxX - band, y1: b.maxY });
-    regions.push({ x0: b.minX, y0: b.minY + band, x1: b.maxX, y1: b.maxY }, { x0: b.minX, y0: b.minY, x1: b.maxX, y1: b.maxY - band });
-  }
-  const shapes: Array<[number, number]> = [];
-  for (let r = 1; r <= pairs; r++) { const c = Math.ceil(pairs / r); if (r * c - pairs < c) shapes.push([r, c]); }
+  // The room less a walkway band along the walls (1.0 m by the windows, 0.9 m elsewhere).
+  for (const band of [0.9, 1.2]) regions.push({ x0: b.minX + band, y0: b.minY + band, x1: b.maxX - band, y1: b.maxY - band });
+  regions.push({ x0: b.minX + 0.9, y0: b.minY + 0.9, x1: b.maxX - 1.8, y1: b.maxY - 0.9 }, { x0: b.minX + 1.8, y0: b.minY + 0.9, x1: b.maxX - 0.9, y1: b.maxY - 0.9 });
   const out: Spec[] = [];
-  for (const reg of regions) for (const [rows, cols] of shapes) for (const rot of [base, base + Math.PI / 2]) for (const gap of [0, 1.0]) {
-    if (cols === 1 && gap) continue;
-    out.push({ kind: 'array', ...reg, rows, cols, rot, strategy: 0, bench: { gap } });
+  // Clusters of 2 to 6 desks (1-3 pairs), split by a 1.2 m aisle.
+  for (const per of [3, 2, 1]) {
+    if (per > pairs) continue;
+    for (let r = 1; r <= pairs; r++) {
+      const c = Math.ceil(pairs / r);
+      if (r * c - pairs >= c) continue;
+      for (const reg of regions) for (const o of options) out.push({ kind: 'array', ...reg, rows: r, cols: c, rot: o.rot, strategy: 0, bench: { gap: 1.2, per, align: o.align } });
+    }
   }
   return out;
 }
@@ -632,7 +661,11 @@ function freeSlots(ctx: Ctx, g: Group): Spec[] {
 function slotsFor(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   if (g.kind === 'fixed') return [{ kind: 'fixed' }];
   if (g.kind === 'array') return arraySlots(ctx, g, items);
-  if (g.kind === 'wall') { const w = wallSlots(ctx, g); return w.length ? w : freeSlots(ctx, g); }
+  if (g.kind === 'wall') {
+    const root = ctx.byId.get(g.roots[0])!;
+    const w = [...wallSlots(ctx, g), ...(isSingleBed(root) && narrowFor(ctx, root) ? daybedSlots(ctx, g) : [])];
+    return w.length ? w : freeSlots(ctx, g);
+  }
   return freeSlots(ctx, g);
 }
 const hasChoice = (ctx: Ctx, g: Group) => ((g.kind !== 'array' && asymmetric(ctx.byId.get(g.roots[0])!)) || g.members.some((id) => { const r = ctx.parent.get(id)?.rel.kind; return r === 'flanks' || r === 'beside' || r === 'paired-seat'; }));
@@ -674,10 +707,26 @@ function cls(ctx: Ctx, p: Placed): string {
     const pos = s.t <= lo + 0.15 ? 'a' : s.t >= w.len - lo - 0.15 ? 'b' : 'mid';
     return `w${s.wall}${pos}`;
   }
-  if (s.kind === 'array') return `arr${s.rows}x${s.cols}r${Math.round(s.rot * 10)}s${s.strategy}${s.hug ? 'h' : ''}${s.bench ? `b${s.bench.gap}` : ''}`;
+  if (s.kind === 'array') return `arr${s.rows}x${s.cols}r${Math.round(s.rot * 10)}s${s.strategy}${s.hug ? 'h' : ''}${s.bench ? `b${s.bench.per}${s.bench.align}` : ''}`;
   if (s.kind === 'free') return `f${Math.round(s.x)}:${Math.round(s.y)}`;
   return 'fixed';
 }
+/** The design decisions of a layout: each anchor's wall and orientation, or the table grid. */
+function anchorSig(ctx: Ctx, st: State): string {
+  return st.placed.filter((p) => !p.group.fixed && p.group.priority >= 40 && p.items[0].w * p.items[0].d >= 0.4).map((p) => {
+    const s = p.spec;
+    if (s.kind === 'wall') return `${p.group.id}@w${s.wall}${s.side ? 's' : ''}`;
+    if (s.kind === 'array') return `${p.group.id}@a${s.rows}x${s.cols}r${Math.round(s.rot * 2 / Math.PI)}`;
+    if (s.kind === 'free') { const b = ctx.room.box; return `${p.group.id}@f${s.x < (b.minX + b.maxX) / 2 ? 'w' : 'e'}${s.y < (b.minY + b.maxY) / 2 ? 'n' : 's'}${Math.round(s.rot * 2 / Math.PI) & 3}`; }
+    return p.group.id;
+  }).sort().join('|');
+}
+/** Compass name of a wall from its inward normal (the top of the plan is north). */
+function compass(ctx: Ctx, wi: number): string {
+  const n = ctx.room.walls[wi].n;
+  return Math.abs(n.y) >= Math.abs(n.x) ? (n.y > 0 ? 'north' : 'south') : (n.x > 0 ? 'west' : 'east');
+}
+
 function signature(ctx: Ctx, st: State, depth = 3): string {
   return st.placed.filter((p) => !p.group.fixed && p.group.priority >= 40).slice(0, depth).map((p) => `${p.group.id}@${cls(ctx, p)}`).join('|');
 }
@@ -696,6 +745,7 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
   const wall = spec.kind === 'wall' ? spec.wall : null;
   if (c === 'bed' || c === 'bunk-bed') {
     if (wall == null) return 'Bed in the room';
+    if (spec.kind === 'wall' && spec.side) return 'Bed along the wall, daybed style';
     const w = ctx.room.walls[wall];
     const facesWin = ctx.room.windows.some((o) => dot(o.inward, w.n) < -0.9);
     if (root.w < 1.2 && cls(ctx, p) !== `w${wall}mid`) return 'Bed tucked in the corner';
@@ -703,8 +753,9 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     return `Bed on the ${wallWord(ctx, wall)}`;
   }
   if (spec.kind === 'array' && spec.bench) {
-    const rows = spec.rows, pairs = Math.ceil(p.group.roots.length / 2);
-    return rows === 1 ? `Desks in one bench of ${pairs} facing pairs` : `Desks in ${rows} benches of facing pairs${spec.bench.gap ? ' with aisles' : ''}`;
+    const pairs = Math.ceil(p.group.roots.length / 2), clusters = Math.ceil(Math.min(spec.cols, pairs) / spec.bench.per) * spec.rows;
+    const run = ctx.room.windows.length ? ' running from the windows' : '';
+    return clusters > 1 ? `Desks in ${clusters} facing clusters of ${spec.bench.per * 2}${run}` : `Desks in one facing cluster${run}`;
   }
   if (c === 'desk') {
     const desks = st.placed.filter((q) => q.items[0].category === 'desk');
@@ -738,10 +789,6 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     if (door && polyDist([door.a, door.b, door.b, door.a], [toPlanOf(root, -root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, root.d / 2), toPlanOf(root, -root.w / 2, root.d / 2)]) < 1.6) return 'Counter by the door';
     if (wall != null && door && dot(ctx.room.walls[wall].n, door.inward) < -0.9) return 'Counter facing the door';
     return wall != null ? `Counter on the ${wallWord(ctx, wall)}` : 'Counter in the room';
-  }
-  if (spec.kind === 'array' && spec.bench) {
-    const rows = spec.rows, pairs = Math.ceil(p.group.roots.length / 2);
-    return rows === 1 ? `Desks in one bench of ${pairs} facing pairs` : `Desks in ${rows} benches of facing pairs${spec.bench.gap ? ' with aisles' : ''}`;
   }
   if (spec.kind === 'array') {
     const n = p.group.roots.length, name = 'Tables';
@@ -919,6 +966,12 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     noise: () => (r() - 0.5) * 0.002, rejects: new Map(), swapped: new WeakSet(),
   };
   buildTree(ctx, work, fixed);
+  // Chairs at tables keep room behind them to pull out and to pass (the referee does not ask this,
+  // the solver does, so a cafe never boxes floor in between chair backs).
+  for (const [id, link] of ctx.parent) {
+    const host = ctx.byId.get(link.id);
+    if (link.rel.kind === 'paired-seat' && host && /^(table|cafe-table)$/.test(host.category)) ctx.clr.set(id, { ...ctx.clr.get(id)!, back: Math.max(ctx.clr.get(id)!.back, 0.45) });
+  }
   let groups = buildGroups(ctx, work, fixed);
   const targets = req ? req.routeTargets : room.windows.length ? [{ kind: 'window' as const }] : [];
   ctx.routeWidth = req ? req.minRouteWidthM : 0.8;
@@ -926,7 +979,10 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   const softRoute = !req; // without a brief the walkway to the window is a wish, not a rule
   const routeOk = (list: FurnitureItem[]) => routeCheck(ctx.routes, list).ok;
 
-  const B = groups.length > 7 ? 5 : 7, K = 5;
+  // A narrower beam for big rooms: their anchors are arrays that already carry most of the decisions.
+  const big = work.length > 20;
+  const B = big ? 3 : groups.length > 7 ? 5 : 7, K = big ? 3 : 5;
+  const relaxed = new Set<string>();
   let states: State[] = [{ placed: [], items: [], deferred: [], dropped: [], score: 0 }];
   let failedGroup: Group | null = null;
   let lastPlaced: string[] = [];
@@ -941,19 +997,29 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     ctx.rejects.clear();
     const gIds = new Set(g.members);
     for (const st of states) {
-      const specs = slotsFor(ctx, g, st.items);
+      let specs = slotsFor(ctx, g, st.items);
       const mirrors = hasChoice(ctx, g) ? [false, true] : [false];
-      const cands: Array<{ spec: Spec; mirror: boolean; items: FurnitureItem[]; deferred: string[]; q: number; wallKey: string }> = [];
+      const cands: Array<{ spec: Spec; mirror: boolean; items: FurnitureItem[]; deferred: string[]; q: number; wallKey: string; split: number }> = [];
       // Seat strategies and mirroring do not move the anchors: once the anchors fail, skip their variants.
       const rootFails = new Set<string>();
+      for (let pass = 0; pass < 2; pass++) {
+      if (pass === 1) {
+        // Head to the wall found no spot: try a single bed side-on to a wall.
+        const root = ctx.byId.get(g.roots[0])!;
+        if (cands.length || g.kind !== 'wall' || !isSingleBed(root) || narrowFor(ctx, root)) break;
+        specs = daybedSlots(ctx, g);
+      }
       for (const spec of specs) for (const mirror of mirrors) {
-        const rootKey = spec.kind === 'array' ? `${spec.x0},${spec.y0},${spec.x1},${spec.y1},${spec.rows},${spec.cols},${spec.rot},${spec.hug ?? 0},${spec.bench?.gap ?? -1}` : null;
+        const rootKey = spec.kind === 'array' ? `${spec.x0},${spec.y0},${spec.x1},${spec.y1},${spec.rows},${spec.cols},${spec.rot},${spec.hug ?? 0},${spec.bench ? `${spec.bench.per}${spec.bench.align}` : -1}` : null;
         if (rootKey && rootFails.has(rootKey)) continue;
         const res = placeGroup(ctx, st.items, g, spec, mirror);
         if ('fail' in res && res.root && rootKey) rootFails.add(rootKey);
         if ('fail' in res) { const k = res.fail.split(':')[0] === 'overlap' || res.fail.split(':')[0] === 'use' ? res.fail : res.fail.split(':')[0]; ctx.rejects.set(k, (ctx.rejects.get(k) ?? 0) + 1); continue; }
         const all = [...st.items, ...res.items];
-        cands.push({ spec, mirror, items: res.items, deferred: res.deferred, q: quickScore(ctx, all, gIds), wallKey: spec.kind === 'wall' ? `w${spec.wall}` : spec.kind });
+        // A seating group placed whole beats one that leaves an armchair to find a spot on its own.
+        const split = res.deferred.filter((id) => !OPTIONAL.has(ctx.byId.get(id)!.category)).length;
+        cands.push({ spec, mirror, items: res.items, deferred: res.deferred, q: quickScore(ctx, all, gIds) - 0.3 * split, wallKey: spec.kind === 'wall' ? `w${spec.wall}` : spec.kind, split });
+      }
       }
       if (DBG && g.kind === 'array') console.log('  state', st.placed.map((p) => cls(ctx, p)).join(','), 'specs', specs.length, 'cands', cands.length, [...ctx.rejects].map(([k, n]) => `${k}=${n}`).join(' '));
       if (!cands.length) continue;
@@ -961,8 +1027,18 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       cands.sort((a, b) => b.q - a.q);
       const perWall = new Map<string, number>(), short: typeof cands = [];
       for (const c of cands) { const n = perWall.get(c.wallKey) ?? 0; if (n < 4) { short.push(c); perWall.set(c.wallKey, n + 1); } }
-      for (const c of cands) if (short.length < 14 && !short.includes(c)) short.push(c);
-      const scored = short.map((c) => ({ c, s: scoreItems(ctx, [...st.items, ...c.items]) })).sort((a, b) => b.s - a.s);
+      const cap = work.length > 20 ? 8 : 14;
+      for (const c of cands) if (short.length < cap && !short.includes(c)) short.push(c);
+      const scored = short.map((c) => ({ c, s: scoreItems(ctx, [...st.items, ...c.items]) - 0.06 * c.split })).sort((a, b) => b.s - a.s);
+      // If every short-listed spot closes the walkway, keep looking down the list (best quick score first).
+      if (!softRoute) {
+        const rest = cands.filter((c) => !short.includes(c));
+        let tries = 0, found = scored.some(({ c }) => routeOk([...st.items, ...c.items]));
+        while (rest.length && tries < 40 && !found) {
+          const c = rest.shift()!; tries++;
+          if (routeOk([...st.items, ...c.items])) { scored.push({ c, s: scoreItems(ctx, [...st.items, ...c.items]) - 0.06 * c.split }); found = true; }
+        }
+      }
       let kept = 0;
       for (const { c, s } of scored) {
         if (kept >= Math.max(K, Math.ceil((B * 2) / states.length))) break;
@@ -983,6 +1059,13 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
         continue;
       }
       if (g.optional) { for (const st of states) st.dropped = [...st.dropped, ...g.members]; continue; }
+      // Tables that only fit tightly: drop the extra room behind their chairs and try again (the rules then say so).
+      if (g.kind === 'array' && !relaxed.has(g.id)) {
+        relaxed.add(g.id);
+        for (const id of g.members) { const o = ctx.byId.get(id)!; if (ctx.clr.get(id)!.back !== o.clearance.back) ctx.clr.set(id, { ...ctx.clr.get(id)!, back: o.clearance.back }); }
+        gi--;
+        continue;
+      }
       // Backtrack: resume from the best untried states of the deepest earlier level that has some.
       let j = gi - 1;
       while (j >= 0 && !(spare[j]?.length)) j--;
@@ -1097,8 +1180,10 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   const order = [...states].sort((a, b) => b.score - a.score);
   const picks: State[] = [], concepts = new Set<string>();
   for (const st of order) { const c = conceptName(ctx, st, 1); if (!concepts.has(c)) { concepts.add(c); picks.push(st); } }
+  const sigs = new Set(picks.map((st) => anchorSig(ctx, st)));
+  for (const st of order) { const sg = anchorSig(ctx, st); if (!picks.includes(st) && !sigs.has(sg)) { sigs.add(sg); picks.push(st); } }
   for (const st of order) if (!picks.includes(st)) picks.push(st);
-  for (const st of picks.slice(0, variants + 2)) pool.push(await improve(st));
+  for (const st of picks.slice(0, variants + (work.length > 20 ? 1 : 2))) pool.push(await improve(st));
   if (DBG) console.log('improved', pool.length, Math.round(now() - t0));
   opts.onProgress?.(0.85);
 
@@ -1113,19 +1198,19 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   }
   finals.sort((a, b) => b.ds - a.ds);
   const chosen: typeof finals = [];
-  // A different concept first, then a different first or second anchor, then anything that moved.
+  // Variants must differ in a design decision: which wall or orientation an anchor takes, or how the
+  // tables are arranged. A layout that only moves a small piece is a near-duplicate and is dropped,
+  // even if that leaves fewer variants. A different concept first, then any other anchor decision.
   for (const f of finals) {
     if (chosen.length >= variants) break;
-    const cn = conceptName(ctx, f.st, 1);
-    if (f.ds >= (finals[0]?.ds ?? 0) - 12 && !chosen.some((c) => conceptName(ctx, c.st, 1) === cn)) chosen.push(f);
+    const cn = conceptName(ctx, f.st, 1), sg = anchorSig(ctx, f.st);
+    if (f.ds >= (finals[0]?.ds ?? 0) - 12 && !chosen.some((c) => conceptName(ctx, c.st, 1) === cn || anchorSig(ctx, c.st) === sg)) chosen.push(f);
   }
-  for (const depth of [1, 2]) for (const f of finals) {
-    if (chosen.length >= variants || chosen.includes(f)) continue;
-    const sg = signature(ctx, f.st, depth);
-    if (chosen.some((c) => signature(ctx, c.st, depth) === sg || meanDisplacement(c.st.items, f.st.items) < 0.25)) continue;
-    chosen.push(f);
+  for (const f of finals) {
+    if (chosen.length >= variants || chosen.includes(f) || f.ds < (finals[0]?.ds ?? 0) - 25) continue;
+    const sg = anchorSig(ctx, f.st);
+    if (!chosen.some((c) => anchorSig(ctx, c.st) === sg)) chosen.push(f);
   }
-  for (const f of finals) { if (chosen.length >= variants) break; if (!chosen.includes(f) && !chosen.some((c) => meanDisplacement(c.st.items, f.st.items) < 0.25)) chosen.push(f); }
   if (!chosen.length) return { candidates: [], reports: [], infeasibility: infeasible(ctx, null, [], work, req) };
 
   const out: Array<{ verdicts: RuleVerdict[]; cand: LayoutCandidate }> = [];
@@ -1137,7 +1222,14 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     const twins = phrases.filter((q, j) => j !== i && q[0] === ps[0]);
     const extra = twins.length ? ps.slice(1).find((x, k) => twins.some((q) => q[k + 1] !== x)) : undefined;
     let name = ps.length ? ps[0] + (extra ? `, ${lc(extra)}` : '') : conceptName(ctx, f.st, 1);
-    if (names.has(name)) name = `${name}, variant ${i + 1}`;
+    // Same words, different decision: say which wall the first differing anchor took.
+    const sameName = chosen.some((c, j) => j !== i && (phrases[j][0] ?? '') === ps[0] && !phrases[j].slice(1).some((x, k) => x !== ps[k + 1]));
+    if (sameName || names.has(name)) {
+      const other = chosen.find((c, j) => j !== i && phrases[j][0] === ps[0]);
+      const diff = f.st.placed.find((p) => !p.group.fixed && p.group.priority >= 40 && p.spec.kind === 'wall' && (!other || !other.st.placed.some((q) => q.group.id === p.group.id && q.spec.kind === 'wall' && q.spec.wall === (p.spec as { wall: number }).wall)));
+      if (diff && diff.spec.kind === 'wall') name = `${ps[0]}, ${diff.items[0].name.replace(/\s+\d.*$/, '').toLowerCase()} on the ${compass(ctx, diff.spec.wall)} wall`;
+    }
+    if (names.has(name)) name = `${name} (${i + 1})`;
     names.add(name);
     const L = layoutCtx(ctx, f.st.items);
     const g = floorGrid(L, 0.1);
