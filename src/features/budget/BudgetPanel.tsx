@@ -97,11 +97,9 @@ export function BudgetPanel() {
         <div className="budget-legend">
           <span><i className="dot fill" />To buy {kr(shownTotal)}</span>
           {over > 0 && <span className="bad"><i className="dot over" />Over {kr(over)}</span>}
-          {owned > 0 && <span><i className="dot owned" />{owned} owned, not counted</span>}
+          {owned > 0 && <span><i className="dot owned" />{owned} owned</span>}
         </div>
-        <p className="budget-note muted">
-          {[estimates ? `${estimates} ${estimates === 1 ? 'price is an estimate' : 'prices are estimates'}` : '', fromListing ? `${fromListing} from store listings` : ''].filter(Boolean).join(', ')}. Real prices will differ.
-        </p>
+        {estimates > 0 && <p className="budget-note muted" title={`${estimates} estimated, ${fromListing} from stores`}>{estimates} estimated</p>}
         <button type="button" className="btn btn-primary budget-wide" onClick={run} disabled={busy}>
           <Icon name="sparkles" />{busy ? 'Working' : result ? 'Optimise again' : 'Optimise'}
         </button>
@@ -111,9 +109,8 @@ export function BudgetPanel() {
         <section className="budget-block" aria-label="Plan" aria-live="polite">
           <div className="budget-head">
             <span className={`budget-dot ${status}`} aria-hidden="true" />
-            <span className="budget-headline">{result.notes[0]}</span>
+            <span className="budget-headline" title={result.notes.join(' ')}>{result.feasible ? 'Fits budget' : 'Over budget'}</span>
           </div>
-          {!result.feasible && result.notes.slice(1).map((n) => <p key={n} className="budget-note">{n}</p>)}
           {result.plan.length > 0 && (
             <ul className="budget-list">
               {result.plan.map((s) => (
@@ -127,7 +124,6 @@ export function BudgetPanel() {
                         <Icon name="redo" size={12} aria-hidden="true" />
                         <span>{s.after ? s.after.name : 'None'} <em>{kr(s.after?.priceSek ?? 0)}</em></span>
                       </span>
-                      <span className="budget-note muted">{s.change}{s.scoreLoss > 0 ? ` Costs ${s.scoreLoss} design ${s.scoreLoss === 1 ? 'point' : 'points'}.` : ''}</span>
                     </span>
                   </label>
                 </li>
@@ -136,12 +132,12 @@ export function BudgetPanel() {
           )}
           {chosen.length > 0 && (
             <p className={`budget-note ${broken.length ? 'bad' : 'muted'}`}>
-              {broken.length ? `This mix would fail a check: ${broken[0].details}` : `Every check still passes. Design score ${result.scoreBefore} to ${result.scoreAfter}.`}
+              {broken.length ? <span title={broken[0].details}>Fails a check</span> : `Score ${result.scoreBefore} → ${result.scoreAfter}`}
             </p>
           )}
           {result.plan.length > 0 && (
             <button type="button" className="btn budget-wide" onClick={apply} disabled={!chosen.length || broken.length > 0}>
-              <Icon name="check" />Apply {chosen.length} {chosen.length === 1 ? 'change' : 'changes'}
+              <Icon name="check" />Apply {chosen.length}
             </button>
           )}
         </section>
@@ -158,15 +154,15 @@ export function BudgetPanel() {
               <div className="budget-phase-head">
                 <b>{p.label}</b><span>{kr(p.total)}</span>
               </div>
-              <p className="budget-note muted">{p.why}{p.paidByMonth ? ` Paid for by month ${p.paidByMonth}.` : ''}</p>
-              {p.items.length > 0 && <p className="budget-note">{p.items.map((f) => f.name).join(', ')}</p>}
+              {p.paidByMonth ? <p className="budget-note muted">Month {p.paidByMonth}</p> : null}
+              {p.items.length > 0 && <p className="budget-note budget-items" title={`${p.why} ${p.items.map((f) => f.name).join(', ')}`}>{p.items.length} items</p>}
             </li>
           ))}
         </ol>
       </section>
 
       <details className="budget-block budget-why">
-        <summary>Why these choices</summary>
+        <summary>Why</summary>
         <ul className="budget-list">
           {reasons.map((a) => <li key={a.itemId} className="budget-reason">{a.text}</li>)}
         </ul>
