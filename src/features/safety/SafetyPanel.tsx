@@ -129,7 +129,7 @@ export function SafetyPanel() {
       <div className="seg safety-tabs" role="tablist" aria-label="Checks">
         {(['fire', 'access'] as const).map((a) => (
           <button key={a} role="tab" aria-selected={tab === a} className={tab === a ? 'on' : ''} onClick={() => setTab(a)}>
-            {a === 'fire' ? 'Fire' : 'Accessibility'}{count(a) ? ` (${count(a)})` : ''}
+            {a === 'fire' ? 'Fire' : 'Access'}{count(a) ? ` (${count(a)})` : ''}
           </button>
         ))}
       </div>
@@ -140,17 +140,16 @@ export function SafetyPanel() {
             <li key={f.id} className={`safety-item sev-${f.severity}`}>
               <div className="safety-item-head">
                 <span className="safety-sev">{SEV_LABEL[f.severity]}</span>
-                <span className="safety-title">{f.title}</span>
+                <span className="safety-title" title={f.message}>{f.title}</span>
               </div>
-              <p className="safety-msg">{f.message}</p>
               <div className="safety-actions">
-                <button className="btn btn-sm btn-ghost" aria-pressed={shown === f.id} onClick={() => show(f)}><Icon name="eye" size={14} /> Show</button>
+                <button className="btn btn-sm btn-ghost" aria-pressed={shown === f.id} onClick={() => show(f)}><Icon name="eye" size={14} /><span className="sr-only">Show</span></button>
                 {f.fix && <button className="btn btn-sm" onClick={() => fix(f)} title="Re-checked against these rules"><Icon name="check" size={14} /> {f.fix.label}</button>}
               </div>
             </li>
           ))}
         </ul>
-      ) : <p className="muted safety-empty">Nothing found.</p>}
+      ) : <p className="muted safety-empty">All good</p>}
 
       <section className="safety-block">
         <label className="safety-row">
