@@ -819,6 +819,14 @@ export function PlanView() {
         }))}
 
         {/* Furniture */}
+        {/* Problems tied to a spot rather than a piece sit under the furniture, so pieces stay easy to grab */}
+        {!drag && loose.map((p) => (
+          <g key={`mp${p.id}`} className={`plan2d-mark is-${p.severity}`} data-hit={`mk:p:${p.id}`}>
+            <circle cx={p.at!.x} cy={p.at!.y} r={10 * px} className="plan2d-mark-hit" />
+            <circle cx={p.at!.x} cy={p.at!.y} r={4.5 * px} strokeWidth={2 * px} className="plan2d-mark-dot" />
+          </g>
+        ))}
+
         {/* Where dragged items started, faint, so you can see how far they moved */}
         {drag?.kind === 'item' && drag.moved && drag.ids.map((id) => {
           const f = furniture.find((x) => x.id === id); const o = drag.origins[id]; if (!f || !o) return null;
@@ -853,7 +861,7 @@ export function PlanView() {
           const b = aabb(itemCorners(f));
           return (
             <g key={`m${f.id}`} className={`plan2d-mark is-${sev}`} data-hit={`mk:f:${f.id}`}>
-              <circle cx={b.maxX} cy={b.minY} r={10 * px} className="plan2d-mark-hit" />
+              <circle cx={b.maxX} cy={b.minY} r={7 * px} className="plan2d-mark-hit" />
               <circle cx={b.maxX} cy={b.minY} r={4.5 * px} strokeWidth={2 * px} className="plan2d-mark-dot" />
             </g>
           );
@@ -869,12 +877,6 @@ export function PlanView() {
             </g>
           );
         })}
-        {!drag && loose.map((p) => (
-          <g key={`mp${p.id}`} className={`plan2d-mark is-${p.severity}`} data-hit={`mk:p:${p.id}`}>
-            <circle cx={p.at!.x} cy={p.at!.y} r={10 * px} className="plan2d-mark-hit" />
-            <circle cx={p.at!.x} cy={p.at!.y} r={4.5 * px} strokeWidth={2 * px} className="plan2d-mark-dot" />
-          </g>
-        ))}
 
         {/* Fix preview: where things go if the hovered fix runs */}
         {fixPreview && <FixGhosts ghosts={fixPreview.preview} furniture={furniture} px={px} />}
