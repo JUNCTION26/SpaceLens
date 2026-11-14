@@ -12,6 +12,9 @@ type Tool = 'pan' | 'calibrate' | 'trace';
 interface Pt { x: number; y: number } // normalised page coords
 
 const docCache = new Map<string, DrawingDoc>();
+type QA = Answer & { tokens?: number; cached?: boolean; check?: { index: number; model: number; ok: boolean } };
+const answerCache = new Map<string, QA>();
+const OVERLAY_KINDS = ['room', 'area', 'dimension', 'scale', 'tag'] as const;
 let lastDoc: DrawingDoc | null = null;
 
 const SCHEMA = {
@@ -37,7 +40,7 @@ export function DrawingsPanel() {
   const [tool, setTool] = useState<Tool>('pan');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [answers, setAnswers] = useState<QA[]>([]);
   const [crops, setCrops] = useState<Record<string, string[]>>({});
   const [focus, setFocus] = useState<Region[] | null>(null);
   const [q, setQ] = useState('');
@@ -48,6 +51,10 @@ export function DrawingsPanel() {
   const [mPerPx, setMPerPx] = useState<Record<number, number>>({});
   const [trace, setTrace] = useState<Pt[]>([]);
   const [roomName, setRoomName] = useState('Traced room');
+  const [overlay, setOverlay] = useState(false);
+  const [hover, setHover] = useState<Region | null>(null);
+  const [anim, setAnim] = useState(false);
+  const [stageSize, setStageSize] = useState({ w: 1, h: 1 });
   const [bench, setBench] = useState<{ accuracyOnAnswered: number; coverage: number; questions: number; files: number; dataset: string } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
@@ -56,6 +63,20 @@ export function DrawingsPanel() {
   const scaleItems = useMemo(() => (doc?.items ?? []).filter((i) => i.kind === 'scale' && i.page === page), [doc, page]);
   const dims = useMemo(() => (doc?.items ?? []).filter((i) => i.kind === 'dimension' && i.page === page), [doc, page]);
   const mpp = mPerPx[page];
+  const pageItems = useMemo(() => (doc?.items ?? []).filter((i) => i.page === page && (OVERLAY_KINDS as readonly string[]).includes(i.kind)), [doc, page]);
+  const roomList = useMemo(() => {
+    const areas = pageItems.filter((i) => i.kind === 'area');
+    return pageItems.filter((i) => i.kind === 'room').map((r) => {
+      const a = areas.map((x) => ({ x, d: Math.hypot(x.x - r.x, x.y - r.y) })).filter((z) => z.d < 0.08).sort((m, n) => m.d - n.d)[0]?.x;
+      return { r, area: a?.value };
+    });
+  }, [pageItems]);
+
+  useEffect(() => {
+    const el = stageRef.current; if (!el) return;
+    const ro = new ResizeObserver(() => setStageSize({ w: el.clientWidth || 1, h: el.clientHeight || 1 }));
+    ro.observe(el); return () => ro.disconnect();
+  }, [doc]);
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}samples/stoa/index.json`).then((r) => (r.ok ? r.json() : null)).then((j) => {
@@ -119,9 +140,30 @@ export function DrawingsPanel() {
     setCrops((c) => ({ ...c, [a.id]: out }));
   }
 
-  function show(a: Answer) {
+  // Sheet box (unscaled) inside the stage, matching the CSS fit.
+  function sheetBox() {
+    if (!pg) return { w: 1, h: 1 };
+    const ar = pg.pxW / pg.pxH;
+    return stageSize.w / stageSize.h > ar ? { w: stageSize.h * ar, h: stageSize.h } : { w: stageSize.w, h: stageSize.w / ar };
+  }
+  function flyTo(rs: Region[]) {
+    if (!rs.length) return;
+    const x0 = Math.min(...rs.map((r) => r.x)), y0 = Math.min(...rs.map((r) => r.y));
+    const x1 = Math.max(...rs.map((r) => r.x + r.w)), y1 = Math.max(...rs.map((r) => r.y + r.h));
+    const sb = sheetBox();
+    const z = Math.min(6, Math.max(1, 0.5 / Math.max(x1 - x0, y1 - y0, 0.02)));
+    setAnim(true); setZoom(z);
+    setPan({ x: -((x0 + x1) / 2 - 0.5) * sb.w * z, y: -((y0 + y1) / 2 - 0.5) * sb.h * z });
+    window.setTimeout(() => setAnim(false), 600);
+  }
+  function focusAnswer(a: Answer) {
+    if (!a.regions.length) return;
+    setFocus(a.regions); setPage(a.regions[0].page); flyTo(a.regions);
+  }
+
+  function show(a: QA) {
     setAnswers((list) => [a, ...list]);
-    if (a.regions.length) { setFocus(a.regions); if (a.regions[0].page !== page) setPage(a.regions[0].page); }
+    focusAnswer(a);
     void addCrops(a);
   }
 
@@ -135,15 +177,35 @@ export function DrawingsPanel() {
       show({ id: uid('a'), question, answer: 'Not found in the drawing text. Add a Gemini key in Settings to ask the model.', kind: 'inferred', method: 'none', regions: [] });
       setAsking(false); return;
     }
+    const key = `${doc.name}|${page}|${question.trim().toLowerCase()}`;
+    const hit = answerCache.get(key);
+    if (hit) { show({ ...hit, id: uid('a'), cached: true, tokens: 0 }); setAsking(false); setQ(''); return; }
     try {
-      const img = await downscale(doc.pages[page].dataUrl, 1600);
+      // Cheaper: if the question names an indexed room, send only a crop around it.
+      const words = question.toLowerCase().split(/[^a-z\u00c0-\u024f0-9]+/).filter((w) => w.length >= 3);
+      const room = roomList.find(({ r }) => words.some((w) => r.str.toLowerCase().includes(w)));
+      let box = { x: 0, y: 0, w: 1, h: 1 };
+      let img: string;
+      if (room) {
+        const pad = 0.12;
+        const x = Math.max(0, room.r.x - pad), y = Math.max(0, room.r.y - pad);
+        box = { x, y, w: Math.min(1 - x, room.r.w + pad * 2), h: Math.min(1 - y, room.r.h + pad * 2) };
+        img = await cropRegion(doc.pages[page].dataUrl, box, 0, 450);
+      } else img = await downscale(doc.pages[page].dataUrl, 1200);
+      const before = usage.inputTokens + usage.outputTokens;
       const res = await gemini<{ answer: string; value?: number; unit?: string; kind: Answer['kind']; regions: Array<{ x: number; y: number; w: number; h: number }> }>(
         [dataUrlToInlineData(img), { text: `Question about this technical drawing: ${question}\nAnswer briefly. kind: "printed" if read directly from text on the drawing, "calculated" if computed from printed values, "inferred" otherwise. regions: boxes (normalised 0..1, x,y = top-left) around the exact spots on the drawing that support the answer.` }],
         { json: true, schema: SCHEMA, system: 'You read architectural and technical drawings precisely. Never invent values that are not on the drawing; say so if unsure.' },
       );
       const clamp = (v: number) => Math.min(1, Math.max(0, Number(v) || 0));
-      show({ id: uid('a'), question, answer: res.answer, value: res.value, unit: res.unit, kind: res.kind ?? 'inferred', method: 'gemini',
-        regions: (res.regions ?? []).map((r) => ({ page, x: clamp(r.x), y: clamp(r.y), w: clamp(r.w), h: clamp(r.h) })).filter((r) => r.w > 0 && r.h > 0) });
+      const a: QA = { id: uid('a'), question, answer: res.answer, value: res.value, unit: res.unit, kind: res.kind ?? 'inferred', method: 'gemini',
+        tokens: usage.inputTokens + usage.outputTokens - before,
+        regions: (res.regions ?? []).map((r) => ({ page, x: box.x + clamp(r.x) * box.w, y: box.y + clamp(r.y) * box.h, w: clamp(r.w) * box.w, h: clamp(r.h) * box.h })).filter((r) => r.w > 0 && r.h > 0) };
+      if (room?.area && typeof res.value === 'number' && /m/.test(res.unit ?? 'm2')) {
+        a.check = { index: room.area, model: res.value, ok: Math.abs(res.value - room.area) <= Math.max(0.5, room.area * 0.03) };
+      }
+      answerCache.set(key, a);
+      show(a);
       setQ('');
     } catch (e) {
       toast(`Model call failed: ${(e as Error).message}`, 'error');
@@ -242,7 +304,15 @@ export function DrawingsPanel() {
   const tokens = usage.inputTokens + usage.outputTokens;
   const freePct = stats.asked ? Math.round((stats.free / stats.asked) * 100) : 0;
   const pageFocus = (focus ?? []).filter((r) => r.page === page);
-  const suggestions = ['What scale is this?', 'List rooms', 'What is the area of the kitchen?', 'Which dimensions are on this sheet?'];
+  const modelTokens = answers.reduce((n, a) => n + (a.tokens ?? 0), 0);
+  const named = [...new Set(roomList.filter((x) => x.area).map((x) => x.r.str))].slice(0, 2);
+  const suggestions = [
+    ...named.map((n) => `Area of ${n}?`),
+    ...(roomList.length ? ['How many rooms?'] : []),
+    ...(scaleItems.length ? ['What scale?'] : []),
+    ...(dims.length ? ['Which dimensions are on this sheet?'] : []),
+  ];
+  if (!suggestions.length) suggestions.push('What scale?', 'List rooms', 'What is the area of the kitchen?');
 
   return (
     <div className="drawings">
@@ -267,6 +337,7 @@ export function DrawingsPanel() {
           <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} aria-label="Zoom in">+</button>
           <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.max(0.3, z / 1.25))} aria-label="Zoom out">−</button>
           <button className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</button>
+          <button className={`btn btn-sm ${overlay ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={overlay} onClick={() => setOverlay((o) => !o)}>Overlay</button>
         </>}
         {loading && <span className="muted">{loading}…</span>}
       </div>
@@ -291,9 +362,11 @@ export function DrawingsPanel() {
 
           <div className={`drawings-stage tool-${tool}`} ref={stageRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => { drag.current = null; }} onWheel={onWheel}>
             {pg && (
-              <div className="drawings-sheet" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, aspectRatio: `${pg.pxW} / ${pg.pxH}` }}>
+              <div className={`drawings-sheet ${anim ? 'is-anim' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, aspectRatio: `${pg.pxW} / ${pg.pxH}` }}>
                 <img src={pg.dataUrl} alt={`${doc.name} page ${page + 1}`} draggable={false} />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none">
+                  {overlay && pageItems.map((i) => <rect key={`o${i.id}`} className={`drawings-ov ov-${i.kind}`} x={i.x} y={i.y} width={i.w} height={i.h}><title>{`${i.kind}: ${i.str}`}</title></rect>)}
+                  {hover && hover.page === page && <rect className="drawings-hover" x={hover.x - 0.005} y={hover.y - 0.005} width={hover.w + 0.01} height={hover.h + 0.01} />}
                   {pageFocus.map((r, i) => <rect key={i} className="drawings-hit" x={r.x} y={r.y} width={r.w} height={r.h} />)}
                   {calPts.length === 2 && <line className="drawings-cal" x1={calPts[0].x} y1={calPts[0].y} x2={calPts[1].x} y2={calPts[1].y} />}
                   {calPts.map((p, i) => <circle key={i} className="drawings-cal-pt" cx={p.x} cy={p.y} r={0.004} />)}
@@ -303,9 +376,56 @@ export function DrawingsPanel() {
                 </svg>
               </div>
             )}
+            {pg && zoom > 1.05 && (() => {
+              const sb = sheetBox(); const vw = Math.min(1, stageSize.w / (sb.w * zoom)), vh = Math.min(1, stageSize.h / (sb.h * zoom));
+              const cxn = 0.5 - pan.x / (sb.w * zoom), cyn = 0.5 - pan.y / (sb.h * zoom);
+              return (
+                <div className="drawings-mini" style={{ aspectRatio: `${pg.pxW} / ${pg.pxH}` }} onPointerDown={(e) => {
+                  e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect();
+                  setPan({ x: -((e.clientX - r.left) / r.width - 0.5) * sb.w * zoom, y: -((e.clientY - r.top) / r.height - 0.5) * sb.h * zoom });
+                }}>
+                  <img src={pg.dataUrl} alt="" draggable={false} />
+                  <div className="drawings-mini-view" style={{ left: `${(cxn - vw / 2) * 100}%`, top: `${(cyn - vh / 2) * 100}%`, width: `${vw * 100}%`, height: `${vh * 100}%` }} />
+                </div>
+              );
+            })()}
+            {overlay && <div className="drawings-legend">{OVERLAY_KINDS.map((k) => <span key={k} className={`lg-${k}`}>{k}</span>)}</div>}
           </div>
 
           <aside className="drawings-side">
+            <section className="card drawings-ask">
+              <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
+                <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this drawing" />
+                <button className="btn btn-primary btn-sm" disabled={asking || !q.trim()}>{asking ? '…' : 'Ask'}</button>
+              </form>
+              <div className="row drawings-sugg">
+                {suggestions.map((s) => <button key={s} className="chip" onClick={() => void ask(s)}>{s}</button>)}
+              </div>
+              <p className="muted drawings-cost">
+                Free {stats.free} vs model {stats.asked - stats.free} ({freePct}% free) · {modelTokens.toLocaleString()} tokens here · {usage.calls} calls, {tokens.toLocaleString()} total
+              </p>
+              <div className="list">
+                {answers.map((a) => (
+                  <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
+                    <div className="muted drawings-aq">{a.question}</div>
+                    <div className="drawings-at">{a.answer}</div>
+                    <div className="row">
+                      <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
+                      <span className="chip">{a.method === 'index' ? 'Index, free' : a.method === 'gemini' ? (a.cached ? 'Gemini, cached' : `Gemini, ${a.tokens ?? 0} tokens`) : 'No answer'}</span>
+                    </div>
+                    {a.check && (
+                      <div className={`drawings-check ${a.check.ok ? 'ok' : 'bad'}`}>
+                        Index {a.check.index} m² · Model {a.check.model} m² · {a.check.ok ? 'agree' : 'disagree, check the sheet'}
+                      </div>
+                    )}
+                    {(crops[a.id] ?? []).length > 0 && (
+                      <div className="drawings-crops">{crops[a.id].map((c, i) => <img key={i} src={c} alt="Source on drawing" />)}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
             {benchCard}
             <section className="card">
               <div className="row drawings-stats">
@@ -317,37 +437,24 @@ export function DrawingsPanel() {
               {st!.text === 0 && <p className="muted">No text layer found. Questions go to the model if a key is set.</p>}
             </section>
 
-            <section className="card">
-              <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
-                <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this drawing" />
-                <button className="btn btn-primary btn-sm" disabled={asking || !q.trim()}>{asking ? '…' : 'Ask'}</button>
-              </form>
-              <div className="row drawings-sugg">
-                {suggestions.map((s) => <button key={s} className="chip" onClick={() => void ask(s)}>{s}</button>)}
-              </div>
-              <p className="muted drawings-cost">
-                {freePct}% answered free from the index · {usage.calls} model calls · {tokens.toLocaleString()} tokens
-              </p>
-              <div className="list">
-                {answers.map((a) => (
-                  <div key={a.id} className="drawings-answer" onClick={() => { if (a.regions.length) { setFocus(a.regions); setPage(a.regions[0].page); } }}>
-                    <div className="muted drawings-aq">{a.question}</div>
-                    <div className="drawings-at">{a.answer}</div>
-                    <div className="row">
-                      <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
-                      <span className="chip">{a.method === 'index' ? 'Index, free' : a.method === 'gemini' ? 'Gemini' : 'No answer'}</span>
-                    </div>
-                    {(crops[a.id] ?? []).length > 0 && (
-                      <div className="drawings-crops">{crops[a.id].map((c, i) => <img key={i} src={c} alt="Source on drawing" />)}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-
+            {roomList.length > 0 && (
+              <section className="card">
+                <h4>Rooms on this page</h4>
+                <div className="drawings-rooms" onMouseLeave={() => setHover(null)}>
+                  {roomList.map(({ r, area }) => (
+                    <button key={r.id} className="drawings-room" onMouseEnter={() => setHover(r)} onFocus={() => setHover(r)} onClick={() => flyTo([r])}>
+                      <span>{r.str}</span>{area != null && <span className="muted">{area} m²</span>}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             <section className="card">
               <h4>Scale</h4>
               {mpp ? <p><span className="chip chip-ok">Set</span> {(mpp * 1000).toFixed(1)} mm per pixel</p> : <p className="muted">Not set.</p>}
+              {mpp && tool !== 'trace' && (
+                <button className="btn btn-primary drawings-big" onClick={() => { setTool('trace'); setTrace([]); }}>Trace a room into 3D</button>
+              )}
               {scaleItems.length > 0 && pg?.ptW && (
                 <div className="row">{[...new Set(scaleItems.map((s) => s.value!))].map((n) => <button key={n} className="btn btn-ghost btn-sm" onClick={() => applyScale(n)}>Use 1:{n}</button>)}</div>
               )}
@@ -362,7 +469,12 @@ export function DrawingsPanel() {
 
             <section className="card">
               <h4>Trace room</h4>
-              {tool !== 'trace' ? <p className="muted">Choose Trace room, then click the corners.</p> : (
+              <ol className="drawings-steps">
+                <li className={mpp ? 'done' : 'now'}>Set the scale</li>
+                <li className={trace.length >= 3 ? 'done' : mpp ? 'now' : ''}>Click each corner of a room</li>
+                <li className={trace.length >= 3 && mpp ? 'now' : ''}>Explore in 3D</li>
+              </ol>
+              {tool !== 'trace' ? null : (
                 <>
                   <input className="field" value={roomName} onChange={(e) => setRoomName(e.target.value)} aria-label="Room name" />
                   {!mpp && <p className="muted">Set the scale first to get lengths.</p>}
