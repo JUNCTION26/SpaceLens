@@ -43,7 +43,7 @@ describe('rankModels', () => {
   const fast = CANDIDATES.fast;
   it('fast: fastest probed-ok first, unknown next, failed last', () => {
     const probes = { 'gemini-3.1-flash-lite': ok('gemini-3.1-flash-lite', 900), 'gemini-3.5-flash-lite': ok('gemini-3.5-flash-lite', 1500), 'gemini-4-hydrogen': bad('gemini-4-hydrogen') };
-    expect(rankModels('fast', fast, probes)).toEqual(['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-flash-lite-latest', 'gemini-4-hydrogen']);
+    expect(rankModels('fast', fast, probes)).toEqual(['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-flash-lite-latest', 'gemini-4-hydrogen']);
   });
   it('smart: quality order among responsive models', () => {
     const smart = CANDIDATES.smart;
@@ -118,9 +118,9 @@ describe('runRouted', () => {
 
   it('does not hedge when the first model answers quickly', async () => {
     vi.stubGlobal('fetch', fakeFetch({ a: { delayMs: 5 }, b: {} }, calls));
-    const out = await runRouted('k', ['a', 'b'], { parts: [{ text: 'x' }] }, timing, undefined);
+    const out = await runRouted('k', ['a', 'b'], { parts: [{ text: 'x' }] }, { ...timing, hedgeMs: 400, firstTokenTimeoutMs: 1500 }, undefined);
     expect(out.model).toBe('a');
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 500));
     expect(calls).toEqual(['a']);
   });
 

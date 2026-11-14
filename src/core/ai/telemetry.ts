@@ -20,6 +20,36 @@ export function aiStats(): Record<string, ModelUsage> {
   return Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, { ...v }]));
 }
 
+const tasks: Partial<Record<AiTask, { calls: number; ms: number; inputTokens: number; outputTokens: number }>> = {};
+
+export function recordTask(task: AiTask, ms: number, inputTokens: number, outputTokens: number) {
+  const t = (tasks[task] ??= { calls: 0, ms: 0, inputTokens: 0, outputTokens: 0 });
+  t.calls += 1; t.ms += ms; t.inputTokens += inputTokens; t.outputTokens += outputTokens;
+}
+
+/** Calls, tokens and average answer time per task this session. */
+export function aiTaskStats() {
+  return (Object.entries(tasks) as [AiTask, NonNullable<(typeof tasks)[AiTask]>][]).map(([task, t]) => ({ task, calls: t.calls, avgMs: Math.round(t.ms / t.calls), inputTokens: t.inputTokens, outputTokens: t.outputTokens }));
+}
+
+/** List prices in USD per million tokens (input, output) where known. Anything else shows tokens only. */
+export const PRICES_PER_M: Record<string, [number, number]> = {
+  'gemini-2.5-flash': [0.3, 2.5],
+  'gemini-2.5-flash-lite': [0.1, 0.4],
+};
+
+/** Estimated cost of this session's calls, or null when any model used has no known price. */
+export function estimateCostUsd(): number | null {
+  let sum = 0;
+  for (const [m, u] of Object.entries(stats)) {
+    if (!u.inputTokens && !u.outputTokens) continue;
+    const p = PRICES_PER_M[m.replace(/^models\//, '')];
+    if (!p) return null;
+    sum += (u.inputTokens * p[0] + u.outputTokens * p[1]) / 1e6;
+  }
+  return sum;
+}
+
 // ---------------------------------------------------------------- activity events
 
 export interface AiActivity {
@@ -33,6 +63,8 @@ export interface AiActivity {
   /** Ready-to-show line, e.g. "Gemini · 3.5-flash-lite · 1.2 s". */
   label: string;
   error?: string;
+  /** Plain category when phase is 'error'. */
+  reason?: import('./errors').AiReason;
 }
 
 const listeners = new Set<(e: AiActivity) => void>();

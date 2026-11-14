@@ -1,5 +1,6 @@
 import type { GeminiPart } from '../gemini';
-import { acceptsThinking, markNoImages, markNoThinking, type ThinkingLevel } from './models';
+import { acceptsThinking, clampLevel, isLevelRejection, markNoImages, markNoThinking, markThinkingFloor, nextLevel, type ThinkingLevel } from './models';
+import { reasonFromStatus, type AiReason } from './errors';
 import { SseParser } from './sse';
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -8,9 +9,13 @@ export interface ModelRequest {
   system?: string;
   parts: GeminiPart[];
   schema?: object;
+  /** JSON out without a schema. */
+  json?: boolean;
   temperature?: number;
   thinking?: ThinkingLevel;
   maxOutputTokens?: number;
+  /** Gemini tools, e.g. [{ google_search: {} }] for grounding. Not combined with a schema. */
+  tools?: object[];
 }
 
 export interface StreamOptions {
@@ -36,20 +41,25 @@ export interface StreamOutcome {
 }
 
 export class AiError extends Error {
-  constructor(message: string, readonly kind: 'http' | 'timeout' | 'abort' | 'blocked' | 'parse', readonly status = 0) {
+  /** Plain category for the UI (the message is for logs only). */
+  readonly reason: AiReason;
+  constructor(message: string, readonly kind: 'http' | 'timeout' | 'abort' | 'blocked' | 'parse', readonly status = 0, reason?: AiReason) {
     super(message);
     this.name = 'AiError';
+    this.reason = reason ?? (kind === 'timeout' ? 'timeout' : kind === 'blocked' ? 'blocked' : kind === 'http' ? reasonFromStatus(status, message) : 'other');
   }
 }
 
 export function buildBody(req: ModelRequest, withThinking: boolean): object {
   const generationConfig: Record<string, unknown> = { temperature: req.temperature ?? 0.2 };
-  if (req.schema) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseSchema = req.schema; }
+  if (req.schema || req.json) generationConfig.responseMimeType = 'application/json';
+  if (req.schema) generationConfig.responseSchema = req.schema;
   if (req.maxOutputTokens) generationConfig.maxOutputTokens = req.maxOutputTokens;
   if (withThinking && req.thinking) generationConfig.thinkingConfig = { thinkingLevel: req.thinking };
   return {
     ...(req.system ? { systemInstruction: { parts: [{ text: req.system }] } } : {}),
     contents: [{ role: 'user', parts: req.parts }],
+    ...(req.tools?.length ? { tools: req.tools } : {}),
     generationConfig,
   };
 }
@@ -136,18 +146,26 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
  * without it once, and remembered so later calls skip it from the start.
  */
 export async function callModel(model: string, req: ModelRequest, opts: StreamOptions): Promise<StreamOutcome> {
-  const withThinking = Boolean(req.thinking) && acceptsThinking(model);
-  try {
-    return await streamModel(model, req, opts, withThinking);
-  } catch (e) {
-    if (!(e instanceof AiError) || e.status !== 400) throw e;
-    if (withThinking) {
-      const out = await streamModel(model, req, opts, false);
-      markNoThinking(model);
+  let level = req.thinking ? clampLevel(model, req.thinking) : undefined;
+  const withThinking = Boolean(level) && acceptsThinking(model);
+  for (;;) {
+    try {
+      const out = await streamModel(model, { ...req, thinking: level }, opts, withThinking);
+      if (level && req.thinking && level !== req.thinking) markThinkingFloor(model, level);
       return out;
+    } catch (e) {
+      if (!(e instanceof AiError) || e.status !== 400) throw e;
+      if (withThinking && level) {
+        // "Thinking level MINIMAL is not supported": go up one level, otherwise drop thinking settings.
+        const up = isLevelRejection(e.message) ? nextLevel(level) : null;
+        if (up) { level = up; continue; }
+        const out = await streamModel(model, req, opts, false);
+        markNoThinking(model);
+        return out;
+      }
+      const hasImage = req.parts.some((p) => p.inlineData);
+      if (hasImage && /image|modality|mime/i.test(e.message)) markNoImages(model);
+      throw e;
     }
-    const hasImage = req.parts.some((p) => p.inlineData);
-    if (hasImage && /image|modality|mime/i.test(e.message)) markNoImages(model);
-    throw e;
   }
 }

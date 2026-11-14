@@ -1,7 +1,8 @@
 import { AiError, callModel, type ModelRequest, type StreamOutcome } from './engine';
-import { allCandidates, candidatesFor, type AiTask } from './models';
+import { allCandidates, candidatesFor, getOverrides, pickNewModels, setExtraModels, type AiTask } from './models';
+import { dominantReason, type AiReason } from './errors';
 
-export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string }
+export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string; reason?: AiReason }
 
 // ---------------------------------------------------------------- health
 
@@ -10,7 +11,7 @@ const health = new Map<string, { until: number; reason: string }>();
 export function markUnhealthy(model: string, reason: string, err?: unknown) {
   const status = err instanceof AiError ? err.status : 0;
   // Unknown models stay out for the session; quota and timeouts recover after a few minutes.
-  const ms = status === 404 ? 6 * 3600_000 : status === 429 ? 10 * 60_000 : 5 * 60_000;
+  const ms = status === 404 ? 6 * 3600_000 : status === 429 ? 10 * 60_000 : status === 503 ? 90_000 : 5 * 60_000;
   health.set(model, { until: Date.now() + ms, reason });
 }
 export const markHealthy = (model: string) => { health.delete(model); };
@@ -101,7 +102,7 @@ export async function probeOne(key: string, model: string, capMs = PROBE_CAP_MS)
     return { model, ok: true, firstTokenMs: round(out.firstTokenMs ?? out.totalMs), totalMs: round(out.totalMs) };
   } catch (e) {
     const err = e as AiError;
-    return { model, ok: false, firstTokenMs: null, totalMs: null, error: err.kind === 'timeout' ? `no reply in ${capMs / 1000} s` : shortError(err) };
+    return { model, ok: false, firstTokenMs: null, totalMs: null, error: err.kind === 'timeout' ? `no reply in ${capMs / 1000} s` : shortError(err), reason: err.reason };
   }
 }
 
@@ -112,11 +113,10 @@ export async function probeOne(key: string, model: string, capMs = PROBE_CAP_MS)
 export function runProbe(key: string, opts: { force?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
   const kh = hashKey(key);
   if (probing?.keyHash === kh) return probing.promise;
-  const models = allCandidates();
-  if (!opts.force && probeFresh(key)) return Promise.resolve(models.map((m) => probe!.results[m]).filter(Boolean));
+  if (!opts.force && probeFresh(key)) return Promise.resolve(allCandidates().map((m) => probe!.results[m]).filter(Boolean));
   probe = { keyHash: kh, at: Date.now(), results: {} };
   const current = probe;
-  const promise = Promise.all(models.map(async (m) => {
+  const promise = discoverModels(key).then(() => allCandidates()).then((models) => Promise.all(models.map(async (m) => {
     const s = await probeOne(key, m);
     if (probe !== current) return s;
     current.results[m] = s;
@@ -125,7 +125,7 @@ export function runProbe(key: string, opts: { force?: boolean; onUpdate?: (s: Mo
     opts.onUpdate?.(snapshot);
     probeListeners.forEach((cb) => cb());
     return s;
-  })).then((all) => {
+  }))).then((all) => {
     current.at = Date.now();
     try { storage()?.setItem(LS_PROBE, JSON.stringify(current)); } catch { /* storage blocked */ }
     return all;
@@ -149,7 +149,24 @@ export function waitForRoute(key: string, task: AiTask, maxMs: number): Promise<
 }
 
 export function routeFor(key: string, task: AiTask): string[] {
-  return rankModels(task, candidatesFor(task), probeResults(key), (m) => isHealthy(m));
+  const order = rankModels(task, candidatesFor(task), probeResults(key), (m) => isHealthy(m));
+  // The person's own choice for this task goes first; the rest stay as fall-through.
+  const pick = getOverrides()[task];
+  return pick ? [pick, ...order.filter((m) => m !== pick)] : order;
+}
+
+/** Finds models this key offers that no list names yet, so new releases work without a code change. */
+export async function discoverModels(key: string, capMs = 4000): Promise<string[]> {
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+      headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(capMs),
+    });
+    if (!res.ok) return [];
+    const j = await res.json() as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
+    const found = pickNewModels(j.models ?? []);
+    setExtraModels(found);
+    return found;
+  } catch { return []; }
 }
 
 // ---------------------------------------------------------------- hedged execution
@@ -187,6 +204,7 @@ export function runRouted(key: string, order: string[], req: ModelRequest, timin
     interface Attempt { model: string; ctrl: AbortController }
     const live = new Set<Attempt>();
     const errors: string[] = [];
+    const reasons: AiReason[] = [];
     let next = 0;
     let committed: Attempt | null = null;
     let settled = false;
@@ -214,7 +232,7 @@ export function runRouted(key: string, order: string[], req: ModelRequest, timin
     const launch = () => {
       if (settled) return;
       if (next >= order.length) {
-        if (!live.size) finish(() => reject(new AiError(`All Gemini models failed: ${errors.join('; ')}`, 'http')));
+        if (!live.size) finish(() => reject(new AiError(`All Gemini models failed: ${errors.join('; ')}`, 'http', 0, dominantReason(reasons))));
         return;
       }
       const model = order[next++];
@@ -247,9 +265,12 @@ export function runRouted(key: string, order: string[], req: ModelRequest, timin
         if (err.kind === 'abort' && att.ctrl.signal.aborted) return; // a loser we aborted ourselves
         if (err.kind !== 'parse' && err.kind !== 'blocked') markUnhealthy(model, err.message, err);
         errors.push(shortError(err));
+        reasons.push(err.reason);
         hooks.onModelError?.(model, err);
         if (committed === att) committed = null;
         if (err.kind === 'blocked') return finish(() => reject(err));
+        // A rejected key fails every model the same way: stop at once.
+        if (err.reason === 'invalid_key') return finish(() => reject(new AiError('Key not accepted', 'http', err.status, 'invalid_key')));
         if (!committed) launch();
       });
     };

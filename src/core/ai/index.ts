@@ -6,15 +6,17 @@ import {
   hashKey, isProbing, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
   type ModelStatus,
 } from './router';
-import { cacheGet, cacheSet, emitActivity, recordUsage } from './telemetry';
+import { cacheGet, cacheSet, emitActivity, recordTask, recordUsage } from './telemetry';
 
 export type { AiTask, ThinkingLevel } from './models';
 export type { ModelStatus } from './router';
 export type { AiActivity, ModelUsage } from './telemetry';
 export { partialJson } from './partialJson';
-export { aiStats, onAiActivity, clearAiCache } from './telemetry';
+export { aiStats, aiTaskStats, estimateCostUsd, onAiActivity, clearAiCache } from './telemetry';
 export { shortModel, candidatesFor } from './models';
 export { AiError } from './engine';
+export { classify, problemFor, OFFLINE_NOTE, type AiReason, type AiProblem, type AiAction } from './errors';
+export { TASKS, getOverrides, setOverride } from './models';
 export { onProbeUpdate };
 
 export interface AiCall {
@@ -23,12 +25,16 @@ export interface AiCall {
   parts: GeminiPart[];
   /** Gemini responseSchema (JSON). When set, the result is parsed JSON. */
   schema?: object;
+  /** Parse the reply as JSON even without a schema. */
+  json?: boolean;
   /** Called with the accumulated raw text as it streams in. Pair with partialJson() for schema calls. */
   onPartial?: (text: string) => void;
   signal?: AbortSignal;
   /** Identical calls with the same key return the cached result. */
   cacheKey?: string;
   temperature?: number;
+  /** Gemini tools such as [{ google_search: {} }]. */
+  tools?: object[];
   /** Thinking level where the model accepts it. Defaults to 'minimal' for 'fast' and 'low' otherwise
    *  (measured: 3.5-flash answers in ~3 s on 'low' versus ~11 s on its default). */
   thinking?: ThinkingLevel;
@@ -61,7 +67,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
   }
 
   const key = keyOf();
-  if (!key) throw new AiError('No Gemini key set', 'http');
+  if (!key) throw new AiError('No Gemini key set', 'http', 0, 'no_key');
   emitActivity({ id, task: call.task, phase: 'start', ms: 0 });
 
   // First call with this key: probe in the background and route as soon as one model answers.
@@ -78,23 +84,26 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
       system: call.system,
       parts: call.parts,
       schema: call.schema,
+      json: call.json,
       temperature: call.temperature,
+      tools: call.tools,
       thinking: call.thinking ?? (call.task === 'fast' ? 'minimal' : 'low'),
     }, TIMING[call.task], call.signal, {
       onStart: (model) => emitActivity({ id, task: call.task, phase: 'model', model, ms: since() }),
       onCommit: (model) => emitActivity({ id, task: call.task, phase: 'streaming', model, ms: since() }),
       onText: call.onPartial,
       onModelError: (model) => recordUsage(model, { errors: 1 }),
-      accept: (o) => { data = parseOutput<T>(o, Boolean(call.schema)); },
+      accept: (o) => { data = parseOutput<T>(o, Boolean(call.schema || call.json)); },
     });
   } catch (e) {
     const err = e instanceof AiError ? e : new AiError(String(e), 'http');
-    emitActivity({ id, task: call.task, phase: 'error', ms: since(), error: err.message });
+    emitActivity({ id, task: call.task, phase: 'error', ms: since(), error: err.message, reason: err.reason });
     throw err;
   }
 
   const ms = since();
   recordUsage(out.model, { calls: 1, inputTokens: out.inputTokens, outputTokens: out.outputTokens, ms });
+  recordTask(call.task, ms, out.inputTokens, out.outputTokens);
   usage.calls += 1;
   usage.inputTokens += out.inputTokens;
   usage.outputTokens += out.outputTokens;
