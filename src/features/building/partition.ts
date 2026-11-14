@@ -323,7 +323,7 @@ function share(rooms: ProgrammeRoom[], capacity: number): number[] {
   return pref.map((p) => p * k);
 }
 
-const MIN_BAND = 2.4;
+const MIN_BAND = 2.8;
 const MIN_GAP = 2.2;
 
 function decode(ctx: Ctx, fam: Family, defs: RegionDef[], g: Genome): Layout {
@@ -499,7 +499,7 @@ function sliceBand(ctx: Ctx, b: Block, list: number[], targetsAll: number[], a: 
       let cost = 0;
       for (const j of cl) {
         const w = t[j] / d, r = rooms[j];
-        cost += Math.max(0, r.minWidthM - w) * 4 + Math.max(0, Math.max(w, d) / Math.min(w, d) - 2.0);
+        cost += Math.max(0, r.minWidthM + 0.06 - w) * 4 + Math.max(0, Math.max(w, d) / Math.min(w, d) - 2.0);
       }
       cost += d * 0.01;
       if (cost < best) { best = cost; dc = snap(d); }
@@ -515,11 +515,15 @@ function sliceBand(ctx: Ctx, b: Block, list: number[], targetsAll: number[], a: 
     for (let j = 0; j < rooms.length;) {
       if (!cluster[j]) { j++; continue; }
       let k = j; while (k + 1 < rooms.length && cluster[k + 1]) k++;
-      const into = j > 0 ? j - 1 : k + 1 < rooms.length ? k + 1 : -1;
-      absorb.push({ into, from: j, to: k });
+      const groupW = widths.slice(j, k + 1).reduce((s, x) => s + x, 0);
+      const strip = groupW * (D - dc) / D;
+      // the neighbour taking the strip must keep a usable full-depth part
+      const into = [j - 1, k + 1].find((x) => x >= 0 && x < rooms.length && !cluster[x] && widths[x] - strip >= Math.max(1.5, rooms[x].minWidthM * 0.6)) ?? -1;
       if (into >= 0) {
-        const groupW = widths.slice(j, k + 1).reduce((s, x) => s + x, 0);
-        widths[into] = Math.max(0.6, widths[into] - groupW * (D - dc) / D);
+        absorb.push({ into, from: j, to: k });
+        widths[into] -= strip;
+      } else {
+        for (let x = j; x <= k; x++) { cluster[x] = false; widths[x] = t[x] / D; }
       }
       j = k + 1;
     }
@@ -540,8 +544,7 @@ function sliceBand(ctx: Ctx, b: Block, list: number[], targetsAll: number[], a: 
     const u0 = cuts[ab.from], u1 = cuts[ab.to + 1];
     const sv0 = hallAtHigh ? v0 : v0 + dc, sv1 = hallAtHigh ? v1 - dc : v1;
     const strip = toGlobalRect(b, u0, u1, sv0, sv1);
-    if (ab.into >= 0) rectsOf[ab.into].push(strip);
-    else rectsOf[ab.from].push(strip); // all cluster: the first one takes the full depth
+    rectsOf[ab.into].push(strip);
   }
   rooms.forEach((_, j) => out.push({ room: list[j], rects: rectsOf[j].filter((r) => rArea(r) > 1e-4), target: targetsAll[list[j]] }));
 }
@@ -740,7 +743,7 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   // criteria
   const C: Criterion[] = [];
   const reachScore = ctx.rooms.length ? reached / ctx.rooms.length : 1;
-  C.push({ id: 'reach', name: 'Every room reachable', score: reachScore * (ent === 0 ? 1 : 0.8), weight: 3, value: reached, unit: 'rooms', detail: `${reached} of ${ctx.rooms.length} rooms reachable from the entrance through the hall${ent === 0 ? '' : '; entrance not into the hall'}` });
+  C.push({ id: 'reach', name: 'Reachable', score: reachScore * (ent === 0 ? 1 : 0.8), weight: 3, value: reached, unit: 'rooms', detail: `${reached} of ${ctx.rooms.length} rooms reachable from the entrance through the hall${ent === 0 ? '' : '; entrance not into the hall'}` });
 
   let propOk = 0;
   for (const r of progRooms) {
@@ -752,7 +755,7 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
     else issues.push(`${r.name} is long and thin (1:${r.aspect.toFixed(1)})`);
   }
   const propScore = progRooms.length ? propOk / ctx.rooms.length : 1;
-  C.push({ id: 'proportion', name: 'Proportions & widths', score: propScore, weight: 2.5, value: propOk, unit: 'rooms', detail: `${propOk} of ${ctx.rooms.length} rooms between 1:1 and 1:2.2 and at least their minimum width` });
+  C.push({ id: 'proportion', name: 'Proportions', score: propScore, weight: 2.5, value: propOk, unit: 'rooms', detail: `${propOk} of ${ctx.rooms.length} rooms between 1:1 and 1:2.2 and at least their minimum width` });
 
   let fitSum = 0, devSum = 0;
   for (const r of progRooms) {
@@ -784,17 +787,17 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   const circ = rooms[0].areaM2;
   const share = total ? circ / total : 0;
   const circScore = share < 0.08 ? clamp(1 - (0.08 - share) / 0.05, 0, 1) : share > 0.15 ? clamp(1 - (share - 0.15) / 0.1, 0, 1) : 1;
-  C.push({ id: 'circulation', name: 'Circulation share', score: circScore, weight: 1, value: Math.round(share * 1000) / 10, unit: '%', detail: `Hall is ${circ.toFixed(1)} m², ${(share * 100).toFixed(1)}% of the floor (target 8-15%)` });
+  C.push({ id: 'circulation', name: 'Circulation', score: circScore, weight: 1, value: Math.round(share * 1000) / 10, unit: '%', detail: `Hall is ${circ.toFixed(1)} m², ${(share * 100).toFixed(1)}% of the floor (target 8-15%)` });
 
   const pub = progRooms.filter((r) => r.privacy === 'public' && Number.isFinite(dist[idx.get(r.id)!]));
   const pri = progRooms.filter((r) => r.privacy === 'private' && Number.isFinite(dist[idx.get(r.id)!]));
   let good = 0, all = 0;
   for (const p of pub) for (const q of pri) { all++; if (dist[idx.get(p.id)!] <= dist[idx.get(q.id)!] + 0.5) good++; }
-  C.push({ id: 'privacy', name: 'Privacy gradient', score: all ? good / all : 1, weight: 1, value: all ? Math.round(good / all * 100) : 100, unit: '%', detail: `${all ? Math.round(good / all * 100) : 100}% of public rooms come before private rooms on the way in` });
+  C.push({ id: 'privacy', name: 'Privacy', score: all ? good / all : 1, weight: 1, value: all ? Math.round(good / all * 100) : 100, unit: '%', detail: `${all ? Math.round(good / all * 100) : 100}% of public rooms come before private rooms on the way in` });
 
   const hallPerim = outerEdges(hallRects).reduce((s, e) => s + segLen(e), 0);
   const ideal = Math.max(1, (progRooms.reduce((s, r) => s + 4 * Math.sqrt(r.areaM2), 0) + hallPerim - ctx.perimeter) / 2);
-  C.push({ id: 'walls', name: 'Wall length (cost)', score: clamp(ideal / Math.max(1, internalWallM), 0, 1), weight: 0.75, value: Math.round(internalWallM * 10) / 10, unit: 'm', detail: `${internalWallM.toFixed(1)} m of internal walls` });
+  C.push({ id: 'walls', name: 'Wall length', score: clamp(ideal / Math.max(1, internalWallM), 0, 1), weight: 0.75, value: Math.round(internalWallM * 10) / 10, unit: 'm', detail: `${internalWallM.toFixed(1)} m of internal walls` });
 
   const wet = progRooms.filter((r) => isWet(r));
   let wetOk = 0;
@@ -809,12 +812,19 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
     });
     if (near) wetOk++;
   }
-  C.push({ id: 'wet', name: 'Wet rooms grouped', score: wet.length > 1 ? wetOk / wet.length : 1, weight: 0.75, value: wetOk, unit: 'rooms', detail: wet.length > 1 ? `${wetOk} of ${wet.length} wet rooms next to or near another wet room` : 'One wet room' });
+  C.push({ id: 'wet', name: 'Wet rooms', score: wet.length > 1 ? wetOk / wet.length : 1, weight: 0.75, value: wetOk, unit: 'rooms', detail: wet.length > 1 ? `${wetOk} of ${wet.length} wet rooms next to or near another wet room` : 'One wet room' });
 
   if (missing > 0) issues.push(`${missing} room${missing > 1 ? 's' : ''} did not fit`);
   const wsum = C.reduce((s, c) => s + c.weight, 0);
   let score = C.reduce((s, c) => s + c.score * c.weight, 0) / wsum * 100;
   if (ent !== 0) score -= 8;
+  // a leg narrower than a door is unusable space, whatever else the plan gets right
+  score -= progRooms.filter((r) => r.rects.some((q) => rShort(q) < 0.9)).length * 4;
+  // minimum widths and areas are what the builder asked for: treat misses as near-hard
+  score -= progRooms.filter((r) => r.widthM < r.minWidthM - 0.02).length * 3;
+  score -= (progRooms.length - reached) * 6;
+  score -= progRooms.filter((r) => r.areaM2 < r.minAreaM2 * 0.97).length * 3;
+  score -= progRooms.filter((r) => r.aspect > 2.22).length * 1.5;
   score -= missing * 10;
 
   // windows
@@ -961,10 +971,11 @@ export function planBuilding(shell: Vec2[], entrances: ShellEntrance[], windows:
   const fams = families(ctx);
   if (!fams.length) throw new Error('Could not find a hall layout for this shell');
   const seed = opts.seed ?? 1;
-  const iters = opts.iterations ?? 1400;
+  // L-shaped and larger shells have more hall families; share one search budget between them.
+  const iters = Math.max(150, Math.round((opts.iterations ?? 1400) * Math.min(1, 6 / fams.length)));
   const runs: Run[] = [];
   fams.forEach((f, fi) => {
-    for (let v = 0; v < 2; v++) runs.push(optimise(ctx, f, fi, (seed * 7919 + fi * 104729 + v * 1299709) >>> 0, iters, v));
+    for (let v = 0; v < 3; v++) runs.push(optimise(ctx, f, fi, (seed * 7919 + fi * 104729 + v * 1299709) >>> 0, iters, v));
   });
   runs.sort((a, b) => b.ev.score - a.ev.score);
   // pick distinct options: best per family first, then others that differ in room placement
@@ -973,7 +984,9 @@ export function planBuilding(shell: Vec2[], entrances: ShellEntrance[], windows:
   const chosen: Run[] = [];
   const seenSig = new Set<string>();
   const usedFam = new Set<number>();
-  for (const r of runs) { if (chosen.length >= count) break; if (usedFam.has(r.famIndex)) continue; usedFam.add(r.famIndex); seenSig.add(sig(r)); chosen.push(r); }
+  // prefer a different hall arrangement per option, but never at the price of a clearly worse plan
+  const floor = runs[0].ev.score - 6;
+  for (const r of runs) { if (chosen.length >= count) break; if (usedFam.has(r.famIndex) || r.ev.score < floor) continue; usedFam.add(r.famIndex); seenSig.add(sig(r)); chosen.push(r); }
   for (const r of runs) { if (chosen.length >= count) break; const s = sig(r); if (seenSig.has(s)) continue; seenSig.add(s); chosen.push(r); }
   chosen.sort((a, b) => b.ev.score - a.ev.score);
   const exteriorWallM = opts.exteriorWallM ?? 0.3, interiorWallM = opts.interiorWallM ?? 0.1;
