@@ -434,7 +434,7 @@ export const RULES: DesignRule[] = [
         if (!a.solid || L.hostOf.has(a.f.id) || a.sem.role === 'decor' || a.sem.role === 'lighting' || a.f.category === 'nightstand') continue;
         const pts: P[] = isBed(a)
           ? [toPlanOf(a.f, -a.f.w / 2 - 0.3, 0.2), toPlanOf(a.f, a.f.w / 2 + 0.3, 0.2), toPlanOf(a.f, 0, a.f.d / 2 + 0.3)]
-          : [toPlanOf(a.f, 0, a.f.d / 2 + Math.max(0.3, Math.min(0.6, a.f.clearance.front)))];
+          : [0, -1, 1].map((k) => toPlanOf(a.f, k * Math.max(0, a.f.w / 2 - 0.3), a.f.d / 2 + Math.max(0.3, Math.min(0.6, a.f.clearance.front))));
         if (isHostCategory(a.f.category)) for (const s of seatsOfHost(L, a)) pts.push(toPlanOf(s.f, 0, -s.f.d / 2 - 0.3));
         const w = Math.max(0, ...pts.map((p) => 2 * bestNear(g, best, p, 0.35)));
         out.push(v([a.f.id], band(w, 0.6, 9, 0.25), w >= 0.6 ? `${a.f.name} is reachable along a ${cm(Math.min(w, 2))}${w >= 2 ? '+' : ''} path.` : `Getting to ${lc(a.f.name)} means squeezing through ${cm(w)}; aim for 60 cm.`, w + 1e-6 >= 0.6));
@@ -541,7 +541,7 @@ export const RULES: DesignRule[] = [
       const nw = nearestWindow(L.room, { x: a.f.x, y: a.f.y });
       if (!nw || nw.d > 4.5) return [];
       const view = mulv(a.front, -1), toW = normv(sub(nw.w.c, { x: a.f.x, y: a.f.y })), c = dot(view, toW);
-      if (c < -0.5) return [v([a.f.id], 0.3, `The window is behind whoever sits at ${lc(a.f.name)}: it reflects in the screen.`)];
+      if (c < -0.6) return [v([a.f.id], 0.3, `The window is behind whoever sits at ${lc(a.f.name)}: it reflects in the screen.`)];
       if (c > 0.6) return [v([a.f.id], 0.8, `${a.f.name} faces the window: good light, some glare on bright days.`)];
       return [v([a.f.id], 1, `Daylight falls on ${lc(a.f.name)} from the side, no screen glare.`)];
     }),
@@ -560,12 +560,12 @@ export const RULES: DesignRule[] = [
     },
   }),
   rule({
-    id: 'desk-daylight', name: 'Desk near daylight', severity: 'preference', source: 'Task light',
+    id: 'desk-daylight', name: 'Desk near daylight', severity: 'strong', source: 'Task light',
     evaluate: (L, v) => {
       if (!L.room.windows.length) return [];
       return of(L, 'desk').map((a) => {
         const d = Math.min(...L.room.windows.map((w) => polyDist(a.poly, [w.a, w.b, addv(w.b, mulv(w.inward, 0.01)), addv(w.a, mulv(w.inward, 0.01))])));
-        return v([a.f.id], band(d, 0, 1.5, 2.5), d <= 1.5 ? `${a.f.name} is ${cm(d)} from the window.` : `${a.f.name} is ${mm(d)} from the nearest window.`);
+        return v([a.f.id], band(d, 0, 0.6, 2.4), d <= 1.0 ? `${a.f.name} is ${cm(d)} from the window.` : `${a.f.name} is ${mm(d)} from the nearest window.`);
       });
     },
   }),
