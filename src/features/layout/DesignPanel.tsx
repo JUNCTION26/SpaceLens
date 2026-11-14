@@ -7,7 +7,24 @@ import { crossover } from './solver';
 import { designRoom, type FullReport } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
 import { DecisionsPanel } from '../design/DecisionsPanel';
+import { notify } from '../../ui/notify';
+import { useUi } from '../../ui/uiStore';
 import './layout.css';
+
+/** Three small plans side by side: what this panel will hold. */
+function LayoutsIllustration() {
+  return (
+    <svg className="layout-empty-art" width="132" height="44" viewBox="0 0 132 44" aria-hidden="true">
+      {[0, 46, 92].map((x, i) => (
+        <g key={x} transform={`translate(${x} 2)`}>
+          <rect x="0.5" y="0.5" width="39" height="39" rx="3" fill="none" stroke="currentColor" opacity=".5" />
+          <rect x={i === 1 ? 22 : 4} y="4" width="14" height="10" rx="1.5" fill="currentColor" opacity=".35" />
+          <rect x={i === 2 ? 4 : 24} y={i === 0 ? 24 : 26} width="12" height="10" rx="1.5" fill="currentColor" opacity=".22" />
+        </g>
+      ))}
+    </svg>
+  );
+}
 
 /** 0-100 score as a thin ring. */
 function ScoreRing({ value }: { value: number }) {
@@ -65,15 +82,20 @@ export function DesignPanel() {
     return m;
   }, [stale, candidates, model, req]);
 
-  const regenerate = async () => {
-    if (!req) return;
+  const regenerate = async (override?: typeof req) => {
+    const r = override ?? req;
+    if (!r) return;
+    if (override) useStore.getState().setRequirements(override);
     setBusy(true);
     try {
-      const res = await designRoom(model, req, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true) });
+      const res = await designRoom(useStore.getState().model, r, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true) });
       useReports.getState().setReports(res.reports);
       useStore.getState().setCandidates(res.candidates, res.infeasibility);
     } catch (e) {
-      useStore.getState().toast(`Layout failed: ${(e as Error).message}`, 'error');
+      console.error(e);
+      notify('Layouts could not be made this time. Your room and furniture are unchanged.', {
+        tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void regenerate(r) }, { label: 'Edit the brief', run: () => useUi.getState().openSection('describe') }],
+      });
     } finally { setBusy(false); useReports.getState().setStages(useReports.getState().stages, false); }
   };
   const combine = async () => {
@@ -84,7 +106,10 @@ export function DesignPanel() {
       const c = await crossover(a, b, model, req);
       const st = useStore.getState();
       if (c) { st.setCandidates([...st.candidates, c]); st.previewCandidate(c.id); setPins([]); }
-      else st.toast('These two do not combine into a valid layout', 'warn');
+      else notify('These two do not combine into a layout that fits.', { tone: 'warn', actions: [{ label: 'Pick another pair', run: () => setPins([]) }] });
+    } catch (e) {
+      console.error(e);
+      notify('Combining stopped partway. Both layouts are still here.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
     } finally { setBusy(false); }
   };
   const togglePin = (id: string) => setPins((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
@@ -94,14 +119,27 @@ export function DesignPanel() {
       <div className="panel layout-panel">
         {infeasibility ? (
           <div className="layout-infeasible">
-            <strong>No layout fits</strong>
+            <strong>Not everything fits in this room</strong>
             <ul className="list">{infeasibility.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
-            {req && infeasibility.relaxations.map((r) => (
-              <button key={r.label} className="btn btn-sm" onClick={() => useStore.getState().setRequirements({ ...req, ...r.patch })}>{r.label}</button>
-            ))}
-            {req && <button className="btn btn-primary btn-sm" disabled={busy} onClick={regenerate}>Try again</button>}
+            {req && (
+              <div className="layout-actions">
+                {infeasibility.relaxations.slice(0, 3).map((r, i) => (
+                  <button key={r.label} className={`btn btn-sm${i === 0 ? ' btn-primary' : ''}`} disabled={busy} onClick={() => void regenerate({ ...req, ...r.patch })}>{r.label}</button>
+                ))}
+                <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Edit the brief</button>
+              </div>
+            )}
           </div>
-        ) : <p className="muted">No layouts yet.</p>}
+        ) : (
+          <div className="layout-empty">
+            <LayoutsIllustration />
+            <strong>{req ? 'Ready to lay out the room' : 'Start with a short brief'}</strong>
+            <p className="muted">{req ? 'Three layouts that fit the measured room, each checked for doors, walkways and clearances.' : 'Say who uses the room and what it needs. Three checked layouts appear here.'}</p>
+            {req
+              ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Making layouts' : 'Make 3 layouts'}</button>
+              : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe the room</button>}
+          </div>
+        )}
       </div>
     );
   }
@@ -115,7 +153,7 @@ export function DesignPanel() {
       {stale && (
         <div className="layout-stale">
           <span>Room changed since these were made.</span>
-          <button className="btn btn-sm" disabled={busy || !req} onClick={regenerate}>Regenerate</button>
+          <button className="btn btn-sm" disabled={busy || !req} onClick={() => void regenerate()}>Regenerate</button>
         </div>
       )}
       <div className="layout-toolbar">
