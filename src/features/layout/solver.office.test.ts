@@ -40,7 +40,7 @@ describe('generateLayouts: home office for two', () => {
       expect(kept.x).toBeCloseTo(0.4);
       expect(kept.y).toBeCloseTo(1.4);
     }
-  }, 20000);
+  }, 90000);
 
   it('seats every chair at a desk front, facing the desk', async () => {
     const { candidates } = await generateLayouts(officeRoom(), officeRequest(), { seed: 2, variants: 2 });
@@ -56,7 +56,7 @@ describe('generateLayouts: home office for two', () => {
         expect(l).toBeLessThan(desk.d / 2 + desk.clearance.front);
       }
     }
-  }, 20000);
+  }, 90000);
 
   it('still reports infeasibility for the same office in a 2 x 2 m room', async () => {
     const model = room(rect(2, 2), [opening('door1', 'door', 2, 1.4, 0.8, 'in'), opening('win1', 'window', 0, 1, 1)]);
@@ -64,5 +64,5 @@ describe('generateLayouts: home office for two', () => {
     const { candidates, infeasibility } = await generateLayouts(model, req, { seed: 1, timeBudgetMs: 800 });
     expect(candidates).toHaveLength(0);
     expect(infeasibility?.reasons.length).toBeGreaterThan(0);
-  }, 20000);
+  }, 90000);
 });

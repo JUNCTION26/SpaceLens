@@ -40,12 +40,12 @@ describe('generateLayouts', () => {
         expect(convexOverlap(itemCorners(c.furniture[i]), itemCorners(c.furniture[j]))).toBeLessThan(0.01);
       expect(genomeOf(c, m).focal).toBeTruthy();
     }
-  }, 20000);
+  }, 90000);
 
   it('explains why a 2 x 2 room cannot fit bed, wardrobe and desk', async () => {
     const { candidates, infeasibility } = await generateLayouts(room(2, 2), req(['t-bed', 't-wardrobe', 't-desk']), { seed: 1, timeBudgetMs: 800 });
     expect(candidates.length).toBe(0);
     expect(infeasibility?.reasons.length).toBeGreaterThan(0);
     expect(infeasibility?.relaxations.length).toBeGreaterThan(0);
-  }, 20000);
+  }, 90000);
 });

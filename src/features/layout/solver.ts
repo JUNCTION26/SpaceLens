@@ -518,12 +518,13 @@ async function anneal(ctx: Ctx, start: FurnitureItem[], fixed: Set<string>, w: W
   let { e, ok } = evalState(cur);
   let best = cur.map((f) => ({ ...f })), be = e;
   let bestValid = ok ? best : null, bve = ok ? e : Infinity;
-  const t0 = performance.now(); let lastYield = t0; let T = 2;
-  for (let it = 0; ; it++) {
-    const now = performance.now();
-    if (now - t0 > ms) break;
-    if (now - lastYield > 30) { await tick(); lastYield = performance.now(); }
-    T = 2 * Math.pow(0.002, (now - t0) / ms);
+  // A fixed number of steps (about six per millisecond of budget on a typical machine), never the clock,
+  // so a seed gives the same layout everywhere.
+  const iters = Math.max(200, Math.round(ms * 6));
+  let lastYield = performance.now(); let T = 2;
+  for (let it = 0; it < iters; it++) {
+    if (performance.now() - lastYield > 30) { await tick(); lastYield = performance.now(); }
+    T = 2 * Math.pow(0.002, it / iters);
     const nxt = cur.map((f) => ({ ...f }));
     const i = free[Math.floor(r() * free.length)], f = nxt[i], m = r();
     if (m < 0.35) wallSnap(ctx, f, r);
