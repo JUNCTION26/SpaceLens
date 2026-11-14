@@ -225,7 +225,7 @@ function armchair(): ObjectSpec {
 
 function floorLamp(): ObjectSpec {
   const parts: ObjectPart[] = [
-    P('Marble base', 'lathe', [0.3, 0.04, 0.3], [0, 0.02, 0], 'marble', { profile: [[0.15, 0], [0.15, 0.025], [0.13, 0.04]] }),
+    P('Marble base', 'lathe', [0.3, 0.04, 0.3], [0, 0.024, 0], 'marble', { profile: [[0.15, 0], [0.15, 0.025], [0.13, 0.04]] }),
     P('Base collar', 'cylinder', [0.05, 0.03, 0.05], [0, 0.055, 0], 'brass'),
     P('Stem', 'tube', [0.02, 1.3, 0.02], [0, 0.72, 0], 'brass'),
     P('Stem joint', 'cylinder', [0.028, 0.04, 0.028], [0, 0.72, 0], 'brass'),
@@ -239,7 +239,7 @@ function floorLamp(): ObjectSpec {
     P('Shade bottom rim', 'lathe', [0.454, 0.008, 0.454], [0, 1.334, 0], 'brass', { profile: [[0.227, 0], [0.227, 0.008], [0.22, 0.008], [0.22, 0], [0.227, 0]] }),
     P('Shade top rim', 'lathe', [0.324, 0.008, 0.324], [0, 1.646, 0], 'brass', { profile: [[0.162, 0], [0.162, 0.008], [0.155, 0.008], [0.155, 0], [0.162, 0]] }),
     ...[0, (2 * Math.PI) / 3, (4 * Math.PI) / 3].map((a, i) => P(`Spider arm ${i + 1}`, 'tube', [0.14, 0.006, 0.006], [0.085 * Math.cos(a), 1.64, -0.085 * Math.sin(a)], 'brass', { rot: [0, a, 0] })),
-    P('Cord', 'tube', [0.006, 0.006, 0.6], [0.0, 0.003, 0.43], 'black-laminate'),
+    P('Base felt', 'cylinder', [0.27, 0.004, 0.27], [0, 0.002, 0], 'wool', { color: '#3a3330' }),
   ];
   return mk('floor-lamp', 'Brass floor lamp', 'floor lamp', 'brass floor lamp with a linen shade and a marble base',
     'A slim brass floor lamp with a tapered linen shade on a round marble base.', parts);
