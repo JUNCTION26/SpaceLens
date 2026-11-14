@@ -28,13 +28,17 @@ function Hero() {
     const ys = pts.map((p) => p[1]);
     const pad = 24;
     const vb = `${Math.min(...xs) - pad} ${Math.min(...ys) - pad} ${Math.max(...xs) - Math.min(...xs) + pad * 2} ${Math.max(...ys) - Math.min(...ys) + pad * 2}`;
-    const labels = poly.slice(0, 2).map((a, i) => {
-      const b = poly[i + 1];
-      const mid = iso((a.x + b.x) / 2, (a.y + b.y) / 2, 0);
-      return { x: mid[0], y: mid[1] + 16, t: `${Math.hypot(b.x - a.x, b.y - a.y).toFixed(2)} m` };
-    });
     const cx = poly.reduce((a, p) => a + p.x, 0) / poly.length;
     const cy = poly.reduce((a, p) => a + p.y, 0) / poly.length;
+    // Size labels sit just outside the two front edges of the floor.
+    const labels = poly.map((a, i) => ({ a, b: poly[(i + 1) % poly.length] }))
+      .map(({ a, b }) => {
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        const dx = mx - cx, dy = my - cy, d = Math.hypot(dx, dy) || 1;
+        const at = iso(mx + (dx / d) * 0.5, my + (dy / d) * 0.5, 0);
+        return { x: at[0], y: at[1] + 3, depth: mx + my, t: `${Math.hypot(b.x - a.x, b.y - a.y).toFixed(2)} m` };
+      })
+      .sort((p, q) => q.depth - p.depth).slice(0, 2);
     const boxAt = (x: number, y: number, w: number, d: number, bh: number) => {
       const c = [[x, y], [x + w, y], [x + w, y + d], [x, y + d]];
       const top = c.map(([a, b], i) => `${i ? 'L' : 'M'}${iso(a, b, bh).join(' ')}`).join(' ') + ' Z';
@@ -84,32 +88,35 @@ export function Home() {
       return m && m.spaces && m.spaces.length ? (m.name || 'Untitled room') : null;
     } catch { return null; }
   }, []);
+  const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); };
   return (
     <div className="home">
       <header className="home-top">
         <span className="brand"><Logo /><span>SpaceLens</span></span>
-        <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)}>Settings</button>
+        <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings" title="Settings"><Icon name="settings" /></button>
       </header>
-      <section className="home-hero">
+      <main className="home-hero">
         <div className="home-copy">
-          <h1>SpaceLens</h1>
-          <p className="home-pitch">Measure a room, try layouts that fit, then walk through it.</p>
-          <div className="home-start">
-            <div className="home-start-head">Start a space</div>
+          <h1>Measure a room.<br />Design it. Walk through it.</h1>
+          <p className="home-pitch">Fit out an office, decide the walls of a new house, or plan a dream bedroom, with every size checked.</p>
+          <div className="home-cta">
+            {recent
+              ? <button className="btn btn-primary btn-xl" onClick={() => setMode('design')}>Continue {recent}<Icon name="chevronRight" /></button>
+              : <button className="btn btn-primary btn-xl" onClick={openSample}>Open the sample room<Icon name="chevronRight" /></button>}
+            <button className="btn btn-ghost btn-xl" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}><Icon name="play" />Watch demo</button>
+          </div>
+          <div className="home-start" role="group" aria-labelledby="home-start-label">
+            <div className="home-start-head" id="home-start-label">Start from your own space</div>
             {OPTIONS.map((o) => (
               <button key={o.kind} className="home-row" onClick={() => openCapture(o.kind)}>
                 <Icon name={o.icon} size={16} /><span>{o.title}</span><Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}
           </div>
-          <div className="home-links">
-            <button className="home-link" onClick={() => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); }}>Open sample room</button>
-            <button className="home-link" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Watch demo</button>
-            {recent && <button className="home-link" onClick={() => setMode('design')}>Continue {recent}</button>}
-          </div>
+          {recent && <button className="home-link" onClick={openSample}>Or open the sample room</button>}
         </div>
-        <div className="home-art"><Hero /></div>
-      </section>
+        <div className="home-art" aria-hidden="false"><Hero /></div>
+      </main>
       <Settings />
     </div>
   );
