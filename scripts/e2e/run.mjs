@@ -495,6 +495,13 @@ async function drawings(c) {
   if (await c.page.locate('text~Build 3D from this plan')) {
     const t3 = Date.now();
     await c.page.click('text~Build 3D from this plan');
+    // The detected rooms are listed with their printed-area check first; "Open in 3D" makes the model.
+    const listed = await c.page.waitFor(`[...document.querySelectorAll('button')].some((b) => /^Open in 3D$/.test(b.innerText.trim()))`, 120000).catch(() => false);
+    if (listed) {
+      c.note(`detected: ${(await c.page.text('.drawings-side')).replace(/\s+/g, ' ').match(/\d+ rooms? \d+ doors? \d+ windows?|[^.]*within[^.]*printed/g)?.join(' | ') ?? ''}`);
+      await c.shot('detected');
+      await c.page.click('text=Open in 3D');
+    }
     const built = await c.until(`s.model.spaces.length > 1 || /Drawing|plan/i.test(s.model.sourceLabel ?? '')`, 120000).catch(() => false);
     c.timings.drawingTo3d = Date.now() - t3;
     const after = await c.state('JSON.stringify({ src: s.model.sourceLabel, spaces: s.model.spaces.length, names: s.model.spaces.map((x) => x.name).slice(0, 8), mode: s.mode })');
