@@ -1,0 +1,8 @@
+.ai-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: var(--fs-sm); cursor: pointer; font-variant-numeric: tabular-nums; }
+.ai-chip:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.ai-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted, #8a8f98); }
+.ai-chip.ok .dot { background: var(--ok, #3ba776); }
+.ai-chip.bad .dot { background: var(--warn, #d9822b); }
+.ai-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius, 8px); font-size: var(--fs-sm); }
+.ai-note p { margin: 0; flex: 1 1 220px; }
+.ai-note .acts { display: flex; gap: 6px; flex-wrap: wrap; }
