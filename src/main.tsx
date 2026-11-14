@@ -27,6 +27,9 @@ if (import.meta.env.DEV) {
   });
 }
 
+// A share link (#m=...) opens the shared design at start, whichever panel is showing.
+if (location.hash.includes('m=')) void import('./features/export/share').then((m) => m.loadFromHash());
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
