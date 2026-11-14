@@ -318,7 +318,7 @@ function Furniture({ items, ghost, interactive, onFocus }: { items: FurnitureIte
               </mesh>
             )}
             {live && isSel && (
-              <Html position={[it.x, it.h + 0.18, it.y]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+              <Html position={[it.x, it.h + 0.18, it.y]} center zIndexRange={[2, 0]} style={{ pointerEvents: 'none' }}>
                 <div className="scene3d-dim">{Math.round(it.w * 100)} × {Math.round(it.d * 100)} × {Math.round(it.h * 100)} cm</div>
               </Html>
             )}
