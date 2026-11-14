@@ -3,7 +3,7 @@
 // key is set), the web is searched through DuckDuckGo's plain results page via the reader. Either
 // way each product page is then read so the price and size come from the listing itself.
 
-import { getState } from '../../core/store';
+import { ai, aiReady, classify } from '../../core/ai';
 import type { StoreListing } from '../../core/types';
 import { extractJsonBlock, isCategoryUrl, isListTitle, isLikelyProductUrl, parseDdgResults, parseQueryLimits, searchTerms, storeFromUrl, type QueryLimits } from './parse';
 import { readerFetch, readListing, type ReadListing } from './read';
@@ -28,27 +28,28 @@ export interface SearchOptions {
 
 interface GroundedRow { title?: string; store?: string; url?: string; price?: number | null; currency?: string; imageUrl?: string | null; widthCm?: number | null; depthCm?: number | null; heightCm?: number | null }
 
-const API = 'https://generativelanguage.googleapis.com/v1beta/models';
+/** Grounding that failed for quota or access is not retried for a while. */
+let groundingPausedUntil = 0;
 
-/** Grounded search. Throws when grounding is unavailable so the caller can fall back. */
+/** Grounded search through the shared router (cached, falls through models). Throws when unavailable so the caller can fall back. */
 async function groundedSearch(query: string, limit: number, signal?: AbortSignal): Promise<ShopListing[]> {
-  const { geminiKey, geminiModel } = getState().settings;
-  if (!geminiKey) throw new Error('no key');
+  if (!aiReady()) throw new Error('no key');
+  if (Date.now() < groundingPausedUntil) throw new Error('grounding paused');
   const prompt = `Find up to ${limit} real products currently sold online that match: "${query}".
 Use Google Search. Only include individual product pages (not categories). For each give: the exact product page URL, title, store, price as a number exactly as listed (null if you did not see it), currency ISO code, image URL if seen (else null), and the stated overall width, depth and height in cm (null if not stated). Never guess a price or a size.
 Reply ONLY with:
 \`\`\`json
 {"results":[{"title":"","store":"","url":"","price":null,"currency":"SEK","imageUrl":null,"widthCm":null,"depthCm":null,"heightCm":null}]}
 \`\`\``;
-  const res = await fetch(`${API}/${encodeURIComponent(geminiModel)}:generateContent`, {
-    method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-    // Grounding cannot be combined with responseSchema on some models, so the JSON comes as text.
-    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], tools: [{ google_search: {} }], generationConfig: { temperature: 0.1 } }),
-  });
-  if (!res.ok) throw new Error(`grounding ${res.status}`);
-  const j = await res.json();
-  const text: string = j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
+  let text: string;
+  try {
+    // Grounding cannot be combined with responseSchema, so the JSON comes as text.
+    const r = await ai<string>({ task: 'fast', parts: [{ text: prompt }], tools: [{ google_search: {} }], temperature: 0.1, signal, thinking: 'low', cacheKey: `ground:${limit}:${query.trim().toLowerCase()}` });
+    text = r.data;
+  } catch (e) {
+    if (!signal?.aborted && classify(e).reason !== 'network') groundingPausedUntil = Date.now() + 10 * 60_000;
+    throw e;
+  }
   const rows = extractJsonBlock<{ results?: GroundedRow[] }>(text)?.results ?? [];
   const now = Date.now();
   const m = (v: number | null | undefined) => (typeof v === 'number' && v > 0 ? Math.round(v * 10) / 1000 : undefined);

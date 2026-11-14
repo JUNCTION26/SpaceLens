@@ -11,7 +11,7 @@ import {
 } from './parse';
 
 export const READER = 'https://r.jina.ai/';
-export const READER_NOTE = 'Links are read through a public reader service (r.jina.ai).';
+export const READER_NOTE = 'Links are read through a public page reader.';
 
 export interface ReadListing extends StoreListing {
   images: string[];

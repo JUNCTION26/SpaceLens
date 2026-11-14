@@ -204,7 +204,7 @@ export function StorePanel() {
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void runPhoto(f); e.target.value = ''; }} />
       </div>
 
-      <p className="shop-fine">{READER_NOTE} Prices and stock come from each listing at the time it was read.</p>
+      <p className="shop-fine">Prices and stock come from each listing at the time it was read. <abbr title={READER_NOTE} tabIndex={0}>Details</abbr></p>
       {status && <p className="shop-status" role="status">{(busy === 'search' || busy === 'link') && <span className="shop-spin" aria-hidden="true" />}{status}</p>}
 
       {picked.length >= 2 && (
