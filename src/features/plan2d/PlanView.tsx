@@ -1037,9 +1037,11 @@ export function PlanView() {
             </div>
           )}
         </div>
-        <span className="plan2d-sep" />
-        <button className="plan2d-tb" onClick={() => addOpening('door')} disabled={selection?.kind !== 'wall'} aria-label="Add door to selected wall" data-tip={selection?.kind === 'wall' ? 'Add a door here' : 'Click a wall, then add a door'}><Icon name="door" /></button>
-        <button className="plan2d-tb" onClick={() => addOpening('window')} disabled={selection?.kind !== 'wall'} aria-label="Add window to selected wall" data-tip={selection?.kind === 'wall' ? 'Add a window here' : 'Click a wall, then add a window'}><Icon name="window" /></button>
+        {selection?.kind === 'wall' && (<>
+          <span className="plan2d-sep" />
+          <button className="plan2d-tb" onClick={() => addOpening('door')} aria-label="Add door to selected wall" data-tip="Add door"><Icon name="door" /></button>
+          <button className="plan2d-tb" onClick={() => addOpening('window')} aria-label="Add window to selected wall" data-tip="Add window"><Icon name="window" /></button>
+        </>)}
         <span className="plan2d-sep" />
         <span className="plan2d-tb plan2d-help" tabIndex={0} role="note" aria-label="Shortcuts: Shift click or drag to multi-select, arrows nudge, R rotate, L lock, Ctrl D duplicate, F zoom, Alt drag skips snap">
           ?
@@ -1188,7 +1190,7 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover }: {
         <g>
           <line x1={0} y1={d / 2} x2={0} y2={d / 2 + 18 * px} stroke="var(--accent)" strokeWidth={px} pointerEvents="none" />
           <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={6 * px} className="plan2d-rot" strokeWidth={1.25 * px}>
-            <title>Drag to turn in 15° steps (Shift for any angle). R turns 90°.</title>
+            <title>Drag to turn</title>
           </circle>
         </g>
       )}

@@ -193,3 +193,9 @@ circle.plan2d-mark-hit { stroke: none; }
 }
 
 .plan2d-preview { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 8px; z-index: 6; }
+
+/* Chrome recedes: the scale and tools show while the pointer is over the plan. */
+@media (hover: hover) {
+  .plan2d-scale, .plan2d-toolbar { opacity: 0; transition: opacity .2s var(--ease); }
+  .pane-2d:hover .plan2d-scale, .pane-2d:hover .plan2d-toolbar, .plan2d-toolbar:focus-within { opacity: 1; }
+}
