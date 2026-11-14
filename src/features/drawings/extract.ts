@@ -29,6 +29,8 @@ export interface RoomGeom {
   /** Seed point used for the fill. */
   seed: P;
   rectilinear: boolean;
+  /** 'outline': the room's own boundary line drawn on the sheet; 'walls': the space enclosed by walls, doors and windows. */
+  source: 'outline' | 'walls';
 }
 export interface PlanGeometry {
   page: number;
@@ -114,9 +116,9 @@ class Grid {
     this.fillRings([[{ x: a.x + nx - ex, y: a.y + ny - ey }, { x: b.x + nx + ex, y: b.y + ny + ey }, { x: b.x - nx + ex, y: b.y - ny + ey }, { x: a.x - nx - ex, y: a.y - ny - ey }]], v);
   }
   /** True when any blocked cell lies within `rad` points of p. */
-  blockedNear(p: P, rad: number) {
+  blockedNear(p: P, rad: number, anyBarrier = false) {
     const c0 = this.cx(p.x - rad), c1 = this.cx(p.x + rad), r0 = this.cy(p.y - rad), r1 = this.cy(p.y + rad);
-    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (this.at(c, r) === 1) return true;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const v = this.at(c, r); if (v === 1 || (anyBarrier && v !== 0)) return true; }
     return false;
   }
 }
@@ -303,8 +305,9 @@ function findWindows(paths: VPath[], grid: Grid, wallT: number, wallTMax: number
       const dirx = (b.x - a.x) / long, diry = (b.y - a.y) / long;
       const probe = wallT * 0.6;
       // both short ends sit against wall material...
-      const okA = grid.blockedNear({ x: a.x - dirx * probe, y: a.y - diry * probe }, wallT * 0.35);
-      const okB = grid.blockedNear({ x: b.x + dirx * probe, y: b.y + diry * probe }, wallT * 0.35);
+      // (a door closure counts: a window often runs into a balcony door)
+      const okA = grid.blockedNear({ x: a.x - dirx * probe, y: a.y - diry * probe }, wallT * 0.35, true);
+      const okB = grid.blockedNear({ x: b.x + dirx * probe, y: b.y + diry * probe }, wallT * 0.35, true);
       if (!okA || !okB) continue;
       // ...and both long sides face open space (a counter or shelf has one side against a wall)
       const c = mid(a, b), off = short / 2 + grid.cell * 3;
@@ -497,6 +500,58 @@ function wallFaces(rings: P[][], angle: number, minLen: number) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Room outlines: many CAD exports draw each room's boundary as its own thin closed polygon.
+
+function pointInRing(p: P, ring: P[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i], b = ring[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * For each seed, the smallest drawn closed polygon that holds it and no other room number.
+ * Only polygon styles shared by several rooms count, so a bathtub under a label is ignored.
+ */
+function findOutlines(paths: VPath[], seeds: P[], wallStyles: Set<string>, minArea: number, maxArea: number): Map<number, P[]> {
+  const shapes: Array<{ ring: P[]; area: number; key: string; bb: ReturnType<typeof bboxOf> }> = [];
+  for (const p of paths) {
+    if (wallStyles.has(styleKey(p)) || p.curves > 0 || p.dashed) continue;
+    const key = `${p.paint === 'stroke' ? 's' : 'f'}|${p.lw.toFixed(2)}|${p.stroke.join(',')}`;
+    for (const sh of closedShapes(p)) if (sh.area >= minArea && sh.area <= maxArea && sh.ring.length >= 4) shapes.push({ ring: sh.ring, area: sh.area, key, bb: sh.bb });
+  }
+  const pick = new Map<number, { ring: P[]; key: string }>();
+  seeds.forEach((sd, i) => {
+    let best: (typeof shapes)[number] | null = null;
+    for (const sh of shapes) {
+      if (sd.x < sh.bb.x0 || sd.x > sh.bb.x1 || sd.y < sh.bb.y0 || sd.y > sh.bb.y1) continue;
+      if (best && sh.area >= best.area) continue;
+      if (!pointInRing(sd, sh.ring)) continue;
+      if (seeds.some((o, j) => j !== i && o.x >= sh.bb.x0 && o.x <= sh.bb.x1 && o.y >= sh.bb.y0 && o.y <= sh.bb.y1 && pointInRing(o, sh.ring))) continue;
+      best = sh;
+    }
+    if (best) pick.set(i, { ring: best.ring, key: best.key });
+  });
+  const counts = new Map<string, number>();
+  for (const v of pick.values()) counts.set(v.key, (counts.get(v.key) ?? 0) + 1);
+  const top = Math.max(0, ...counts.values());
+  const out = new Map<number, P[]>();
+  if (top < 3) return out;
+  for (const [i, v] of pick) if ((counts.get(v.key) ?? 0) >= Math.max(3, top * 0.3)) out.set(i, v.ring);
+  return out;
+}
+
+function cleanRing(ring: P[], eps: number): P[] {
+  let r = ring.filter((p, i) => dist(p, ring[(i + 1) % ring.length]) > eps);
+  r = r.filter((b, i) => {
+    const a = r[(i + r.length - 1) % r.length], c = r[(i + 1) % r.length];
+    const cr = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    return Math.abs(cr) / (dist(a, c) || 1) > eps;
+  });
+  return r.length >= 3 ? r : ring;
+}
 
 export interface ExtractOptions {
   /** Metres per page point, when the caller knows it (overrides the printed scale). */
@@ -555,13 +610,13 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   // 4. doors and windows close the wall gaps
   const doorR = mPerPt ? [0.45 / mPerPt, 1.4 / mPerPt] : [wallT * 3, wallT * 14];
   const doors = findDoors(pp.paths, doorR[0], doorR[1], wall.styles, grid, wallT);
-  const windows = findWindows(pp.paths, grid, wallT, wall.thick90, wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
   for (const d of doors) {
     // the hinge line sits on the wall face on the swing side: fill the band behind it, away from the leaf
     const L = dist(d.hinge, d.tip) || 1;
     const ox = (-(d.tip.x - d.hinge.x) / L) * (wallT / 2), oy = (-(d.tip.y - d.hinge.y) / L) * (wallT / 2);
     grid.fillSegment({ x: d.hinge.x + ox, y: d.hinge.y + oy }, { x: d.jamb.x + ox, y: d.jamb.y + oy }, wallT, 2);
   }
+  const windows = findWindows(pp.paths, grid, wallT, wall.thick90, wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
   for (const w of windows) grid.fillSegment(w.a, w.b, Math.max(w.depthPt, wallT * 0.5), 2);
 
   // 5. rooms: fill from every printed room number, then any other enclosed space
@@ -587,8 +642,26 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   ];
   let nextId = 1;
   const regionOf = new Map<number, number>(); // region id -> room index
-  for (const s of seeds) {
+  const areaRange = mPerPt ? [0.4 / (mPerPt * mPerPt), 3000 / (mPerPt * mPerPt)] : [wallT * wallT * 20, pageArea * 0.3];
+  const outlines = findOutlines(pp.paths, seeds.map((s) => s.at), wall.styles, areaRange[0], areaRange[1]);
+  const taken = new Grid(grid.x0, grid.y0, grid.cell, grid.cols, grid.rows);
+  for (const ring of outlines.values()) taken.fillRings([ring], 1);
+  for (const [si, s] of seeds.entries()) {
     const sc = seedCell(s.at);
+    const outline = outlines.get(si);
+    if (outline) {
+      // the drawn room boundary is exact; the wall fill only cross-checks it
+      let raster = 0;
+      if (sc && label[sc[1] * grid.cols + sc[0]] === 0) {
+        const id = nextId++;
+        const info = floodFill(grid, sc, label, id, maxRoomCells);
+        if (!info.leaked) raster = info.cells * cell * cell;
+      }
+      const poly = cleanRing(outline, cell * 0.25);
+      const rect = rectilinearise(poly, angle, { h: [], v: [] }, 0, 3);
+      rooms.push({ id: `o${si}`, no: s.no, label: s.label, printedArea: s.area, items: s.items, polygon: poly, areaPt2: Math.abs(polyArea(poly)), rasterPt2: raster, seed: s.at, rectilinear: rect.ok, source: 'outline' });
+      continue;
+    }
     if (!sc) { failed.push({ no: s.no, label: s.label, reason: 'label sits on a wall', items: s.items }); continue; }
     const k = sc[1] * grid.cols + sc[0];
     if (label[k] !== 0) {
@@ -602,20 +675,20 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
     regionInfo.set(id, info);
     if (info.leaked) { failed.push({ no: s.no, label: s.label, reason: 'walls do not close around it', items: s.items }); continue; }
     regionOf.set(id, rooms.length);
-    rooms.push({ id: `r${id}`, no: s.no, label: s.label, printedArea: s.area, items: s.items, polygon: [], areaPt2: 0, rasterPt2: info.cells * cell * cell, seed: s.at, rectilinear: false });
+    rooms.push({ id: `r${id}`, no: s.no, label: s.label, printedArea: s.area, items: s.items, polygon: [], areaPt2: 0, rasterPt2: info.cells * cell * cell, seed: s.at, rectilinear: false, source: 'walls' });
   }
   // unlabelled enclosed spaces larger than 1 m²
   const minCells = mPerPt ? 1.0 / (mPerPt * mPerPt) / (cell * cell) : 2000;
   for (let r = 1; r < grid.rows - 1; r += 3) for (let c = 1; c < grid.cols - 1; c += 3) {
     const k = r * grid.cols + c;
-    if (grid.data[k] !== 0 || label[k] !== 0) continue;
+    if (grid.data[k] !== 0 || label[k] !== 0 || taken.data[k] !== 0) continue;
     const id = nextId++;
     const info = floodFill(grid, [c, r], label, id, maxRoomCells);
     regionInfo.set(id, info);
     if (info.leaked || info.cells < minCells) continue;
     regionOf.set(id, rooms.length);
     const at = { x: grid.x0 + (c + 0.5) * cell, y: grid.y0 + (r + 0.5) * cell };
-    rooms.push({ id: `r${id}`, items: [], polygon: [], areaPt2: 0, rasterPt2: info.cells * cell * cell, seed: at, rectilinear: false });
+    rooms.push({ id: `r${id}`, items: [], polygon: [], areaPt2: 0, rasterPt2: info.cells * cell * cell, seed: at, rectilinear: false, source: 'walls' });
   }
 
   // 6. outlines
@@ -634,7 +707,7 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   }
 
   // 7. calibrate against printed areas: fit metres-per-point from rooms with a printed net area
-  const pairs = rooms.filter((r) => r.printedArea && r.rasterPt2 > 0).map((r) => Math.sqrt(r.printedArea! / r.areaPt2));
+  const pairs = rooms.filter((r) => r.printedArea && r.areaPt2 > 0).map((r) => Math.sqrt(r.printedArea! / r.areaPt2));
   let areaFit: number | undefined;
   if (pairs.length >= 2) areaFit = median(pairs);
   if (!mPerPt && areaFit) { mPerPt = areaFit; scaleSource = 'areas'; }
