@@ -25,7 +25,7 @@
 .hero-floor, .hero-ceil { stroke-dasharray: 1; stroke-dashoffset: 1; animation: heroDraw 1.2s var(--ease) forwards; }
 .hero-ceil { animation-delay: .8s; stroke: var(--plan-ink) !important; }
 .hero-walls { opacity: 0; stroke: var(--plan-ink) !important; animation: heroFade .5s ease-out .6s forwards; }
-.hero-label { font: 7px var(--mono); fill: var(--muted); font-variant-numeric: tabular-nums; }
+.hero-label { font: 500 7px var(--font); fill: var(--muted); font-variant-numeric: tabular-nums; }
 .hero-furn { opacity: 0; animation: heroFurn .5s var(--ease) forwards; }
 .hero-furn path { stroke: var(--plan-ink); }
 .hero-svg .hf-top { fill: color-mix(in srgb, var(--plan-ink) 14%, var(--plan-floor)); }
