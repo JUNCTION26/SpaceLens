@@ -108,3 +108,14 @@
 .drawings-bad { color: var(--bad); }
 .drawings-bfailed { font-size: 12px; }
 .drawings-bfailed ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* The panel is often a narrow side column: stack the sheet above the cards instead of three columns. */
+.drawings { container-type: inline-size; }
+@container (max-width: 760px) {
+  .drawings-main { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; overflow-y: auto; align-content: start; }
+  .drawings-thumbs { flex-direction: row; width: auto; overflow-x: auto; }
+  .drawings-thumb { width: 56px; flex: none; }
+  .drawings-stage { min-height: 0; height: min(46vh, 420px); }
+  .drawings-side { overflow: visible; }
+  .drawings-ask { position: static; }
+}
