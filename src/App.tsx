@@ -166,7 +166,7 @@ export function App() {
       <div className={`workspace${collapsed ? ' nav-collapsed' : ''}`}>
         <Sidebar active={active} />
         <section className="panel-col" aria-label={active.label}>
-          <header className="panel-col-head"><h1>{active.label}</h1><p>{active.hint}</p></header>
+          <header className="panel-col-head"><h1>{active.label}</h1></header>
           <div className="side-body"><Suspense fallback={<PanelSkeleton />}><Panel key={active.key} /></Suspense></div>
         </section>
         <main className={`stage stage-${shown}`}>
