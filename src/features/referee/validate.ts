@@ -151,6 +151,8 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
     ];
     for (const [side, need, rect] of sides) {
       if (need <= TOL) continue;
+      // A seat's use zone facing its desk or table is the knee space under it: nothing beyond counts.
+      if (host && overlapDepth(rect, footprint(host)) > TOL) continue;
       let worst = 0;
       const hit: FurnitureItem[] = [];
       for (const g of solid) {
@@ -257,16 +259,27 @@ function routeCheck(space: Space, door: Opening, target: Opening, start: P, goal
   const x0 = Math.min(...xs), y0 = Math.min(...ys);
   const cols = Math.max(1, Math.ceil((Math.max(...xs) - x0) / CELL)), rows = Math.max(1, Math.ceil((Math.max(...ys) - y0) / CELL));
   const rects = items.map(footprint);
-  // Clearance per cell: distance to nearest wall or footprint (-1 outside the room).
+  // Clearance per cell: distance to nearest wall or footprint (-1 outside the room), capped where it
+  // no longer matters (twice the cap is reported as the width of a very wide way).
+  const cap = Math.max(2, minW);
   const clr = new Float64Array(cols * rows).fill(-1);
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const p = { x: x0 + (c + 0.5) * CELL, y: y0 + (r + 0.5) * CELL };
     if (!pointInPolygon(p, poly)) continue;
     // Near the endpoints the wall itself is the destination, so only furniture narrows the way.
     const nearEnd = Math.hypot(p.x - start.x, p.y - start.y) < 0.5 || Math.hypot(p.x - goal.x, p.y - goal.y) < 0.5;
-    let m = nearEnd ? Infinity : distToBoundary(p, poly);
-    for (const rc of rects) m = Math.min(m, distPointRect(p, rc));
-    clr[r * cols + c] = m;
+    clr[r * cols + c] = nearEnd ? cap : Math.min(cap, distToBoundary(p, poly));
+  }
+  for (const rc of rects) {
+    const ext = Math.abs(rc.hw * Math.cos(rc.rot)) + Math.abs(rc.hd * Math.sin(rc.rot)) + cap, eyt = Math.abs(rc.hw * Math.sin(rc.rot)) + Math.abs(rc.hd * Math.cos(rc.rot)) + cap;
+    const c0 = Math.max(0, Math.floor((rc.cx - ext - x0) / CELL)), c1 = Math.min(cols - 1, Math.floor((rc.cx + ext - x0) / CELL));
+    const r0 = Math.max(0, Math.floor((rc.cy - eyt - y0) / CELL)), r1 = Math.min(rows - 1, Math.floor((rc.cy + eyt - y0) / CELL));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const k = r * cols + c;
+      if (clr[k] <= 0) continue;
+      const d = distPointRect({ x: x0 + (c + 0.5) * CELL, y: y0 + (r + 0.5) * CELL }, rc);
+      if (d < clr[k]) clr[k] = d;
+    }
   }
   const cellOf = (p: P) => {
     const c = Math.min(cols - 1, Math.max(0, Math.floor((p.x - x0) / CELL))), r = Math.min(rows - 1, Math.max(0, Math.floor((p.y - y0) / CELL)));
