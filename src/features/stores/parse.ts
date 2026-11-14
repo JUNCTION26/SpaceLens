@@ -157,8 +157,11 @@ export function parseReaderMarkdown(md: string): ReaderPage {
     images.push(u);
   }
   // Prefer images whose file name shares a word with the product title.
-  const key = title.toLowerCase().split(/[^a-z0-9åäöüéß]+/).filter((w) => w.length > 3).slice(0, 3);
-  const score = (u: string) => (key.some((k) => u.toLowerCase().includes(k)) ? 1 : 0);
+  // The link's own words count too: they name the product even when the page title is generic.
+  let slug = '';
+  try { slug = new URL(sourceUrl).pathname.split('/').filter(Boolean).pop() ?? ''; } catch { /* not a URL */ }
+  const key = [...title.toLowerCase().split(/[^a-z0-9åäöüéß]+/), ...slug.toLowerCase().split(/[^a-z0-9åäöüéß]+/)].filter((w) => w.length > 3 && !/^\d+$/.test(w)).slice(0, 6);
+  const score = (u: string) => (key.some((k) => u.toLowerCase().includes(k)) ? 2 : 0) + (/\/images\/products\//i.test(u) ? 1 : 0);
   images.sort((a, b) => score(b) - score(a));
   return { title, sourceUrl, finalUrl, images, body };
 }
@@ -188,13 +191,26 @@ export function storeFromUrl(url: string): string {
 
 /** Text after the product heading, where the main price sits (before related products). */
 export function mainSection(body: string, title: string): string {
+  let text = body;
   const first = title.split(/[\s,]+/)[0];
   if (first && first.length > 2) {
     const re = new RegExp(String.raw`^#{1,2}\s.*${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'im');
     const m = body.match(re);
-    if (m?.index !== undefined) return body.slice(m.index);
+    if (m?.index !== undefined) text = body.slice(m.index);
   }
-  return body;
+  // Related, recommended and accessory blocks come after the product: their prices and sizes are not its own.
+  const after = text.search(/^#{2,4}\s*\[?(?:Related products|Recommended|Accessories|Customer reviews|Looks by you|Explore more|More from|Others also|You may also|Similar|Du kanske|Rekommenderat|Relaterade|Tillbehör|Liknande)/im);
+  return after > 0 ? text.slice(0, after) : text;
+}
+
+/** True when the reader was sent from a product link to a category, search or front page. */
+export function redirectedAway(sourceUrl: string, finalUrl?: string): boolean {
+  if (!finalUrl || finalUrl === sourceUrl) return false;
+  try {
+    const a = new URL(sourceUrl), b = new URL(finalUrl);
+    if (a.pathname === b.pathname) return false;
+  } catch { return false; }
+  return isCategoryUrl(finalUrl) || !isLikelyProductUrl(finalUrl);
 }
 
 // ---- web search results (DuckDuckGo HTML through the reader) ----------------------------

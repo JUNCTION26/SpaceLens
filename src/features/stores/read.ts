@@ -6,7 +6,7 @@
 import { ai, aiReady } from '../../core/ai';
 import type { StoreListing } from '../../core/types';
 import {
-  compactBody, krCurrencyFor, mainSection, parseDimensions, parsePrice, parsePrices, parseReaderMarkdown, storeFromUrl, stripStoreSuffix,
+  compactBody, krCurrencyFor, mainSection, parseDimensions, parsePrice, parsePrices, parseReaderMarkdown, redirectedAway, storeFromUrl, stripStoreSuffix,
   type Dims,
 } from './parse';
 
@@ -70,6 +70,15 @@ export async function listingFromMarkdown(md: string, url: string, signal?: Abor
   const src = page.sourceUrl || url;
   const store = storeFromUrl(src);
   const kr = krCurrencyFor(src);
+  if (redirectedAway(src, page.finalUrl)) {
+    // The store sent the link to a category or its front page (often a product that is no longer sold):
+    // nothing on that page belongs to the product, so no price, size or photo is taken from it.
+    const slug = decodeURIComponent(new URL(src).pathname.split('/').filter(Boolean).pop() ?? '').replace(/-\d{5,}$|-[a-z]?\d{6,}$/i, '').replace(/-/g, ' ').trim();
+    return {
+      store, title: slug ? slug[0].toUpperCase() + slug.slice(1) : store, url: src, price: null, currency: kr, images: [], fetchedAt: Date.now(), via: 'page',
+      note: 'The store sent this link to a general page, so the product could not be read. It may no longer be sold. Type the price and size, or paste a screenshot.',
+    };
+  }
   const main = mainSection(page.body, page.title);
   const local = parsePrice(main, kr);
   const dims: Dims = parseDimensions(main);
