@@ -162,7 +162,10 @@ export function DesignPanel() {
         </div>
       )}
       <div className="layout-cards">
-        {candidates.map((c) => {
+        {candidates.map((c, i) => {
+          // Two layouts with the same short name get a letter so they can be told apart.
+          const short = shortLabel(c.name);
+          const label = candidates.filter((o) => shortLabel(o.name) === short).length > 1 ? `${short} ${String.fromCharCode(65 + i)}` : short;
           const nowFail = recheck.get(c.id) ?? 0;
           const rep = reports[c.id];
           return (
@@ -170,7 +173,7 @@ export function DesignPanel() {
               {sp && <Thumb model={model} cand={c} scale={scale * 0.6} />}
               <div className="layout-card-body">
                 <div className="layout-card-head">
-                  <strong title={c.name}>{shortLabel(c.name)}</strong>
+                  <strong title={c.name}>{label}</strong>
                   {nowFail > 0 && <span className="chip chip-bad">{nowFail} fail</span>}
                   <ScoreRing value={c.metrics.score} />
                 </div>

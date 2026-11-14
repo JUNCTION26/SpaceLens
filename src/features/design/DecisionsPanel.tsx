@@ -21,10 +21,12 @@ export function fixHint(v: RuleVerdict): string {
   return v.severity === 'hard' ? 'Must be fixed.' : '';
 }
 
-/** At most four words: rule names are labels, never sentences. */
+const TRAILING = /^(by|the|a|an|with|and|of|to|near|at|on|in|for|from|facing|along)$/i;
+/** At most four words, never ending on a small joining word: rule and layout names are labels, not sentences. */
 export function shortLabel(t: string): string {
-  const w = t.replace(/[.:].*$/, '').trim().split(/\s+/);
-  return w.length > 4 ? `${w.slice(0, 4).join(' ')}` : w.join(' ');
+  const w = t.replace(/[.:,(].*$/, '').trim().split(/\s+/).slice(0, 4);
+  while (w.length > 1 && TRAILING.test(w[w.length - 1])) w.pop();
+  return w.join(' ');
 }
 
 /** "Why": up to five ticks or crosses. Tapping one selects the piece it is about, so the room shows it. */
