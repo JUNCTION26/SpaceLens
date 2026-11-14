@@ -20,7 +20,7 @@ export const RULE_POINTS: Record<string, number> = {
   'sofa-focal': 10, 'tv-distance': 8, 'coffee-reach': 8, conversation: 4, 'armchair-group': 5, 'seat-outlook': 8,
   'rug-anchor': 5, 'rug-door': 4, 'lamp-seat': 3,
   // storage
-  'reception-door': 12, 'service-aisle': 10, 'storage-access': 10, 'tall-walls': 7, 'wardrobe-bed': 3,
+  'reception-door': 12, 'faces-board': 12, 'turning-space': 12, 'service-aisle': 10, 'storage-access': 10, 'tall-walls': 7, 'wardrobe-bed': 3,
   // composition
   balance: 6, 'focal-point': 4, zones: 8, parallel: 10, 'wall-backed': 10, 'dead-gaps': 4, 'no-floating': 10,
   'small-room': 6, 'large-room': 6, services: 0,

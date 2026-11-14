@@ -91,7 +91,8 @@ export function relationScore(rel: Relation, L: LayoutCtx): number | null {
     case 'centered-on': {
       const p = targetPoint(t);
       if (!p) return null;
-      return band(distp(at(s), p), 0, 0.25, 1.2);
+      // Item targets (a rug on a table) want it close; the room centre pulls gently from anywhere.
+      return t?.kind === 'item' ? band(distp(at(s), p), 0, 0.25, 1.2) : band(distp(at(s), p), 0, 0.25, 6);
     }
     case 'on-rug': {
       if (t?.kind !== 'item') return null;
@@ -126,7 +127,7 @@ export function isStructural(rel: Relation, items: Map<string, FurnitureItem>): 
   const s = items.get(rel.subject);
   if (!t || !s || t.id === s.id) return false;
   if (rel.kind === 'faces') return t.category === 'tv-unit' && /^sofa/.test(s.category);
-  if (rel.kind === 'beside') return (rel.distanceM?.[1] ?? 0.5) <= 1.0 && ['armchair', 'lamp', 'side-table', 'plant'].includes(s.category);
+  if (rel.kind === 'beside') return (rel.distanceM?.[1] ?? 0.5) <= 1.0 && ['armchair', 'lamp', 'side-table', 'plant', 'stool'].includes(s.category);
   if (rel.kind === 'centered-on') return s.category === 'rug';
   return STRUCTURAL.includes(rel.kind);
 }
@@ -238,7 +239,7 @@ export function facingOptions(room: RoomCtx, tv: FurnitureItem, sofa: FurnitureI
 export function besideOptions(parent: FurnitureItem, child: FurnitureItem, range: [number, number] | undefined, mirror: boolean, opposite: boolean): Pose[] {
   const sides: Array<-1 | 1> = mirror ? [-1, 1] : [1, -1];
   const out: Pose[] = [];
-  if (child.category === 'armchair' || child.category === 'side-table') {
+  if (child.category === 'armchair' || child.category === 'side-table' || child.category === 'stool') {
     const gaps = range ? [Math.max(range[0], child.clearance.front + 0.01), (range[0] + range[1]) / 2, range[1]] : [0.5];
     const r = rightOf(parent.rotation);
     for (const sg of sides) for (const g of gaps) {

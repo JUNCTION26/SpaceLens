@@ -22,7 +22,9 @@ export function assignSeatHosts(items: FurnitureItem[]): Map<string, string> {
   const take = (seat: FurnitureItem, pool: FurnitureItem[], cap: (h: FurnitureItem) => number) => {
     const free = pool.filter((h) => (load.get(h.id) ?? 0) < cap(h));
     if (!free.length) return false;
-    const h = free.reduce((a, b) => ((load.get(b.id) ?? 0) < (load.get(a.id) ?? 0) ? b : a));
+    // Least loaded first; an office or desk chair prefers a one-off desk (the teacher's, the manager's).
+    const lone = (h: FurnitureItem) => (/desk|office/.test(seat.catalogId) || seat.category === 'office-chair') && items.filter((x) => x.catalogId === h.catalogId).length === 1 ? -0.5 : 0;
+    const h = free.reduce((a, b) => ((load.get(b.id) ?? 0) + lone(b) < (load.get(a.id) ?? 0) + lone(a) ? b : a));
     out.set(seat.id, h.id); load.set(h.id, (load.get(h.id) ?? 0) + 1);
     return true;
   };
@@ -31,7 +33,9 @@ export function assignSeatHosts(items: FurnitureItem[]): Map<string, string> {
     const spans = [h.w, h.w, h.d, h.d];
     return Math.max(1, sides.reduce((t, c, i) => t + (c >= 0.3 ? Math.max(1, Math.floor((spans[i] + 0.1) / 0.55)) : 0), 0));
   };
-  const seats = items.filter((f) => isSeatCategory(f.category)).sort((a, b) => Number(b.category === 'office-chair' || /desk/.test(b.catalogId)) - Number(a.category === 'office-chair' || /desk/.test(a.catalogId)));
+  // A clinic stool belongs beside the treatment bed, not at a desk.
+  const treat = items.some((f) => f.category === 'treatment-bed');
+  const seats = items.filter((f) => isSeatCategory(f.category) && !(treat && f.category === 'stool')).sort((a, b) => Number(b.category === 'office-chair' || /desk/.test(b.catalogId)) - Number(a.category === 'office-chair' || /desk/.test(a.catalogId)));
   for (const s of seats) {
     const stool = s.category === 'stool';
     // Desk and office chairs go to desks first; dining chairs and benches to tables first.
@@ -92,6 +96,7 @@ export function defaultProgram(model: SpaceModel, items: FurnitureItem[], req?: 
         break;
       case 'tv-unit':
         add({ kind: 'against-wall', subject: f.id, weight: 1, reason: 'The TV sits on the wall the seating faces.' });
+        if (desks.length >= 6) add({ kind: 'centered-on', subject: f.id, target: 'room-centre', weight: 0.8, reason: 'The board sits in the middle of its wall so every row sees it.' });
         if (hasWindow) add({ kind: 'apart-from', subject: f.id, target: 'window', distanceM: [0.6, 9], weight: 0.3, reason: 'A screen beside a window is hard to see against the light.' });
         break;
       case 'coffee-table':
@@ -135,7 +140,10 @@ export function defaultProgram(model: SpaceModel, items: FurnitureItem[], req?: 
         add({ kind: 'in-corner', subject: f.id, weight: 0.6, reason: 'A booth in a corner keeps the floor open.' });
         break;
       default:
-        if (isSeatCategory(c) && hosts.has(f.id)) {
+        if (c === 'stool' && first('treatment-bed')) {
+          const tb = first('treatment-bed')!;
+          add({ kind: 'beside', subject: f.id, target: tb.id, distanceM: [0.92, 1.0], weight: 0.8, reason: 'The stool waits just outside the working space beside the treatment bed.' });
+        } else if (isSeatCategory(c) && hosts.has(f.id)) {
           const h = items.find((x) => x.id === hosts.get(f.id))!;
           add({ kind: 'paired-seat', subject: f.id, target: h.id, weight: 1, reason: `A seat drawn up to the ${h.name.toLowerCase()}, with room behind to pull it out.` });
         } else if (s.wallBacked) add({ kind: 'against-wall', subject: f.id, weight: 0.8, reason: `${f.name} stands against a wall, its front free to use.` });

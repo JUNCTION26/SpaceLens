@@ -350,6 +350,8 @@ const wallGap = (L: LayoutCtx, a: AItem) => Math.min(...a.poly.map((p) => distTo
 /** Pieces that stand free by design. */
 const FREE_STANDING = new Set(['table', 'cafe-table', 'kitchen-island', 'treatment-bed', 'room-divider', 'rug', 'coffee-table', 'office-pod']);
 const OUTLOOK = new Set(['tv-unit', 'coffee-table', 'bed', 'reception-desk']);
+/** A room with a board and rows of six or more desks. */
+const classroom = (L: LayoutCtx) => of(L, 'tv-unit').length > 0 && of(L, 'desk').length >= 6;
 const PAIRED = new Set(['nightstand', 'lamp', 'armchair', 'side-table']);
 
 /** Walking distance (m) from `start` to every cell along cells at least `rad` from walls and furniture (8-way). */
@@ -941,6 +943,7 @@ export const RULES: DesignRule[] = [
       const g = a.back?.gap ?? 9;
       const partner = a.f.category === 'desk' && g > 0.05 ? L.items.find((b) => b !== a && b.f.category === 'desk' && dot(a.front, b.front) < -0.9 && polyDist(a.poly, b.poly) < 0.05) : undefined;
       if (partner) return v([a.f.id, partner.f.id], 1, `${a.f.name} backs onto ${lc(partner.f.name)} in a shared bench.`);
+      if (a.f.category === 'desk' && classroom(L)) return v([a.f.id], 1, `${a.f.name} stands in a row facing the board.`);
       const sofa = a.f.category === 'sofa' || a.f.category === 'sofa-bed';
       if (g <= 0.05) return v([a.f.id], 1, `${a.f.name} stands against the wall.`);
       if (sofa) {
@@ -977,7 +980,7 @@ export const RULES: DesignRule[] = [
         const near = L.items.find((b) => b !== a && b.solid && (pairs.has(b.f.category) || b.sem.pairsWith.includes(c)) && polyDist(a.poly, b.poly) < 1.0);
         const onRug = L.items.some((r) => r.f.category === 'rug' && pointInPolygon(at(a), r.poly));
         const screen = a.sem.faces === 'screen' && of(L, 'tv-unit').some((t) => distp(at(t), at(a)) < 4.5 && dot(a.front, normv(sub(at(t), at(a)))) > 0.8);
-        const bench = c === 'desk' && L.items.some((b) => b !== a && b.f.category === 'desk' && polyDist(a.poly, b.poly) < 0.05);
+        const bench = c === 'desk' && (classroom(L) || L.items.some((b) => b !== a && b.f.category === 'desk' && polyDist(a.poly, b.poly) < 0.05));
         if (near || onRug || screen || bench) continue;
         out.push(v([a.f.id], band(gap, 0, 0.1, 0.5), `${a.f.name} stands ${cm(gap)} from the nearest wall with nothing it belongs to nearby.`));
       }
@@ -1014,6 +1017,8 @@ export const RULES: DesignRule[] = [
           out.push(v(ids2, sc, gap >= 1.6 ? `${a.f.name} and ${lc(b.f.name)} put their users back to back across ${mm(gap)}; it works, but each sees the other's screen.` : `${a.f.name} and ${lc(b.f.name)} put their users back to back with only ${cm(gap)} between the desks: the chairs collide.`));
         } else if (par < -0.9) {
           out.push(v(ids2, 1, `${a.f.name} and ${lc(b.f.name)} face each other${polyDist(a.poly, b.poly) < 0.05 ? ' across a shared bench' : ''}.`));
+        } else if (par > 0.9 && of(L, 'tv-unit').length && desks.length >= 6) {
+          out.push(v(ids2, 1, `${a.f.name} and ${lc(b.f.name)} face the same way, towards the board.`));
         } else if (par > 0.9) {
           const ahead = Math.abs(dot(ab, a.front)), lateral = Math.abs(dot(ab, a.right));
           if (ahead < 0.1) out.push(v(ids2, 1, `${a.f.name} and ${lc(b.f.name)} sit side by side in a row.`));
@@ -1152,6 +1157,31 @@ export const RULES: DesignRule[] = [
           : c > -0.2 ? v([a.f.id, door.id], 0.6, `The entrance is off to the side of ${lc(a.f.name)}.`)
             : v([a.f.id, door.id], 0.1, `Whoever sits at ${lc(a.f.name)} has their back to the entrance; visitors arrive behind them.`);
       });
+    },
+  }),
+  rule({
+    id: 'faces-board', name: 'Everyone sees the board', severity: 'strong', source: 'Rows of desks face the screen',
+    evaluate: (L, v) => {
+      const board = of(L, 'tv-unit')[0], all = of(L, 'desk');
+      if (!board || all.length < 6) return [];
+      // The pupils' desks: the most common desk; a one-off desk (the teacher's) faces the class instead.
+      const count = (c: string) => all.filter((a) => a.f.catalogId === c).length;
+      const main = all.reduce((p, q) => (count(q.f.catalogId) > count(p.f.catalogId) ? q : p)).f.catalogId;
+      return all.filter((a) => a.f.catalogId === main).map((a) => {
+        const c = dot(mulv(a.front, -1), normv(sub(at(board), at(a))));
+        return v([a.f.id, board.f.id], band(c, 0.8, 1, 0.8), c >= 0.8 ? `${a.f.name} faces ${lc(board.f.name)}.` : `Whoever sits at ${lc(a.f.name)} has to turn ${Math.round(Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI)}° to see ${lc(board.f.name)}.`);
+      });
+    },
+  }),
+  rule({
+    id: 'turning-space', name: 'Wheelchair turning space', severity: 'strong', source: '150 cm circle reachable from the door', costly: true,
+    evaluate: (L, v) => {
+      const door = L.room.doors[0];
+      if (!door || (L.req?.minRouteWidthM ?? 0) < 0.9) return [];
+      const start = doorPoint(door), g = floorGrid(L, 0.1, [start]), best = widestFrom(g, start);
+      let m = 0;
+      for (let i = 0; i < best.length; i++) if (best[i] >= 0.45) m = Math.max(m, g.clr[i]);
+      return [v([], band(m, 0.75, 9, 0.2), m >= 0.75 ? 'A 150 cm turning circle is free and reachable from the door.' : `The largest free turning circle is ${cm(2 * m)}; a wheelchair needs 150 cm.`)];
     },
   }),
   rule({
