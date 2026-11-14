@@ -41,6 +41,16 @@ export const SEMANTICS: Record<string, Row> = {
   'room-divider': S('divider', false, 0.3, 0, [], 'none', 'A screen that separates two zones.'),
   'office-pod': S('appliance', true, 0.9, 0, [], 'room', 'A closed booth with its door kept clear.'),
   'treatment-bed': S('sleeping', false, 0.9, 0.9, ['stool'], 'none', 'A treatment bed with working room on both sides.'),
+  // Themed pieces made for pets and dressing.
+  'cat-tree': S('storage', true, 0.3, 0.1, [], 'room', 'A cat tree against a wall, ideally where the cat can see out.'),
+  'pet-bed': S('storage', true, 0.15, 0, [], 'room', 'A pet bed along a quiet wall.'),
+  'pet-bowls': S('storage', true, 0.15, 0, [], 'room', 'Food and water bowls on a mat against a wall.'),
+  'litter-box': S('storage', true, 0.3, 0, [], 'room', 'A litter box tucked into a corner, away from the bowls.'),
+  'toy-basket': S('storage', true, 0.1, 0, [], 'room', 'A toy basket against a wall.'),
+  'window-perch': S('storage', true, 0.15, 0, [], 'window', 'A low perch under a window.'),
+  'scratching-post': S('decor', false, 0.15, 0, [], 'none', 'A scratching post near where the cat rests.'),
+  vanity: S('surface', true, 0.7, 0, ['stool', 'chair'], 'room', 'A vanity with a mirror against a wall, light from the side.'),
+  statue: S('decor', false, 0.2, 0, [], 'room', 'A statue on a plinth, seen from the room.'),
 };
 
 const FALLBACK: Row = S('decor', false, 0.4, 0, [], 'room', 'A free-standing object.');
