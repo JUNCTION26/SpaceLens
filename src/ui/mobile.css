@@ -1,0 +1,85 @@
+/* Phone usability overrides. Desktop layout is untouched: everything is scoped to small or touch screens. */
+@media (max-width: 900px) {
+  html, body { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+  body { font-size: 15px; }
+  .app { max-width: 100vw; overflow-x: clip; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
+  /* Compact top bar, mode tabs scroll horizontally */
+  .topbar { padding-top: max(6px, env(safe-area-inset-top)); }
+  .modes { display: flex; flex-wrap: nowrap; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+  .modes button, .modes .tab { flex: none; white-space: nowrap; scroll-snap-align: start; }
+  .tabs { display: flex; overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs > * { flex: none; white-space: nowrap; }
+
+  /* Readable inputs; 16px prevents iOS focus zoom */
+  input, select, textarea, .project-name, .field input, .field select, .field textarea { font-size: 16px; }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]), select { min-height: 44px; }
+  input[type=range] { min-height: 32px; }
+  .btn-sm, .chip, .seg button { min-height: 44px; }
+  .chip { display: inline-flex; align-items: center; }
+
+  /* Stage, then the panel below styled as a sheet */
+  .stage { height: min(55vh, 520px); min-height: 260px; touch-action: none; }
+  .stage-split { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .side, .inspector {
+    position: relative; margin-top: -14px; z-index: 5; background: var(--panel);
+    border-radius: 18px 18px 0 0; box-shadow: 0 -8px 24px rgba(0, 0, 0, .18);
+    padding-bottom: calc(76px + env(safe-area-inset-bottom)); min-width: 0; max-width: 100%;
+  }
+  .side::before, .inspector::before {
+    content: ""; display: block; width: 40px; height: 5px; border-radius: 3px;
+    background: var(--line); margin: 8px auto 4px; flex: none;
+  }
+  .side-body, .panel, .card { min-width: 0; max-width: 100%; }
+  .grid2, .stats3, .capture-grid, .intent-grid, .furniture-grid, .layout-cards, .layout-compare { grid-template-columns: 1fr; }
+  table, .export-table { display: block; max-width: 100%; overflow-x: auto; }
+  img, svg, video, canvas { max-width: 100%; }
+
+  /* Sticky primary actions inside panels */
+  .furniture-actions, .provenance-actions, .export-head, .intent-form > .btn-primary {
+    position: sticky; bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 4;
+    background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(8px);
+    padding: 8px 0; flex-wrap: wrap;
+  }
+
+  /* Floating toolbars wrap and stay clear of content */
+  .plan2d-toolbar, .scene3d-ui, .scene3d-modes, .scene3d-opts, .drawings-bar {
+    flex-wrap: wrap; max-width: calc(100% - 16px); gap: 6px;
+  }
+  .plan2d-toolbar { left: 8px; right: 8px; top: 8px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .plan2d-toolbar::-webkit-scrollbar { display: none; }
+  .plan2d-toolbar > * { flex: none; }
+  .plan2d-legend, .scene3d-hint, .plan2d-edit-hint { font-size: 12px; max-width: 60%; }
+  .scene3d-joy { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .drawings-main, .capture-wrap { flex-direction: column; }
+  .drawings-side { width: 100%; max-width: none; }
+  .drawings-thumbs, .capture-strip { overflow-x: auto; flex-wrap: nowrap; }
+
+  /* Full-width dialogs */
+  .dialog-backdrop { align-items: flex-end; padding: 0; }
+  .dialog, .provenance-modal {
+    width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 24px);
+    border-radius: 18px 18px 0 0; margin: 0; overflow-y: auto;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .dialog-head { position: sticky; top: 0; background: var(--panel); z-index: 2; }
+
+  .mobile-tabs { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .toasts { bottom: calc(68px + env(safe-area-inset-bottom)); }
+}
+
+/* Landscape phones: keep the stage tall enough, shrink chrome */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  .stage { height: calc(100dvh - 60px); min-height: 220px; }
+  .stage-split { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+  .topbar { position: static; }
+  .mobile-tabs button { min-height: 44px; }
+}
+
+/* Touch devices of any size: 44px targets */
+@media (pointer: coarse) {
+  .btn, .icon-btn, .tab, .seg button, .modes button { min-height: 44px; }
+  .icon-btn { min-width: 44px; }
+  input, select, textarea { font-size: max(16px, 1em); }
+}
