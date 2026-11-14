@@ -77,38 +77,66 @@
 .plan2d-menu-bad { color: var(--bad) !important; }
 
 
-/* Architectural drawing style */
-.plan2d-grid-minor { stroke: var(--line); opacity: .25; }
-.plan2d-grid-major { stroke: var(--line); opacity: .6; }
-.plan2d-floor { fill: var(--bg); }
-.plan2d-gap { fill: var(--bg); }
-.plan2d-wall { stroke: var(--text); opacity: 1; }
-.plan2d-opening { stroke-width: .006; }
+/* Architectural drawing style: poché walls, hairline symbols, quiet dimension text. Colours come from the --plan-* tokens. */
+.plan2d { background: var(--plan-bg); }
+.plan2d-grid-minor { stroke: var(--plan-grid); opacity: 1; }
+.plan2d-grid-major { stroke: var(--plan-grid-major); opacity: 1; }
+.plan2d-floor { fill: var(--plan-floor); }
+.plan2d-gap { fill: var(--plan-floor); }
+.plan2d-wall { stroke: var(--plan-wall); opacity: 1; }
+.plan2d-wall.is-sel { stroke: var(--accent); }
+.plan2d-opening { stroke: var(--plan-ink); stroke-width: .006; }
 .plan2d-opening line { vector-effect: non-scaling-stroke; stroke-width: 1px; }
-.plan2d-swing { stroke-dasharray: none; vector-effect: non-scaling-stroke; stroke-width: 1px; opacity: .8; }
+.plan2d-swing { stroke-dasharray: none; vector-effect: non-scaling-stroke; stroke-width: 1px; opacity: .7; }
+.plan2d-room-label { fill: var(--text); font-weight: 560; }
+.plan2d-room-area { fill: var(--muted); }
+.plan2d-dim { stroke: var(--plan-dim); }
 .plan2d-dim line { vector-effect: non-scaling-stroke; stroke-width: 1px; }
-.plan2d-dim-label rect { fill: var(--bg); stroke: none; }
-.plan2d-dim-label text { fill: var(--muted); }
+.plan2d-ext { opacity: .55; }
+.plan2d-dim-verified { stroke: var(--plan-ink); }
+.plan2d-dim-label rect { fill: var(--plan-bg); stroke: none; }
+.plan2d-dim-label text { fill: var(--plan-dim); font-family: var(--mono); }
 .plan2d-dim-verified .plan2d-dim-label text { fill: var(--text); }
-.plan2d-dim-label:hover rect { fill: var(--panel); stroke: none; }
+.plan2d-dim-conflicting .plan2d-dim-label text { fill: var(--bad); }
+.plan2d-dim-label:hover rect { fill: var(--accent-soft); }
 .plan2d-dim-label:hover text { fill: var(--accent); }
-.plan2d-item-body { fill: var(--bg); fill-opacity: 1; stroke: var(--text); }
+.plan2d-item-body { fill: var(--plan-floor); fill-opacity: 1; stroke: var(--plan-ink); }
 .plan2d-item.is-preview .plan2d-item-body { fill-opacity: 1; stroke-dasharray: .03 .02; }
-.plan2d-sym { fill: none; stroke: var(--muted); }
-.plan2d-item.is-sel .plan2d-sym { stroke: var(--accent); }
-.plan2d-item-label { font-size: inherit; font-weight: 500; }
-.plan2d-toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; align-items: center; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); z-index: 3; flex-wrap: nowrap; }
-.plan2d-tb { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font: 600 13px var(--mono); }
-.plan2d-tb:hover:not(:disabled), .plan2d-tb:focus-visible, .plan2d-tb.is-on { background: var(--panel-2); color: var(--text); }
-.plan2d-tb:disabled { opacity: .4; cursor: default; }
-.plan2d-tb[data-tip]:hover::after, .plan2d-tb[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 3px 7px; font: 11px/1.4 var(--font, inherit); white-space: nowrap; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; pointer-events: none; z-index: 8; }
-.plan2d-tb:disabled[data-tip]:hover::after { display: block; }
+.plan2d-sym { fill: none; stroke: color-mix(in srgb, var(--plan-ink) 62%, var(--plan-floor)); }
+.plan2d-item.is-sel .plan2d-item-body, .plan2d-item.is-sel .plan2d-sym { stroke: var(--accent); }
+.plan2d-item.is-bad .plan2d-item-body { stroke: var(--bad); }
+.plan2d-item-label { fill: var(--text); font-weight: 400; }
+.plan2d-halo { paint-order: stroke; stroke: var(--plan-floor); stroke-width: .025; stroke-linejoin: round; }
+.plan2d-vertex { fill: var(--plan-floor); stroke: var(--accent); }
+.plan2d-rot { fill: var(--plan-floor); }
+
+/* Floating chrome */
+.plan2d-toolbar { position: absolute; top: 12px; left: 12px; transform: none; display: flex; gap: 2px; align-items: center; padding: 3px; z-index: 3; flex-wrap: nowrap; max-width: none;
+  background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.plan2d-sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
+.plan2d-tb { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); cursor: pointer; font: 560 12px var(--font); }
+.plan2d-tb svg { width: 16px; height: 16px; }
+.plan2d-tb:hover:not(:disabled), .plan2d-tb:focus-visible, .plan2d-tb.is-on { background: var(--hover); color: var(--text); }
+.plan2d-tb.is-on { background: var(--press); }
+.plan2d-tb:disabled { opacity: .35; cursor: default; }
+.plan2d-tb[data-tip]:hover::after, .plan2d-tb[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 0; padding: 4px 8px; font: 400 12px/1.4 var(--font); white-space: nowrap; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow); pointer-events: none; z-index: 8; }
 .plan2d-layers { position: relative; }
-.plan2d-layer-menu { position: absolute; top: calc(100% + 6px); left: 0; min-width: 140px; padding: 4px; display: grid; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; z-index: 9; }
-.plan2d-layer-row { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 4px; font-size: 13px; color: var(--text); cursor: pointer; }
-.plan2d-layer-row:hover { background: var(--panel-2); }
+.plan2d-layer-menu { position: absolute; top: calc(100% + 8px); left: 0; min-width: 160px; padding: 4px; display: grid; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 9; }
+.plan2d-layer-row { display: flex; gap: 8px; align-items: center; height: 30px; padding: 0 8px; border-radius: var(--radius-sm); font-size: 13px; color: var(--text); cursor: pointer; }
+.plan2d-layer-row:hover { background: var(--hover); }
 .plan2d-layer-row input { accent-color: var(--accent); margin: 0; }
 .plan2d-help { cursor: help; }
-.plan2d-help-pop { display: none; position: absolute; top: calc(100% + 6px); right: 0; padding: 8px 10px; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.4 var(--font, inherit); font-weight: 400; color: var(--text); white-space: nowrap; z-index: 9; text-align: left; }
+.plan2d-help-pop { display: none; position: absolute; top: calc(100% + 8px); left: 0; padding: 10px 12px; gap: 6px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); font: 400 12px/1.4 var(--font); color: var(--text); white-space: nowrap; z-index: 9; text-align: left; }
 .plan2d-help:hover .plan2d-help-pop, .plan2d-help:focus .plan2d-help-pop { display: grid; }
-.plan2d-help-pop kbd { display: inline-block; min-width: 52px; margin-right: 8px; color: var(--muted); font: 11px var(--mono); }
+.plan2d-help-pop kbd { display: inline-block; min-width: 56px; margin-right: 8px; text-align: center; }
+.plan2d-scale { position: absolute; right: 14px; top: 20px; left: auto; bottom: auto; display: flex; gap: 8px; align-items: center; font: 11px var(--mono); color: var(--plan-dim); pointer-events: none; }
+.plan2d-scale rect { fill: var(--plan-dim); stroke: var(--plan-dim); }
+.plan2d-scale rect + rect { fill: none; }
+.plan2d-legend { position: absolute; right: 12px; bottom: auto; top: 48px; padding: 8px 10px; font-size: 12px; display: grid; gap: 4px; background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.plan2d-legend.panel { gap: 4px; padding: 8px 10px; }
+.plan2d-preview { position: absolute; left: 12px; top: 56px; }
+.plan2d-edit { box-shadow: var(--shadow); background: var(--raised); }
+.plan2d-tip { background: var(--raised); box-shadow: var(--shadow); }
+.plan2d-menu { background: var(--raised); box-shadow: var(--shadow); border-radius: var(--radius); }
+.plan2d-menu button:hover, .plan2d-menu button:focus-visible { background: var(--hover); }
+.plan2d-drawing .plan2d-svg { cursor: crosshair; }

@@ -7,6 +7,8 @@ import {
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { catalogEntry, makeItem } from '../furniture/catalog';
 import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '../../core/types';
+import { useSketch } from '../agent/sketchStore';
+import { SketchLayer } from '../agent/SketchLayer';
 import { Icon } from '../../ui/icons';
 import './plan2d.css';
 
@@ -86,6 +88,7 @@ export function PlanView() {
   const [ghost, setGhost] = useState<{ id: string | null; p: Vec2 } | null>(null);
   const anim = useRef<number>(0);
   const [layersOpen, setLayersOpen] = useState(false);
+  const sketching = useSketch((s) => s.drawing);
 
   // Keep the group in step with the store selection (other panels can select too).
   useEffect(() => {
@@ -509,7 +512,7 @@ export function PlanView() {
   const stroke = (k = 1) => k * px;
 
   return (
-    <div className="plan2d"
+    <div className={`plan2d${sketching ? ' plan2d-drawing' : ''}`}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes(CATALOG_DND)) return;
         e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
@@ -626,7 +629,7 @@ export function PlanView() {
           const out = mul(wallInwardNormal(sp, i), -1); const off = t + 22 * px;
           const A = add(a, mul(out, off)), B = add(b, mul(out, off)), M = lerp(A, B, 0.5);
           const status = w?.status ?? 'unknown';
-          let ang = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI; if (ang > 90 || ang < -90) ang += 180;
+          let ang = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI; if (ang >= 89.5 || ang < -90.5) ang += 180;
           const tick = mul(norm(perp(sub(b, a))), 3.5 * px);
           const label = fmtCm(L);
           return (
@@ -639,8 +642,8 @@ export function PlanView() {
               <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
                 onPointerDown={(e) => { e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
-                <rect x={-fs * 2.2} y={-fs * 0.7} width={fs * 4.4} height={fs * 1.4} rx={fs * 0.2} />
-                <text fontSize={fs * 0.85} textAnchor="middle" dominantBaseline="central">{label}</text>
+                <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
+                <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>
                 <title>{`${label} (${status}). Click to type the real length.`}</title>
               </g>
             </g>
@@ -652,6 +655,7 @@ export function PlanView() {
           <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))} bad={problems.has(f.id)}
             hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
         ))}
+
 
         {/* Drag feedback: guides, wall distance, overlaps */}
         {drag?.kind === 'item' && drag.moved && (() => {
@@ -737,6 +741,8 @@ export function PlanView() {
             return <text key={wi} x={m.x} y={m.y - 8 * px} fontSize={fs * 1.1} textAnchor="middle" className="plan2d-live">{fmtCm(dist(a, b))}</text>;
           });
         })()}
+        {/* Sketch marks from you and the assistant; last so the pencil sits above everything. */}
+        <SketchLayer />
       </svg>
 
       {editWall && (
@@ -972,3 +978,4 @@ function FurnSymbol({ cat, w, d }: { cat: string; w: number; d: number }) {
   if (cat === 'plant' || cat === 'lamp') return <><circle r={m * 0.32} />{L(-m * 0.3, 0, m * 0.3, 0, 'h')}{L(0, -m * 0.3, 0, m * 0.3, 'v')}</>;
   return <>{L(x0 + 0.04, y1 - 0.04, x1 - 0.04, y1 - 0.04, 'f')}</>;
 }
+
