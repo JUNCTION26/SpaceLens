@@ -172,3 +172,61 @@ describe('repair', () => {
     }
   }, 90000);
 });
+
+describe('multi-room', () => {
+  // Two rooms side by side; furnish the second in place.
+  const twoRooms = () => {
+    const m = room(rect(4, 4), [opening('door', 'door', 2, 2.0, 0.9, 'in'), opening('win', 'window', 0, 2.0, 1.2)]);
+    const r2 = [{ x: 4, y: 0 }, { x: 7.4, y: 0 }, { x: 7.4, y: 4.2 }, { x: 4, y: 4.2 }];
+    m.spaces.push({ id: 's2', name: 'Bedroom', polygon: r2, walls: r2.map(() => ({ thicknessM: 0.1, sourceKind: 'manual' as const, status: 'verified' as const })) });
+    m.openings.push({ ...opening('door2', 'door', 2, 2.8, 0.8, 'in'), spaceId: 's2' }, { ...opening('win2', 'window', 0, 1.7, 1.4), spaceId: 's2' });
+    return m;
+  };
+  it('solves and checks the room it is given, not the first one', async () => {
+    const m = twoRooms();
+    const items = [at('bed-double', 'bed', 1, 1), at('nightstand', 'n1', 1, 1), at('wardrobe-100', 'w', 1, 1)];
+    const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.6 });
+    const res = await solveProgram(m, items, defaultProgram(m, items, req), { req, seed: 3, spaceId: 's2', variants: 1 });
+    expect(res.candidates.length).toBeGreaterThan(0);
+    for (const f of res.candidates[0].furniture) expect(f.x).toBeGreaterThan(4);
+    expect(validateLayout(m, res.candidates[0].furniture, req, { spaceId: 's2' }).filter((c) => c.result === 'fail')).toEqual([]);
+    // The same furniture judged against the first room sticks out of it.
+    expect(validateLayout(m, res.candidates[0].furniture, req, { spaceId: 's1' }).some((c) => c.rule === 'Inside room' && c.result === 'fail')).toBe(true);
+    expect(evaluateRules(m, res.candidates[0].furniture, req, { spaceId: 's2' }).filter((v) => v.severity === 'hard' && !v.pass)).toEqual([]);
+  }, 90000);
+});
+
+describe('generated objects', () => {
+  it('checks a fold-down bed with its open footprint and honours its semantics', async () => {
+    const { foldBed } = await import('./scenarios');
+    const m = bedroom();
+    // Against the south wall, folding north: open, it reaches 2.15 m into the room and hits a desk there.
+    const bed = { ...foldBed(), x: 2.4, y: 4.2 - 0.225, rotation: Math.PI };
+    const checks = validateLayout(m, [bed, at('desk-120', 'desk', 2.4, 2.4, 0)]);
+    expect(checks.some((c) => c.rule === 'Unfolded fits' && c.result === 'fail')).toBe(true);
+    expect(validateLayout(m, [bed]).some((c) => c.result === 'fail')).toBe(false);
+    const v = evaluateRules(m, [{ ...foldBed(), x: 3.4 - 0.225, y: 2.1, rotation: Math.PI / 2 }]);
+    expect(v.find((x) => x.ruleId === 'unfold')).toBeTruthy();
+    expect(semanticsOf(foldBed()).role).toBe('sleeping');
+  });
+});
+
+describe('planner programs', () => {
+  it('gives each desk its own chair facing it, even when a planner pairs both chairs with one desk', async () => {
+    const m = room(rect(3.6, 4.2), [opening('door', 'door', 2, 2.8, 0.8, 'in'), opening('win', 'window', 0, 1.8, 1.4)]);
+    const items = [at('desk-140', 'd1', 1, 1), at('desk-120', 'd2', 1, 1), at('office-chair', 'c1', 1, 1), at('office-chair', 'c2', 1, 1)];
+    const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.8 });
+    const p = defaultProgram(m, items, req);
+    const bad = { ...p, relations: [...p.relations.filter((r) => r.kind !== 'paired-seat'), { kind: 'paired-seat' as const, subject: 'c1', target: 'd1', weight: 1, reason: 'Chair at the main desk.' }, { kind: 'paired-seat' as const, subject: 'c2', target: 'd1', weight: 1, reason: 'Chair faces the secondary desk.' }] };
+    const res = await solveProgram(m, items, bad, { req, seed: 2, variants: 2 });
+    expect(res.candidates.length).toBeGreaterThan(0);
+    for (const c of res.candidates) {
+      const v = evaluateRules(m, c.furniture, req).filter((x) => x.ruleId === 'seats-face');
+      expect(v.length).toBe(2);
+      expect(v.every((x) => x.score >= 0.9)).toBe(true);
+      expect(new Set(v.map((x) => x.itemIds[1]))).toEqual(new Set(['d1', 'd2']));
+    }
+    // Reasons shown with a layout belong to relations it honours.
+    for (const r of res.reports) expect(r.program.relations.some((x) => x.reason === 'Chair faces the secondary desk.' && x.target === 'd1')).toBe(false);
+  }, 90000);
+});

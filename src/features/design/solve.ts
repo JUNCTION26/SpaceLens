@@ -17,6 +17,7 @@ import {
 } from './relations';
 import { designScore, explainDetailed } from './score';
 import { isHostCategory, isSeatCategory, normaliseItem, semanticsOf } from './semantics';
+import { assignSeatHosts } from './program';
 
 export interface SolveProgramOptions {
   variants?: number;
@@ -366,7 +367,7 @@ function benchPoses(ctx: Ctx, g: Group, spec: Extract<Spec, { kind: 'array' }>):
 }
 
 /** Place a whole group for one root spec. Optional pieces that do not fit are deferred. */
-function placeGroup(ctx: Ctx, others: FurnitureItem[], g: Group, spec: Spec, mirror: boolean, check = true): { items: FurnitureItem[]; deferred: string[] } | { fail: string } {
+function placeGroup(ctx: Ctx, others: FurnitureItem[], g: Group, spec: Spec, mirror: boolean, check = true): { items: FurnitureItem[]; deferred: string[] } | { fail: string; root?: boolean } {
   const poses = rootPoses(ctx, g, spec);
   if (!poses) return { fail: 'shape' };
   const out: FurnitureItem[] = [];
@@ -378,7 +379,7 @@ function placeGroup(ctx: Ctx, others: FurnitureItem[], g: Group, spec: Spec, mir
     let f = withPose(ctx.byId.get(g.roots[k])!, poses[k]);
     if (mirror && spec.kind !== 'array' && asymmetric(f)) { f = { ...f, clearance: swapSides(f.clearance) }; ctx.swapped.add(f); }
     const why = fail([f]);
-    if (why) return { fail: why };
+    if (why) return { fail: why, root: true };
     out.push(f); placed.set(f.id, f);
   }
   const usedSides = new Map<string, Set<number>>();
@@ -853,7 +854,32 @@ function summaries(cands: Array<{ verdicts: RuleVerdict[]; cand: LayoutCandidate
 }
 
 // ---------------------------------------------------------------- main
-export async function solveProgram(model: SpaceModel, items: FurnitureItem[], program: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
+/**
+ * Seats always belong to a desk, table or counter by the same rule (one chair per desk first), so a
+ * planner that pairs two chairs with one desk cannot leave the other desk without a chair or turn a
+ * chair towards the wrong desk. Planner reasons for those seats are kept where they still apply.
+ */
+export function withSeatHosts(program: DesignProgram, items: FurnitureItem[]): DesignProgram {
+  const byId = new Map(items.map((f) => [f.id, f]));
+  const hosts = assignSeatHosts(items);
+  const isSeat = (id: string) => { const f = byId.get(id); return !!f && isSeatCategory(f.category); };
+  const seatRel = (r: Relation) => isSeat(r.subject) && !!r.target && byId.has(r.target) && ['paired-seat', 'faces', 'beside', 'in-front-of', 'flanks'].includes(r.kind);
+  const kept = program.relations.filter((r) => !seatRel(r));
+  const added: Relation[] = [];
+  for (const [seat, host] of hosts) {
+    const old = program.relations.find((r) => r.subject === seat && r.target === host && seatRel(r));
+    const h = byId.get(host)!;
+    added.push({ kind: 'paired-seat', subject: seat, target: host, weight: 1, reason: old?.reason ?? `A seat drawn up to the ${h.name.toLowerCase()}, with room behind to pull it out.` });
+  }
+  return added.length || kept.length !== program.relations.length ? { ...program, relations: [...kept, ...added] } : program;
+}
+
+/** Only the relations a layout actually honours, so every reason shown matches what was placed. */
+function honoured(program: DesignProgram, L: LayoutCtx): DesignProgram {
+  return { ...program, relations: program.relations.filter((r) => { const v = relationScore(r, L); return v == null || v >= 0.75; }) };
+}
+
+export async function solveProgram(model: SpaceModel, items: FurnitureItem[], programIn: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
   const t0 = now();
   // Work budget: how many backtracks and local-pass evaluations the search may spend.
   const effort = Math.max(0.3, Math.min(3, (opts.timeBudgetMs ?? 1500) / 1500));
@@ -871,6 +897,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   // Generated objects join in under a known category, with their own clearances and open footprint.
   const work = items.map((f) => { const n = normaliseItem(f); return { ...n, clearance: { ...n.clearance } }; });
   const original = new Map(items.map((f) => [f.id, f]));
+  const program = withSeatHosts(programIn, work);
   const restore = (list: FurnitureItem[]) => list.map((f) => { const o = original.get(f.id); return o ? { ...f, category: o.category, unfoldedD: o.unfoldedD } : f; });
   const ctx: Ctx = {
     room, model, program, req, byId: new Map(work.map((f) => [f.id, f])), clr: new Map(work.map((f) => [f.id, { ...f.clearance }])),
@@ -903,8 +930,13 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       const specs = slotsFor(ctx, g, st.items);
       const mirrors = hasChoice(ctx, g) ? [false, true] : [false];
       const cands: Array<{ spec: Spec; mirror: boolean; items: FurnitureItem[]; deferred: string[]; q: number; wallKey: string }> = [];
+      // Seat strategies and mirroring do not move the anchors: once the anchors fail, skip their variants.
+      const rootFails = new Set<string>();
       for (const spec of specs) for (const mirror of mirrors) {
+        const rootKey = spec.kind === 'array' ? `${spec.x0},${spec.y0},${spec.x1},${spec.y1},${spec.rows},${spec.cols},${spec.rot},${spec.hug ?? 0},${spec.bench?.gap ?? -1}` : null;
+        if (rootKey && rootFails.has(rootKey)) continue;
         const res = placeGroup(ctx, st.items, g, spec, mirror);
+        if ('fail' in res && res.root && rootKey) rootFails.add(rootKey);
         if ('fail' in res) { const k = res.fail.split(':')[0] === 'overlap' || res.fail.split(':')[0] === 'use' ? res.fail : res.fail.split(':')[0]; ctx.rejects.set(k, (ctx.rejects.get(k) ?? 0) + 1); continue; }
         const all = [...st.items, ...res.items];
         cands.push({ spec, mirror, items: res.items, deferred: res.deferred, q: quickScore(ctx, all, gIds), wallKey: spec.kind === 'wall' ? `w${spec.wall}` : spec.kind });
@@ -1120,7 +1152,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   opts.onProgress?.(1);
   return {
     candidates: out.map((o) => o.cand),
-    reports: out.map((o) => ({ candidateId: o.cand.id, program, verdicts: o.verdicts })),
+    reports: out.map((o) => ({ candidateId: o.cand.id, program: honoured(program, layoutCtx(ctx, o.cand.furniture.map((f) => ctx.byId.get(f.id) ? { ...ctx.byId.get(f.id)!, x: f.x, y: f.y, rotation: f.rotation } : f))), verdicts: o.verdicts })),
     infeasibility: null,
   };
 }
