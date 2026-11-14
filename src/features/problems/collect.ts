@@ -119,7 +119,8 @@ export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], r
       const text = f.message && f.message.length <= 140 ? f.message : f.title;
       const p: Problem = {
         id: `safety:${f.kind}:${[...f.itemIds].sort().join(',')}:${Math.round(f.at.x * 10)},${Math.round(f.at.y * 10)}`,
-        severity: safetySeverity(f), source: 'safety', rule: f.title, itemIds, openingIds: f.itemIds.filter((id) => openingIds.has(id)),
+        // Findings about the building itself (a narrow door frame) cannot be fixed by moving furniture, so they do not nag.
+        severity: !itemIds.length && f.severity === 'important' ? 'tip' : safetySeverity(f), source: 'safety', rule: f.title, itemIds, openingIds: f.itemIds.filter((id) => openingIds.has(id)),
         at: f.at, title: sentence(text), fixes: [],
       };
       if (raw.has(p.id)) continue;
