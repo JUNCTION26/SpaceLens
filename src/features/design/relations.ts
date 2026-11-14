@@ -164,8 +164,11 @@ export function seatArrangements(host: FurnitureItem, seats: FurnitureItem[], mi
     return p;
   };
   combos.sort((a, b) => pref(a) - pref(b));
+  // Mirroring swaps opposite sides (front/back, left/right); it never trades a balanced spread for a lopsided one.
+  const flip = (c: number[]) => sides.map((s) => { const j = sides.indexOf(opp[s]); return j >= 0 ? c[j] : c[sides.indexOf(s)]; });
   const out: Pose[][] = [];
-  for (const c of combos.slice(0, 6)) {
+  for (const c0 of combos.slice(0, 6)) {
+    const c = mirror ? flip(c0) : c0;
     const poses: Pose[] = [];
     let k = 0;
     sides.forEach((s, i) => {
@@ -181,7 +184,6 @@ export function seatArrangements(host: FurnitureItem, seats: FurnitureItem[], mi
     });
     out.push(poses);
   }
-  if (mirror && out.length > 1) out.push(out.shift()!);
   return out;
 }
 
