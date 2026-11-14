@@ -4,7 +4,7 @@
 // Exports HEAD with `git archive` into <dir>, links node_modules, copies .env.local if present, starts Vite there.
 import { execSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, copyFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const dir = resolve(args.find((a) => !a.startsWith('--')) ?? 'snapshot');
@@ -26,6 +26,7 @@ writeFileSync(join(dir, 'SNAPSHOT.txt'), `${head}\n${new Date().toISOString()}\n
 console.log(`snapshot of ${head} in ${dir}, serving on http://localhost:${port}/`);
 // Keep the dependency cache inside the snapshot: node_modules is shared with the main dev server.
 writeFileSync(join(dir, 'vite.snapshot.config.mjs'),
-  "import base from './vite.config.ts';\nexport default { ...base, cacheDir: '.vite-snapshot-cache' };\n");
+  // node_modules is a link into the repo, so files served from it (the PDF worker) must be allowed too.
+  `import base from './vite.config.ts';\nexport default { ...base, cacheDir: ${JSON.stringify(join(dir, '..', `${basename(dir)}-vite-cache`))}, server: { ...(base.server ?? {}), fs: { allow: [${JSON.stringify(dir)}, ${JSON.stringify(repo)}] } } };\n`);
 const vite = spawn(process.execPath, [join(repo, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', 'vite.snapshot.config.mjs', '--port', port, '--strictPort'], { cwd: dir, stdio: 'inherit' });
 vite.on('exit', (c) => process.exit(c ?? 0));

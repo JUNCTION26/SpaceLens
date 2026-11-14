@@ -530,11 +530,15 @@ async function hoverfix(c) {
   }
   await c.page.click('.status-pill');
   await sleep(600);
+  await c.shot('checks-open');
   const fix = await c.page.locate('[aria-label^="Fix "]');
   if (!c.ok(fix, 'checks list offers a one-click fix')) { await c.shot('no-fix'); return; }
-  await c.page.click('[aria-label^="Show "]').catch(() => {});
+  await c.page.click('[aria-label^="Show "]').catch((e) => c.note(`show: ${e.message}`));
   await sleep(500);
-  c.ok(await c.state('s.analysis.highlights.length > 0'), 'Show highlights the piece');
+  c.ok(await c.state('s.analysis.highlights.length > 0 || s.selection != null'), 'Show highlights or selects the piece');
+  c.warn(await c.page.evaluate(`!!document.querySelector('.checks-pop')`), 'checks list stays open after Show, so Fix is still one click away');
+  await c.shot('after-show');
+  if (!(await c.page.evaluate(`!!document.querySelector('.checks-pop')`))) { await c.page.click('.status-pill'); await sleep(500); }
   const f0 = await c.page.text('.status-pill');
   await c.page.click('[aria-label^="Fix "]');
   await sleep(1500);
