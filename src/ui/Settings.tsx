@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { usage } from '../core/gemini';
+import { aiProbeResults, aiRoute, probeModels, shortModel, type AiTask, type ModelStatus } from '../core/ai';
 import { useUi } from './uiStore';
 import { Icon } from './icons';
 
@@ -56,6 +57,7 @@ export function Settings() {
             ))}
           </div>
         </div>
+        <AiSpeed hasKey={Boolean(settings.geminiKey)} />
         <div className="field">
           <span>Gemini use this session</span>
           <div className="stats3">
@@ -67,6 +69,53 @@ export function Settings() {
         <div className="divider" />
         <button className="btn" onClick={reset}>Reset to sample room</button>
       </div>
+    </div>
+  );
+}
+
+const fmtMs = (ms: number | null) => (ms === null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+const cell = { padding: '3px 8px 3px 0', textAlign: 'left' as const, fontVariantNumeric: 'tabular-nums' as const };
+
+function routeSummary(tasks: AiTask[]) {
+  const picks = tasks.map((t) => (aiRoute(t)[0] ? shortModel(aiRoute(t)[0]) : '–'));
+  if (picks.every((p) => p === picks[0])) return `All tasks: ${picks[0]}`;
+  return tasks.map((t, i) => `${t}: ${picks[i]}`).join(' · ');
+}
+
+function AiSpeed({ hasKey }: { hasKey: boolean }) {
+  const [rows, setRows] = useState<ModelStatus[]>(() => aiProbeResults());
+  const [running, setRunning] = useState(false);
+  const test = async () => {
+    setRunning(true);
+    try { setRows(await probeModels({ force: true, onUpdate: setRows })); } finally { setRunning(false); }
+  };
+  const tasks: AiTask[] = ['fast', 'smart', 'vision'];
+  return (
+    <div className="field">
+      <span>AI speed</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button className="btn btn-sm" onClick={test} disabled={!hasKey || running}>{running ? 'Testing…' : 'Test speed'}</button>
+        {rows.length > 0 && !running && (
+          <small className="muted">{routeSummary(tasks)}</small>
+        )}
+      </div>
+      {rows.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
+          <thead className="muted">
+            <tr><th style={cell}>Model</th><th style={cell}>First token</th><th style={cell}>Total</th><th style={cell}>Status</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.model}>
+                <td style={cell}>{shortModel(r.model)}</td>
+                <td style={cell}>{fmtMs(r.firstTokenMs)}</td>
+                <td style={cell}>{fmtMs(r.totalMs)}</td>
+                <td style={{ ...cell, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className={r.ok ? '' : 'muted'} title={r.error}>{r.ok ? 'OK' : r.error ?? 'failed'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
