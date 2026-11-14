@@ -14,6 +14,8 @@ export interface RenderOptions {
   /** Item ids to outline in red. */
   highlight?: string[];
   background?: string;
+  /** Room of a multi-room model to draw (default: the first). */
+  spaceId?: string;
 }
 
 type Prim =
@@ -39,7 +41,7 @@ function luminance(hex: string): number {
 }
 
 function build(model: SpaceModel, furniture: FurnitureItem[], opts: RenderOptions) {
-  const room = buildRoom(model);
+  const room = buildRoom(model, opts.spaceId);
   const pad = 0.45, head = opts.title ? 0.55 : 0.15;
   const W = room.box.maxX - room.box.minX + pad * 2, H = room.box.maxY - room.box.minY + pad * 2 + head;
   const px = opts.width ?? 900, s = px / W, ph = Math.round(H * s);

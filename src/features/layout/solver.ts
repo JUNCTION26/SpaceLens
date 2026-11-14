@@ -10,7 +10,16 @@ import { evaluateRules } from '../design/rules';
 import { designScore } from '../design/score';
 import { solveProgram } from '../design/solve';
 
-export interface SolveOptions { variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number, bestOpenM2?: number) => void }
+export interface SolveOptions {
+  variants?: number; seed?: number; timeBudgetMs?: number; onProgress?: (p: number, bestOpenM2?: number) => void;
+  /** Room of a multi-room model to furnish in place (default: the first room). */
+  spaceId?: string;
+}
+
+/** The room to furnish: the given id, else the first room with an outline. */
+function spaceOf(model: SpaceModel, spaceId?: string): Space | undefined {
+  return (spaceId ? model.spaces.find((s) => s.id === spaceId) : undefined) ?? model.spaces.find((s) => s.polygon.length >= 3) ?? model.spaces[0];
+}
 
 const WALL_TOL = 0.01;
 const WALL_BACKED = new Set(['bed', 'sofa', 'sofa-bed', 'storage', 'wardrobe', 'shelf', 'desk', 'dresser', 'bookcase', 'bookshelf', 'tv']);
@@ -41,8 +50,8 @@ interface Ctx {
   routeCache: Map<number, RouteBase[]>;
 }
 
-function makeCtx(model: SpaceModel, req: Requirements): Ctx {
-  const space = model.spaces[0];
+function makeCtx(model: SpaceModel, req: Requirements, spaceId?: string): Ctx {
+  const space = spaceOf(model, spaceId)!;
   const doorZones: Vec2[][] = [], windowZones: Vec2[][] = [], windowCentres: Vec2[] = [];
   for (const o of model.openings.filter((o) => o.spaceId === space.id)) {
     const seg = openingSegment(space, o);
@@ -555,7 +564,7 @@ function finalize(ctx: Ctx, items: FurnitureItem[], name: string, seed: number, 
   const openAreaM2 = Math.round(largestFreeRect(rasterize(ctx, items, 0)) * 10) / 10;
   const costSek = costOf(items);
   if (ctx.req.budgetSek != null && costSek > ctx.req.budgetSek) return null;
-  const checks = validateLayout(ctx.model, items, ctx.req);
+  const checks = validateLayout(ctx.model, items, ctx.req, { spaceId: ctx.space.id });
   if (checks.some((c) => c.result === 'fail')) return null;
   const own: ValidationResult[] = checks.length ? checks : ownChecks(ctx, items, route);
   return {
@@ -598,7 +607,8 @@ export function lastReports(): DesignReport[] { return reportsCache; }
  * for outlines the constructive solver cannot handle.
  */
 export async function generateLayouts(model: SpaceModel, req: Requirements, opts: SolveOptions = {}): Promise<LayoutResult> {
-  if (!model.spaces.length) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] }, reports: [] };
+  if (!model.spaces.length || !spaceOf(model, opts.spaceId)) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] }, reports: [] };
+  const spaceId = spaceOf(model, opts.spaceId)!.id;
   let built = buildItems(model, req, false);
   if (req.budgetSek != null && costOf(built.items) > req.budgetSek) {
     built = buildItems(model, req, true);
@@ -609,7 +619,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
   }
   const program = defaultProgram(model, built.items, req);
   const res = await solveProgram(model, built.items, program, {
-    variants: opts.variants ?? 3, seed: opts.seed ?? 1, timeBudgetMs: opts.timeBudgetMs ?? 1500, req, fixedIds: [...built.fixed],
+    variants: opts.variants ?? 3, seed: opts.seed ?? 1, timeBudgetMs: opts.timeBudgetMs ?? 1500, req, fixedIds: [...built.fixed], spaceId,
     onProgress: opts.onProgress ? (p) => opts.onProgress!(p) : undefined,
   });
   if (res.candidates.length) {
@@ -619,10 +629,10 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
   }
   // Fallback: the annealer, scored by the same rules (pointless when the floor area alone rules it out).
   const tooSmall = res.infeasibility?.reasons.some((r) => /need about|larger than the room/.test(r));
-  const legacy = tooSmall ? { candidates: [] as LayoutCandidate[] } : await legacyLayouts(model, req, { ...opts, timeBudgetMs: Math.min(opts.timeBudgetMs ?? 1200, 1200) });
+  const legacy = tooSmall ? { candidates: [] as LayoutCandidate[] } : await legacyLayouts(model, req, { ...opts, spaceId, timeBudgetMs: Math.min(opts.timeBudgetMs ?? 1200, 1200) });
   if (legacy.candidates.length) {
     const reports = legacy.candidates.map((c) => {
-      const verdicts = evaluateRules(model, c.furniture, req);
+      const verdicts = evaluateRules(model, c.furniture, req, { spaceId });
       c.metrics.score = designScore(verdicts);
       return { candidateId: c.id, program, verdicts };
     });
@@ -630,7 +640,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
     return { candidates: legacy.candidates, infeasibility: null, reports };
   }
   reportsCache = [];
-  const base = explainInfeasible(model, req);
+  const base = explainInfeasible(model, req, spaceId);
   const mine = res.infeasibility;
   const reasons = [...(mine?.reasons ?? []), ...base.reasons.filter((r) => !/No layout found in time/.test(r))];
   const relaxations = [...(mine?.relaxations ?? [])];
@@ -641,7 +651,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
 /** The previous generator (constructive seed + simulated annealing), kept as a fallback. */
 async function legacyLayouts(model: SpaceModel, req: Requirements, opts: SolveOptions = {}): Promise<{ candidates: LayoutCandidate[]; infeasibility: Infeasibility | null }> {
   if (!model.spaces.length) return { candidates: [], infeasibility: { reasons: ['No room outline yet'], relaxations: [] } };
-  const ctx = makeCtx(model, req);
+  const ctx = makeCtx(model, req, opts.spaceId);
   const n = Math.min(opts.variants ?? 4, VARIANTS.length), seed0 = opts.seed ?? 1;
   const per = (opts.timeBudgetMs ?? 1800) / n;
   const out: LayoutCandidate[] = [];
@@ -670,9 +680,9 @@ async function legacyLayouts(model: SpaceModel, req: Requirements, opts: SolveOp
 }
 
 // ---------- infeasibility ----------
-export function explainInfeasible(model: SpaceModel, req: Requirements): Infeasibility {
+export function explainInfeasible(model: SpaceModel, req: Requirements, spaceId?: string): Infeasibility {
   const reasons: string[] = []; const relaxations: Infeasibility['relaxations'] = [];
-  const sp = model.spaces[0]; const b = bounds(sp.polygon);
+  const sp = spaceOf(model, spaceId)!; const b = bounds(sp.polygon);
   const W = b.maxX - b.minX, H = b.maxY - b.minY, short = Math.min(W, H), long = Math.max(W, H);
   const built = buildItems(model, req, false).items.filter((f) => !isRug(f));
   const route = req.minRouteWidthM;
@@ -683,7 +693,7 @@ export function explainInfeasible(model: SpaceModel, req: Requirements): Infeasi
     else if (minDim + route > short) reasons.push(`${f.name} ${minDim.toFixed(2)} m + ${route.toFixed(2)} m route needs ${(minDim + route).toFixed(2)} m, room is ${short.toFixed(2)} m wide`);
   }
   const roomA = area(sp.polygon);
-  const doorA = makeCtx(model, req).doorZones.reduce((s, z) => s + area(z), 0) / 2;
+  const doorA = makeCtx(model, req, sp.id).doorZones.reduce((s, z) => s + area(z), 0) / 2;
   // A seat at a desk or table uses that host's use zone, so only its footprint adds to the need.
   const hosted = built.some(isHost);
   const need = built.reduce((s, f) => s + area(itemCorners(f, !(hosted && isSeat(f)))), 0);
@@ -715,12 +725,12 @@ export function explainInfeasible(model: SpaceModel, req: Requirements): Infeasi
 
 // ---------- genome ----------
 export interface Genome { zones: Record<string, Vec2>; walls: Record<string, number | null>; focal: string | null }
-export function genomeOf(c: LayoutCandidate, model?: SpaceModel): Genome {
+export function genomeOf(c: LayoutCandidate, model?: SpaceModel, spaceId?: string): Genome {
   const zones: Record<string, Vec2> = {}, walls: Record<string, number | null> = {};
   const groups: Record<string, FurnitureItem[]> = {};
   for (const f of c.furniture) { const z = SLEEP.has(f.category) ? 'sleep' : WORK.has(f.category) || f.category === 'chair' ? 'work' : 'living'; (groups[z] ??= []).push(f); }
   for (const [z, fs] of Object.entries(groups)) zones[z] = { x: fs.reduce((s, f) => s + f.x, 0) / fs.length, y: fs.reduce((s, f) => s + f.y, 0) / fs.length };
-  const sp = model?.spaces[0];
+  const sp = model ? spaceOf(model, spaceId) : undefined;
   for (const f of c.furniture) {
     if (!WALL_BACKED.has(f.category)) continue;
     if (!sp) { walls[f.id] = null; continue; }
@@ -735,8 +745,8 @@ export function genomeOf(c: LayoutCandidate, model?: SpaceModel): Genome {
 }
 
 /** Take the larger half of items (by area) from A and the rest from B, pin them where valid, re-solve the others. */
-export async function crossover(a: LayoutCandidate, b: LayoutCandidate, model: SpaceModel, req: Requirements, seed = 7): Promise<LayoutCandidate | null> {
-  const ctx = makeCtx(model, req);
+export async function crossover(a: LayoutCandidate, b: LayoutCandidate, model: SpaceModel, req: Requirements, seed = 7, spaceId?: string): Promise<LayoutCandidate | null> {
+  const ctx = makeCtx(model, req, spaceId);
   const byCat = (list: FurnitureItem[]) => { const m = new Map<string, FurnitureItem[]>(); for (const f of list) { const k = f.catalogId; m.set(k, [...(m.get(k) ?? []), f]); } return m; };
   const mb = byCat(b.furniture);
   const sorted = [...a.furniture].sort((x, y) => y.w * y.d - x.w * x.d);
