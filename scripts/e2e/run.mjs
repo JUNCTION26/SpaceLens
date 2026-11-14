@@ -335,8 +335,11 @@ async function exporting(c) {
   c.warn(url.length < 8000, `share link is short enough to paste in chat (${url.length} chars)`);
   if (/#m=/.test(url)) {
     await c.page.evaluate('try { localStorage.clear(); } catch {}');
-    await c.page.goto('about:blank', 100).catch(() => {});
-    await c.page.send('Page.navigate', { url });
+    await c.page.send('Page.navigate', { url: 'about:blank' });
+    await sleep(500);
+    c.note(`share link length ${url.length}`);
+    await c.page.evaluate(`location.replace(${JSON.stringify(url)})`, { awaitPromise: false }).catch(() => {});
+    await sleep(1000);
     await c.page.waitFor('document.readyState === "complete" && !!window.__spacelens', 90000);
     await sleep(3000);
     const got = await c.state('JSON.stringify({ x: s.model.furniture[0]?.x, n: s.model.furniture.length })').catch(() => null);
@@ -400,7 +403,7 @@ async function themes(c) {
     await c.open(`nav=layouts&sample=1&view=split&theme=${theme}`);
     await sleep(1500);
     const bg = await c.page.evaluate(`getComputedStyle(document.body).backgroundColor`);
-    const lum = (rgb) => { const [r, g, b] = rgb.match(/\\d+/g).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+    const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
     const L = await c.page.evaluate(`(${lum.toString()})(getComputedStyle(document.body).backgroundColor)`);
     c.ok(theme === 'light' ? L > 0.8 : L < 0.2, `${theme} theme background (${bg})`);
     // Text that is nearly the background colour is unreadable.
