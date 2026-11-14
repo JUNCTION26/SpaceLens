@@ -20,7 +20,7 @@
   .sidebar { display: none; }
   .stage { order: -1; height: min(55vh, 520px); min-height: 260px; flex: none; touch-action: none; }
   .stage-split { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
-  .view-seg { top: 8px; right: 8px; }
+  .view-seg { bottom: 8px; }
   .checks-float { left: 8px; bottom: 8px; }
   .status-pill { height: 36px; }
   .inspector-sheet { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 70dvh; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; z-index: 40; padding-bottom: env(safe-area-inset-bottom); }
