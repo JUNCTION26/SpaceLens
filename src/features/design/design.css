@@ -1,0 +1,32 @@
+.dec { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; font-size: 12px; cursor: default; }
+.dec > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.dec > summary:hover { color: var(--text); }
+.dec-body { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.dec-lede { margin: 0; line-height: 1.45; }
+.dec-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.dec-h { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.dec-weak, .dec-items, .dec-reasons, .dec-notes { list-style: none; margin: 0; padding: 0; }
+.dec-weak { display: flex; flex-direction: column; gap: 6px; }
+.dec-weak > li { padding-left: 8px; border-left: 2px solid var(--line); }
+.dec-weak > li.is-hard { border-left-color: var(--bad); }
+.dec-weak > li.is-strong { border-left-color: var(--warn); }
+.dec-fix { color: var(--text); margin-top: 1px; }
+.dec-items { display: flex; flex-direction: column; }
+.dec-item { padding: 6px 0; border-top: 1px solid var(--line); }
+.dec-item:first-child { border-top: 0; }
+.dec-item-head { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.dec-item-head:hover .dec-item-name, .dec-item.on .dec-item-name { color: var(--accent); }
+.dec-item-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.dec-swatch { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.dec-item-name { flex: 1; min-width: 0; font-weight: 600; }
+.dec-verdict { flex: none; font-size: 11px; color: var(--muted); }
+.dec-verdict.is-change { color: var(--warn); }
+.dec-where { margin: 1px 0 3px 14px; font-size: 11px; }
+.dec-reasons { display: flex; flex-direction: column; gap: 2px; margin-left: 14px; line-height: 1.4; }
+.dec-reasons svg { vertical-align: -1px; }
+.dec-reasons .is-pass svg { color: var(--ok); }
+.dec-reasons .is-fail svg { color: var(--bad); }
+.dec-kind { color: var(--muted); }
+.dec-kind::after { content: ':'; }
+.dec-critic .dec-kind { color: var(--text); }
+.dec-notes { font-size: 11px; display: flex; flex-direction: column; gap: 2px; }
