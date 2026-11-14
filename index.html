@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0d10" />
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Content-Security-Policy: set from VITE_CSP in .env.production (production builds only). See docs/THREAT-MODEL.md. -->
+    <meta http-equiv="Content-Security-Policy" content="%VITE_CSP%" />
+    <meta name="referrer" content="no-referrer" />
     <title>SpaceLens</title>
   </head>
   <body>
