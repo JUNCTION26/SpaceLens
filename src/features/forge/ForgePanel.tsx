@@ -100,7 +100,7 @@ export function ForgePanel() {
               <strong>{spec.name}</strong>
               {busy && <span className="forge-dims">{dims(spec.size)}</span>}
             </div>
-            <div className="muted">{busy ? 'Building…' : semanticLine(spec.semantics)}</div>
+            {busy && <div className="muted">Building…</div>}
           </>
         ) : busy ? <div className="muted">Building…</div> : null}
       </div>
@@ -108,7 +108,7 @@ export function ForgePanel() {
       {done && (
         <>
           <div className="forge-actions">
-            <button type="button" className="btn btn-primary" onClick={() => place(spec)}><Icon name="plus" /> Place in room</button>
+            <button type="button" className="btn btn-primary" onClick={() => place(spec)}><Icon name="plus" /> Place</button>
             {!!spec.motions?.length && (
               <button type="button" className="btn" aria-pressed={open} onClick={() => setOpen((o) => !o)}>{open ? 'Close' : spec.motions[0].label || 'Open'}</button>
             )}
@@ -117,7 +117,6 @@ export function ForgePanel() {
             <input value={refine} onChange={(e) => setRefine(e.target.value)} placeholder="Refine…" aria-label="Refine this object, e.g. 20 cm wider or in walnut" autoComplete="off" />
             <button type="submit" className="icon-btn" disabled={!refine.trim()} aria-label="Apply change"><Icon name="sparkles" /></button>
           </form>
-          <div className="forge-timing">{timing(spec)}</div>
         </>
       )}
 
@@ -130,7 +129,6 @@ export function ForgePanel() {
                 <button type="button" className="forge-tile" onClick={() => { setSpec(s); setOpen(false); }} title={s.prompt}>
                   <span className="forge-swatch" style={{ background: dominantColor(s) }} aria-hidden="true" />
                   {renaming === s.id ? null : <span className="forge-tile-name">{s.name}</span>}
-                  <span className="forge-tile-dims">{dims(s.size)}</span>
                 </button>
                 {renaming === s.id && (
                   <input
