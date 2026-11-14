@@ -93,6 +93,8 @@ function ChecksPill() {
   }, []);
   useEffect(() => {
     if (!open) return;
+    // One list of fixes at a time: the plan's hover card closes while this list is open.
+    window.dispatchEvent(new Event('spacelens:close-card'));
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     // Clicks on the plan stay allowed so a fix can be checked by eye; clicks elsewhere close the list.
     const onDown = (e: PointerEvent) => {

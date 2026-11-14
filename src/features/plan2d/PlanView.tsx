@@ -259,6 +259,11 @@ export function PlanView() {
     if (!anchor || !cardProblems(key).length) return;
     setCard((c) => (c && c.key === key ? { ...c, pinned: c.pinned || pinned } : { key, anchor: anchor!, pinned }));
   };
+  useEffect(() => {
+    const close = () => { clearTimeout(cardTimer.current); setCard(null); };
+    window.addEventListener('spacelens:close-card', close);
+    return () => window.removeEventListener('spacelens:close-card', close);
+  }, []);
   // Close the card once its problems are all fixed.
   useEffect(() => { if (card && !cardProblems(card.key).length) closeCard(); }); // eslint-disable-line react-hooks/exhaustive-deps
 

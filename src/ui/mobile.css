@@ -30,6 +30,8 @@
   .panel-col { border: 0; overflow: visible; padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
   .panel-col-head { padding: var(--s4) var(--s4) var(--s2); }
   /* Room at the bottom for the floating assistant bar and the tab bar, so nothing hides under them. */
+  /* The AI chip shrinks to its status dot so the project name keeps its room. */
+  .topbar .ai-chip { font-size: 0; gap: 0; padding: 0 9px; min-width: 0; }
   .side-body { overflow: visible; padding: var(--s2) var(--s4) calc(150px + env(safe-area-inset-bottom)); }
   .side-body, .panel, .card { min-width: 0; max-width: 100%; }
   .grid2, .stats3 { grid-template-columns: 1fr; }
