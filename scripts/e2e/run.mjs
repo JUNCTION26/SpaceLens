@@ -473,6 +473,10 @@ async function drawings(c) {
   if (!c.ok(loaded, 'sample plan opens')) { await c.shot('no-sheet'); return; }
   await sleep(1500);
   await c.shot('sheet');
+  const vis = await c.page.evaluate(`(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; };
+    return { sheet: r('.drawings-sheet img'), stage: r('.drawings-stage'), ask: r('.drawings-q') }; })()`);
+  c.ok(vis.sheet && vis.sheet[0] > 150 && vis.sheet[1] > 150, `the opened sheet is visible (${JSON.stringify(vis)})`);
+  c.ok(vis.ask && vis.ask[0] > 50, 'the Ask box is visible');
   const chips = await c.page.evaluate(`[...document.querySelectorAll('.drawings-sugg .chip')].map((b) => b.innerText)`);
   c.note(`suggested questions: ${chips.join(' | ')}`);
   const q = chips.find((x) => /Area of/.test(x)) ?? chips[0];
@@ -515,36 +519,50 @@ async function hoverfix(c) {
     const cx = sp.polygon.reduce((q, p) => q + p.x, 0) / sp.polygon.length, cy = sp.polygon.reduce((q, p) => q + p.y, 0) / sp.polygon.length;
     const k = 0.45 / Math.hypot(cx - px, cy - py);
     s.dispatch({ type: 'UPDATE_OBJECT', id: s.model.furniture[0].id, patch: { x: px + (cx - px) * k, y: py + (cy - py) * k } }); })()`));
-  await sleep(1200);
+  // Checks run in a worker; give them time on a busy machine.
+  const t0 = Date.now();
+  const found = await c.page.waitFor(`/to fix/.test(document.querySelector('.status-pill')?.innerText ?? '')`, 20000).catch(() => false);
+  c.timings.problemShown = Date.now() - t0;
   const pill = await c.page.text('.status-pill');
-  c.ok(/to fix/.test(pill), `checks pill reports the problem (${pill})`);
-  // Hover the problem piece on the plan: a tooltip or highlight should say what is wrong.
+  c.ok(found, `checks pill reports the problem (${pill})`);
+  const count = (t) => (/to fix/.test(t) ? parseInt(t, 10) : 0);
+  // Hover the problem piece on the plan: a card should say what is wrong and offer fixes.
   const id = await c.state('s.model.furniture[0].id');
   const box = await c.page.locate(`[data-hit="f:${id}"]`);
-  if (box) {
-    await c.page.hover(box, { settle: 900 });
-    const tip = await c.page.evaluate(`(() => { const t = [...document.querySelectorAll('[role=tooltip], .plan2d-tip, .tooltip, title')].map((e) => e.textContent.trim()).filter(Boolean); return t.slice(0, 3); })()`);
-    c.warn(tip.length > 0, 'hovering a failing piece explains the problem');
-    c.note(`hover: ${tip.join(' | ') || 'nothing'}`);
+  if (c.ok(box, 'the piece is drawn on the plan')) {
+    await c.page.hover(box, { settle: 300 });
+    const card = await c.page.waitFor(`!!document.querySelector('.pb-card')`, 8000).catch(() => false);
+    const text = card ? await c.page.text('.pb-card') : '';
+    c.ok(card, `hovering the failing piece opens a problem card (${text.replace(/\s+/g, ' ').slice(0, 160)})`);
     await c.shot('hover');
+    const fixes = await c.page.evaluate(`[...document.querySelectorAll('.pb-card .pb-fix')].map((b) => b.innerText.trim())`);
+    if (c.ok(fixes.length > 0, `the card offers fixes (${fixes.join(', ')})`)) {
+      const before = count(await c.page.text('.status-pill'));
+      const hit = await c.page.locate('.pb-card .pb-fix');
+      await c.page.hover(hit, { settle: 600 });
+      await c.shot('preview');
+      await c.page.click('.pb-card .pb-fix');
+      await c.page.waitFor(`(() => { const t = document.querySelector('.status-pill')?.innerText ?? ''; return !/to fix/.test(t) || parseInt(t, 10) < ${before}; })()`, 15000).catch(() => {});
+      const after = await c.page.text('.status-pill');
+      c.ok(count(after) < before, `one-click fix "${fixes[0]}" reduces the problems (${before} -> ${after})`);
+      await c.shot('fixed');
+    }
   }
+  // The checks list offers Fix all for whatever is left.
+  await c.page.evaluate(S(`s.dispatch({ type: 'UPDATE_OBJECT', id: '${id}', patch: { x: s.model.spaces[0].polygon[0].x + 0.2, y: s.model.spaces[0].polygon[0].y + 0.2 } })`));
+  await c.page.waitFor(`/to fix/.test(document.querySelector('.status-pill')?.innerText ?? '')`, 20000).catch(() => {});
+  const p0 = await c.page.text('.status-pill');
   await c.page.click('.status-pill');
   await sleep(600);
   await c.shot('checks-open');
-  const fix = await c.page.locate('[aria-label^="Fix "]');
-  if (!c.ok(fix, 'checks list offers a one-click fix')) { await c.shot('no-fix'); return; }
-  await c.page.click('[aria-label^="Show "]').catch((e) => c.note(`show: ${e.message}`));
-  await sleep(500);
-  c.ok(await c.state('s.analysis.highlights.length > 0 || s.selection != null'), 'Show highlights or selects the piece');
-  c.warn(await c.page.evaluate(`!!document.querySelector('.checks-pop')`), 'checks list stays open after Show, so Fix is still one click away');
-  await c.shot('after-show');
-  if (!(await c.page.evaluate(`!!document.querySelector('.checks-pop')`))) { await c.page.click('.status-pill'); await sleep(500); }
-  const f0 = await c.page.text('.status-pill');
-  await c.page.click('[aria-label^="Fix "]');
-  await sleep(1500);
-  const f1 = await c.page.text('.status-pill');
-  c.ok(f1 !== f0 && (!/to fix/.test(f1) || parseInt(f1) < parseInt(f0)), `fix reduces the problems (${f0} -> ${f1})`);
-  await c.shot('fixed');
+  const fixAll = await c.page.locate('.referee-fixall');
+  if (c.ok(fixAll, `checks list offers Fix all (${p0})`)) {
+    await c.page.click('.referee-fixall');
+    await c.page.waitFor(`(() => { const t = document.querySelector('.status-pill')?.innerText ?? ''; return !/to fix/.test(t) || parseInt(t, 10) < ${count(p0)}; })()`, 30000).catch(() => {});
+    const p1 = await c.page.text('.status-pill');
+    c.ok(count(p1) < count(p0), `Fix all reduces the problems (${p0} -> ${p1})`);
+    await c.shot('fixall');
+  }
 }
 
 async function settings(c) {
