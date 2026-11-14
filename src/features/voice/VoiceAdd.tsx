@@ -7,6 +7,9 @@ import { Icon } from '../../ui/icons';
 import { catalogEntry, findByKeyword, makeItem } from '../furniture/catalog';
 import { findFreeSpot, rotationFacing, snapToWall, wallCompass } from '../objects/placement';
 import { colorHex, fieldCount, parseSpoken, validate, type SpokenCommand, type VoiceWall } from './parse';
+import { generateObject } from '../forge/generate';
+import { FORGE_RESULT_EVENT, placeSpec, useForgeLibrary } from '../forge/library';
+import { hasCustomDetail, isCreateCommand, parseRequest } from '../forge/parseRequest';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Rec = { lang: string; interimResults: boolean; continuous: boolean; start(): void; stop(): void; abort(): void; onresult: ((e: any) => void) | null; onend: (() => void) | null; onerror: ((e: any) => void) | null };
@@ -40,6 +43,22 @@ async function interpret(text: string): Promise<SpokenCommand | null> {
 }
 
 const cm = (m: number) => Math.round(m * 100);
+
+/** "Add/create/make ..." with custom detail (materials, features, shape) or no catalogue match goes to the forge. */
+function wantsForge(text: string): boolean {
+  if (!isCreateCommand(text)) return false;
+  return hasCustomDetail(parseRequest(text)) || !findByKeyword(text);
+}
+
+/** Build a custom object to the spoken words and place it (quantity copies). */
+async function forge(text: string, onProgress: (t: string) => void): Promise<{ text: string; steps: number }> {
+  const spec = await generateObject(text, { onPartial: (p) => onProgress(`Building ${p.name} · ${p.parts.length} parts`) });
+  useForgeLibrary.getState().save(spec);
+  window.dispatchEvent(new CustomEvent(FORGE_RESULT_EVENT, { detail: spec }));
+  const qty = Math.min(8, Math.max(1, parseRequest(text).qty));
+  for (let i = 0; i < qty; i++) placeSpec(spec);
+  return { text: `Built ${qty > 1 ? `${qty} × ` : ''}${spec.name} ${cm(spec.size.w)} × ${cm(spec.size.d)} cm`, steps: qty };
+}
 
 /** Pose against the requested wall (centred on it), refined with snapToWall. */
 function wallPose(model: SpaceModel, item: FurnitureItem, wall: VoiceWall) {
@@ -125,6 +144,7 @@ export function VoiceAdd() {
     if (!text.trim()) return;
     setBusy(true);
     try {
+      if (wantsForge(text)) { setResult(await forge(text, setTranscript)); return; }
       const cmd = await interpret(text);
       setResult(cmd ? apply(cmd) : { text: `Didn't catch that: "${text}"`, steps: 0 });
     } finally { setBusy(false); }
