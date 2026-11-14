@@ -1,6 +1,6 @@
 // Minimal headless-browser driver over the Chrome DevTools Protocol (Edge or Chrome).
 // No dependencies: Node 22+ ships WebSocket and fetch.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,9 +50,9 @@ export async function launch({ width = 1440, height = 900, shots } = {}) {
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
     for (const fn of listeners.get(m.method) ?? []) fn(m.params);
   });
-  const send = (method, params = {}) => new Promise((resolve, reject) => {
+  const send = (method, params = {}, timeoutMs = 90000) => new Promise((resolve, reject) => {
     const k = ++seq;
-    const t = setTimeout(() => { pending.delete(k); reject(new Error(`CDP timeout: ${method}`)); }, 60000);
+    const t = setTimeout(() => { pending.delete(k); reject(new Error(`CDP timeout: ${method}`)); }, timeoutMs);
     pending.set(k, (m) => { clearTimeout(t); m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result); });
     ws.send(JSON.stringify({ id: k, method, params }));
   });
@@ -92,9 +92,19 @@ export async function launch({ width = 1440, height = 900, shots } = {}) {
   const page = {
     send, on, evaluate, problems,
     async goto(url, settle = 1500) {
+      // The dev server can stall for a minute while other tools compile; give it room before failing.
       await send('Page.navigate', { url });
-      await page.waitFor('document.readyState === "complete" && !!window.__spacelens', 30000);
+      try {
+        await page.waitFor('document.readyState === "complete" && !!window.__spacelens', 90000);
+      } catch {
+        await send('Page.reload', { ignoreCache: false });
+        await page.waitFor('document.readyState === "complete" && !!window.__spacelens', 90000);
+      }
       await sleep(settle);
+    },
+    /** Wait until lazy panels and the 3D view have finished loading. */
+    async settled(timeout = 60000) {
+      await page.waitFor(`!document.querySelector('.skeleton') && !document.querySelector('[aria-busy="true"]')`, timeout).catch(() => {});
     },
     async waitFor(expr, timeout = 15000, every = 200) {
       const t0 = Date.now();
@@ -116,6 +126,16 @@ export async function launch({ width = 1440, height = 900, shots } = {}) {
       if (hit.covered && !opts.force) throw new Error(`covered by ${hit.covered}: ${target}`);
       await page.mouse(hit.x, hit.y);
       await sleep(opts.settle ?? 250);
+      return hit;
+    },
+    /** Run a script in every new document before the app loads. */
+    async init(source) { await send('Page.addScriptToEvaluateOnNewDocument', { source }); },
+    async hover(target, opts = {}) {
+      const hit = typeof target === 'string' ? await page.locate(target, opts) : target;
+      if (!hit) throw new Error(`not found: ${target}`);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x - 3, y: hit.y - 3 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y });
+      await sleep(opts.settle ?? 300);
       return hit;
     },
     async mouse(x, y, { button = 'left', clickCount = 1 } = {}) {
@@ -160,15 +180,25 @@ export async function launch({ width = 1440, height = 900, shots } = {}) {
     async shot(name) {
       if (!shots) return null;
       mkdirSync(shots, { recursive: true });
-      const r = await send('Page.captureScreenshot', { format: 'png' });
-      const file = join(shots, `${name}.png`);
-      writeFileSync(file, Buffer.from(r.data, 'base64'));
-      return file;
+      // Let two frames paint first so a half-composited frame is not captured.
+      await evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))').catch(() => {});
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await send('Page.captureScreenshot', { format: 'png' }, 120000);
+          const file = join(shots, `${name}.png`);
+          writeFileSync(file, Buffer.from(r.data, 'base64'));
+          return file;
+        } catch (e) { if (attempt) return `(screenshot failed: ${e.message})`; }
+      }
     },
     takeProblems() { return problems.splice(0, problems.length); },
     async close() {
+      try { await send('Browser.close').catch(() => {}); } catch { /* gone */ }
       try { ws.close(); } catch { /* closed */ }
-      proc.kill();
+      // Edge spawns helper processes; kill the whole tree so nothing lingers between runs.
+      if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+      else proc.kill();
+      proc.unref();
       await sleep(300);
       try { rmSync(profile, { recursive: true, force: true }); } catch { /* still locked */ }
     },
