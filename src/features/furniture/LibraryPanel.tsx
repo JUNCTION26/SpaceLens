@@ -197,10 +197,10 @@ export function LibraryPanel() {
         ))}
         {list.length === 0 && (
           <div className="furniture-empty">
-            <p className="muted">Nothing matches{q ? ` "${q}"` : ''}{fits ? ' that fits this room' : ''}.</p>
+            <p className="muted">No matches.</p>
             <div className="row">
               <button className="btn btn-sm" onClick={() => { setQ(''); setCat(null); setFits(false); }}>Show all</button>
-              {q && <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('create')}>Make it with Create object</button>}
+              {q && <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('create')}>Create object</button>}
             </div>
           </div>
         )}

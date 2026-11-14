@@ -23,7 +23,7 @@ export function FixButtons({ problem, max = 3, compact = false }: { problem: Pro
           onPointerEnter={() => setPreview(f)} onPointerLeave={() => setPreview(null)}
           onFocus={() => setPreview(f)} onBlur={() => setPreview(null)}
           onClick={run(f)}
-          title={f.kind === 'go' ? undefined : f.safe ? 'Checked: clears this without causing a new problem' : f.kind === 'remove' ? 'Takes it out of the plan. You can undo.' : undefined}>
+          title={f.kind === 'go' ? undefined : f.safe ? 'Checked: clears this without causing a new problem' : undefined}>
           {f.label}
         </button>
       ))}

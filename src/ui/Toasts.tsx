@@ -6,7 +6,7 @@ import { Icon } from './icons';
 /** Text that reads like a raw exception rather than a sentence for people. */
 const RAW = /(TypeError|ReferenceError|SyntaxError|RangeError|Uncaught|undefined is not|Cannot read propert|\bat \w+ \(|https?:\/\/\S{60,}|\{".*":)/;
 export function friendly(text: string): { text: string; details?: string } {
-  if (RAW.test(text) || text.length > 220) return { text: 'Something went wrong there. Your work is safe.', details: text };
+  if (RAW.test(text) || text.length > 220) return { text: 'Something went wrong. Your work is safe.', details: text };
   return { text };
 }
 

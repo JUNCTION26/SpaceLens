@@ -274,7 +274,7 @@ export function findFixes(ctx: FixContext, p: Problem, budget = 40): Fix[] {
     best.push({ id: `${p.id}|remove`, label: `Remove ${first.name}`, ops, preview: previewOf(ctx.model, ops), safe: false, kind: 'remove' });
   } else if (first?.locked) {
     const ops: Op[] = [{ type: 'UPDATE_OBJECT', id: first.id, patch: { locked: false } }];
-    best.push({ id: `${p.id}|unlock`, label: `Unlock ${first.name} to move it`, ops, preview: [], safe: false, kind: 'move' });
+    best.push({ id: `${p.id}|unlock`, label: `Unlock ${first.name}`, ops, preview: [], safe: false, kind: 'move' });
   }
   return best;
 }

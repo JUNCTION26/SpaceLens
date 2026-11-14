@@ -681,8 +681,8 @@ export function PlanView() {
         void import('../forge/library').then((m) => {
           const spec = m.useForgeLibrary.getState().items.find((s) => s.id === specId);
           if (spec) { ensureEditable(); setMulti([m.placeSpec(spec, at).id]); }
-          else notify('That object is no longer in My objects.', { tone: 'warn', actions: [{ label: 'Open Create object', run: () => useUi.getState().openSection('create') }] });
-        }).catch(() => notify('Could not place that object. Try once more.', { tone: 'warn' }));
+          else notify('That object is no longer in My objects.', { tone: 'warn', actions: [{ label: 'Create object', run: () => useUi.getState().openSection('create') }] });
+        }).catch(() => notify('Could not place that object.', { tone: 'warn' }));
       }}>
       <svg
         ref={svgRef}

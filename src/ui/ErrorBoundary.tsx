@@ -29,8 +29,8 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className={area ? 'crash crash-area' : 'crash crash-app'} role="alert">
         <div className="crash-card">
-          <h2>{area ? `${this.props.label ?? 'This part'} stopped working` : 'Something broke on this screen'}</h2>
-          <p>Your plan is saved on this device. {canUndo ? 'Undoing the last change usually fixes this.' : 'Reloading usually fixes this.'}</p>
+          <h2>{area ? `${this.props.label ?? 'This part'} stopped working` : 'Something broke'}</h2>
+          <p>Your plan is saved on this device.</p>
           <div className="crash-actions">
             {canUndo
               ? <button type="button" className="btn btn-primary" onClick={this.undo}>Undo last change</button>

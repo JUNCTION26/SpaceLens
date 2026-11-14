@@ -122,7 +122,7 @@ export const useProblems = create<ProblemsState>((set, get) => ({
     set({ preview: null });
     get().refresh(true);
     const st = useStore.getState();
-    if (steps > 0) notify(fix.kind === 'remove' ? `${fix.label.replace(/^Remove /, '')} removed.` : `${fix.label}. Done.`, {
+    if (steps > 0) notify(fix.kind === 'remove' ? `${fix.label.replace(/^Remove /, '')} removed.` : 'Fixed.', {
       tone: 'ok', actions: [{ label: 'Undo', run: () => { for (let i = 0; i < steps; i++) st.undo(); } }],
     });
     void problem;
@@ -159,8 +159,8 @@ export const useProblems = create<ProblemsState>((set, get) => ({
     const left = get().problems.filter(counts).length;
     const st = useStore.getState();
     const undo = { label: 'Undo all', run: () => { for (let i = 0; i < steps; i++) st.undo(); } };
-    if (!done) notify(left ? 'None of these can be fixed without a choice from you. Each one has its own fixes.' : 'Nothing to fix.', { tone: 'info' });
-    else notify(left ? `Fixed ${done}. ${left} left need a choice from you.` : `Fixed ${done}. All clear.`, { tone: 'ok', actions: [undo] });
+    if (!done) notify(left ? 'Each of these needs your choice.' : 'Nothing to fix.', { tone: 'info' });
+    else notify(left ? `Fixed ${done}. ${left} need your choice.` : `Fixed ${done}. All clear.`, { tone: 'ok', actions: [undo] });
   },
 }));
 
@@ -172,7 +172,7 @@ function commit(fix: Fix, quiet = false): number {
   let steps = 0;
   if (st.activeCandidateId) {
     st.applyCandidate(st.activeCandidateId); steps++;
-    if (!quiet) notify('Layout applied so the fix could run.', { tone: 'info', ttl: 2500 });
+    if (!quiet) notify('Layout applied.', { tone: 'info', ttl: 2500 });
   }
   const s = useStore.getState();
   const furnitureOnly = fix.ops.every((o: Op) => o.type === 'UPDATE_OBJECT' || o.type === 'REMOVE_OBJECT' || o.type === 'PLACE_OBJECT');

@@ -44,14 +44,14 @@ export function checkTitle(r: ValidationResult, byId: Map<string, FurnitureItem>
     case 'No overlap': return `${nm(items[0])} and ${nm(items[1])} overlap by ${cm(r.measured ?? 0)}.`;
     case 'Clearance': {
       const side = r.id.split(':').pop() ?? 'front';
-      const where = side === 'front' ? 'in front of' : side === 'back' ? 'behind' : `on the ${side} of`;
+      const where = side === 'front' ? 'in front' : side === 'back' ? 'behind' : `on the ${side}`;
       const blockers = items.slice(1).map((f) => f.name);
       if (/a wall\)/.test(r.details)) blockers.push('the wall');
       const by = blockers.length ? ` ${sentence(list(blockers)).replace(/\.$/, '')} ${blockers.length > 1 ? 'are' : 'is'} in the way.` : '';
-      return `${nm(first)} needs ${cm(r.threshold ?? 0)} free ${where} it, only ${cm(r.measured ?? 0)} is free.${by}`;
+      return `${nm(first)} needs ${cm(r.threshold ?? 0)} ${where}, has ${cm(r.measured ?? 0)}.${by}`;
     }
     case 'Door swing': return `${list(items.map((f) => f.name)) || 'Something'} ${items.length > 1 ? 'block' : 'blocks'} the door from opening.`;
-    case 'Door approach': return `${list(items.map((f) => f.name)) || 'Something'} ${items.length > 1 ? 'stand' : 'stands'} in the 80 cm just inside the door.`;
+    case 'Door approach': return `${list(items.map((f) => f.name)) || 'Something'} ${items.length > 1 ? 'are' : 'is'} within 80 cm of the door.`;
     case 'Window access': return `${list(items.map((f) => f.name))} ${items.length > 1 ? 'are' : 'is'} tall and stand${items.length > 1 ? '' : 's'} within 40 cm of the window.`;
     case 'Unfolded fits': return sentence(r.details.replace(/\s*\(\d+ cm\)/, ''));
     case 'Clear route': return r.measured != null && r.threshold != null
@@ -60,7 +60,7 @@ export function checkTitle(r: ValidationResult, byId: Map<string, FurnitureItem>
     case 'Budget': return r.measured != null && r.threshold != null
       ? `New items cost ${sek(r.measured)}, ${sek(r.measured - r.threshold)} over the ${sek(r.threshold)} budget.`
       : sentence(r.details);
-    case 'Room shape': return 'The room outline crosses itself, so sizes cannot be trusted.';
+    case 'Room shape': return 'The room outline crosses itself.';
     case 'Opening on wall': return sentence(r.details.replace(/\s*\(spans.*\)/, ''));
     default: return sentence(r.details);
   }

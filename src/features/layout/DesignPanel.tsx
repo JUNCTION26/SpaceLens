@@ -11,20 +11,6 @@ import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import './layout.css';
 
-/** Three small plans side by side: what this panel will hold. */
-function LayoutsIllustration() {
-  return (
-    <svg className="layout-empty-art" width="132" height="44" viewBox="0 0 132 44" aria-hidden="true">
-      {[0, 46, 92].map((x, i) => (
-        <g key={x} transform={`translate(${x} 2)`}>
-          <rect x="0.5" y="0.5" width="39" height="39" rx="3" fill="none" stroke="currentColor" opacity=".5" />
-          <rect x={i === 1 ? 22 : 4} y="4" width="14" height="10" rx="1.5" fill="currentColor" opacity=".35" />
-          <rect x={i === 2 ? 4 : 24} y={i === 0 ? 24 : 26} width="12" height="10" rx="1.5" fill="currentColor" opacity=".22" />
-        </g>
-      ))}
-    </svg>
-  );
-}
 
 /** 0-100 score as a thin ring. */
 function ScoreRing({ value }: { value: number }) {
@@ -101,7 +87,7 @@ export function DesignPanel() {
       useStore.getState().setCandidates(res.candidates, res.infeasibility);
     } catch (e) {
       console.error(e);
-      notify('Layouts could not be made this time. Your room and furniture are unchanged.', {
+      notify('Could not make layouts. Nothing changed.', {
         tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void regenerate(r) }, { label: 'Edit the brief', run: () => useUi.getState().openSection('describe') }],
       });
     } finally { setBusy(false); useReports.getState().setStages(useReports.getState().stages, false); }
@@ -117,7 +103,7 @@ export function DesignPanel() {
       else notify('These two do not combine into a layout that fits.', { tone: 'warn', actions: [{ label: 'Pick another pair', run: () => setPins([]) }] });
     } catch (e) {
       console.error(e);
-      notify('Combining stopped partway. Both layouts are still here.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
+      notify('Could not combine these two.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
     } finally { setBusy(false); }
   };
   const togglePin = (id: string) => setPins((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
@@ -140,9 +126,7 @@ export function DesignPanel() {
           </div>
         ) : (
           <div className="layout-empty">
-            <LayoutsIllustration />
             <strong>{req ? 'Ready to lay out the room' : 'Start with a short brief'}</strong>
-            <p className="muted">{req ? 'Three layouts that fit the measured room, each checked for doors, walkways and clearances.' : 'Say who uses the room and what it needs. Three checked layouts appear here.'}</p>
             {req
               ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Making layouts' : 'Make 3 layouts'}</button>
               : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe the room</button>}

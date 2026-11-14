@@ -35,22 +35,19 @@ export const ChecksPanel = memo(function ChecksPanel() {
   const tips = problems.filter((p) => !counts(p));
   const auto = main.filter((p) => p.fixes.some((f) => f.safe)).length;
   const passes = checks.filter((r) => r.result === 'pass');
-  const total = checks.filter((r) => r.result !== 'unknown').length;
 
   return (
     <section className="referee" aria-label="Checks">
       <div className="referee-head" aria-live="polite">
         <span className={`referee-dot ${main.some((p) => p.severity === 'error') ? 'bad' : main.length ? 'warn' : 'ok'}`} aria-hidden="true" />
         <span className="referee-count">{main.length ? `${main.length} to fix` : 'All clear'}</span>
-        <span className="referee-meta">{passes.length} of {total} checks pass</span>
         {auto > 0 && (
           <button type="button" className="btn btn-sm btn-primary referee-fixall" onClick={() => void fixAll()} disabled={fixingAll}
-            title="Runs only fixes that were checked to clear a problem without causing another. Undo puts everything back.">
-            {fixingAll ? 'Fixing' : auto === main.length ? 'Fix all' : `Fix ${auto} automatically`}
+            title="Only fixes that cause no new problem. Undo reverts all.">
+            {fixingAll ? 'Fixing' : auto === main.length ? 'Fix all' : `Fix ${auto}`}
           </button>
         )}
       </div>
-      {!main.length && !tips.length && <p className="referee-empty">Nothing overlaps, every door opens and every use zone is free.</p>}
       {main.length > 0 && <ul className="referee-list">{main.map((p) => <Row key={p.id} p={p} />)}</ul>}
       {tips.length > 0 && (
         <details className="referee-passes">
