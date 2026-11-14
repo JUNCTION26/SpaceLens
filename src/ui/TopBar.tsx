@@ -42,7 +42,7 @@ export function TopBar({ center }: { center?: ReactNode }) {
         <button className="icon-btn" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" /></button>
         <button className="icon-btn" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" aria-label="Redo"><Icon name="redo" /></button>
         <button className="kbd-btn" onClick={() => window.dispatchEvent(new Event('spacelens:command'))} title="Search commands" aria-label="Search commands">
-          <Icon name="search" size={14} /><span className="kbd-label">Search or jump to</span><kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+          <Icon name="search" size={14} /><span className="kbd-label">Search</span><kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
         </button>
         <span className="tool-sep" aria-hidden="true" />
         <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings"><Icon name="settings" /></button>
