@@ -53,6 +53,30 @@ describe('validateLayout', () => {
     expect(r.subjectIds).toContain('chair');
   });
 
+  it('a chair may sit in the front zone of the desk it belongs to, facing it', () => {
+    // Desk against the top wall, front facing +y; chair 10 cm in front of it, turned to face the desk.
+    const desk = item('desk', 1.5, 0.31, 1.2, 0.6, { category: 'desk', clearance: { front: 0.75, back: 0, left: 0, right: 0 } });
+    const chair = item('chair', 1.5, 0.96, 0.5, 0.5, { category: 'chair', rotation: Math.PI, clearance: { front: 0.75, back: 0, left: 0, right: 0 } });
+    const rs = validateLayout(room(rect(3, 4)), [desk, chair]);
+    expect(rs.filter((r) => r.result === 'fail').map((r) => r.details)).toEqual([]);
+    expect(get(rs, 'clearance:all').result).toBe('pass');
+  });
+
+  it('a chair in the zone of a desk it does not belong to still fails', () => {
+    const deskB = item('deskB', 1, 1, 1.2, 0.6, { category: 'desk', clearance: { front: 1.5, back: 0, left: 0, right: 0 } });
+    const deskA = item('deskA', 2.2, 2.4, 0.6, 0.6, { category: 'desk' });
+    const chair = item('chair', 1.4, 2.4, 0.4, 0.4, { category: 'chair' }); // nearer deskA, inside deskB's zone
+    const r = get(validateLayout(room(rect(3, 4)), [deskB, deskA, chair]), 'clearance:deskB:front');
+    expect(r.result).toBe('fail');
+    expect(r.subjectIds).toContain('chair');
+  });
+
+  it('a seated chair still may not overlap its desk', () => {
+    const desk = item('desk', 1.5, 1, 1.2, 0.6, { category: 'desk', clearance: { front: 0.75, back: 0, left: 0, right: 0 } });
+    const chair = item('chair', 1.5, 1.4, 0.5, 0.5, { category: 'chair', rotation: Math.PI });
+    expect(get(validateLayout(room(rect(3, 4)), [desk, chair]), 'overlap:desk:chair').result).toBe('fail');
+  });
+
   it('rotated clearance hits a wall', () => {
     // Rotated 90 deg: front faces -x, towards the left wall 0.5 m away.
     const bed = item('bed', 0.9, 2, 1.4, 0.8, { rotation: Math.PI / 2, clearance: { front: 0.6, back: 0, left: 0, right: 0 } });

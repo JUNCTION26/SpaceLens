@@ -175,23 +175,54 @@ export function compileRules(text: string, model: SpaceModel): Requirements {
   return ensurePerPerson(out, model);
 }
 
-/** A kept desk or chair covers one person; add new ones so every person has one. */
+type SeatKind = 'desk' | 'chair' | '';
+const SEATING = new Set(['chair', 'desk-chair', 'office-chair', 'stool']);
+const SHARED_TOP = new Set(['table', 'cafe-table', 'counter']);
+
+function kindOf(i: RequirementItem, model: SpaceModel): SeatKind {
+  const kept = i.keepExistingId ? model.furniture.find((f) => f.id === i.keepExistingId)?.category : undefined;
+  const cat = (kept ?? CATALOG.find((c) => c.id === i.catalogId)?.category ?? '').toLowerCase();
+  if (/desk/.test(cat)) return 'desk';
+  if (SEATING.has(cat)) return 'chair';
+  return '';
+}
+
+/**
+ * One desk and one chair per person. Kept items count towards the total, missing ones are added,
+ * and extra or duplicate entries are trimmed (new items first, newest entry first). Chairs are only
+ * capped in a work setting: a dining table or cafe needs more chairs than residents.
+ */
 export function ensurePerPerson(r: Requirements, model: SpaceModel): Requirements {
-  if (r.people <= 1) return r;
-  const items = r.items.map((i) => ({ ...i }));
-  for (const kept of r.items.filter((i) => i.keepExistingId)) {
-    const cat = `${model.furniture.find((f) => f.id === kept.keepExistingId)?.category ?? ''} ${CATALOG.find((c) => c.id === kept.catalogId)?.category ?? ''}`.toLowerCase();
-    const kind = /desk/.test(cat) ? 'desk' : /chair/.test(cat) && !/arm/.test(cat) ? 'chair' : '';
-    if (!kind) continue;
-    const c = CATALOG.find((x) => x.id === kept.catalogId) ?? matchCatalog([kind]);
-    if (!c) continue;
-    const total = items.filter((i) => i.catalogId === c.id || i.catalogId === kept.catalogId).reduce((s, i) => s + i.qty, 0);
-    const need = r.people - total;
-    if (need <= 0) continue;
-    const free = items.find((i) => i.catalogId === c.id && !i.keepExistingId);
-    if (free) free.qty += need; else items.push({ catalogId: c.id, qty: need });
+  const people = Math.max(1, r.people);
+  // Merge duplicate entries of the same new catalog item.
+  const items: RequirementItem[] = [];
+  for (const i of r.items) {
+    const twin = !i.keepExistingId ? items.find((x) => !x.keepExistingId && x.catalogId === i.catalogId) : undefined;
+    if (twin) twin.qty += i.qty; else items.push({ ...i });
   }
-  return { ...r, items };
+  const sharedTop = items.some((i) => SHARED_TOP.has(CATALOG.find((c) => c.id === i.catalogId)?.category ?? ''));
+  const notes = [...r.notes];
+  for (const kind of ['desk', 'chair'] as const) {
+    const mine = items.filter((i) => kindOf(i, model) === kind);
+    if (!mine.length) continue;
+    const total = mine.reduce((s, i) => s + i.qty, 0);
+    if (total < people && r.people > 1 && mine.some((i) => i.keepExistingId)) {
+      const base = mine.find((i) => !i.keepExistingId) ?? mine[0];
+      const free = mine.find((i) => !i.keepExistingId);
+      if (free) free.qty += people - total; else items.push({ catalogId: base.catalogId, qty: people - total });
+    } else if (total > people && !(kind === 'chair' && sharedTop)) {
+      const over = total - people;
+      let extra = over;
+      for (const i of [...mine].reverse()) {
+        if (!extra) break;
+        if (i.keepExistingId) continue;
+        const cut = Math.min(i.qty, extra);
+        i.qty -= cut; extra -= cut;
+      }
+      if (extra < over) notes.push(`Trimmed to one ${kind} per person (${people}).`);
+    }
+  }
+  return { ...r, items: items.filter((i) => i.qty > 0), notes };
 }
 
 export const SCHEMA = {

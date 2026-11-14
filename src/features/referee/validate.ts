@@ -34,6 +34,23 @@ function openingPoint(space: Space, o: Opening, inward: number): P {
 function spaceFor(model: SpaceModel, p: P): Space | undefined {
   return model.spaces.find((s) => s.polygon.length >= 3 && pointInPolygon(p, s.polygon)) ?? model.spaces[0];
 }
+/** Seats may sit in the use zone of the desk or table they belong to. */
+const SEATS = new Set(['chair', 'desk-chair', 'office-chair', 'stool', 'bench']);
+export const isSeat = (f: FurnitureItem) => SEATS.has(f.category);
+export const isSeatHost = (f: FurnitureItem) => /desk|table|counter/.test(f.category) && !/coffee|side/.test(f.category);
+/** Each seat belongs to the nearest desk or table (centre to centre). Returns seat id -> host id. */
+export function pairSeats(items: FurnitureItem[]): Map<string, string> {
+  const hosts = items.filter(isSeatHost), out = new Map<string, string>();
+  if (!hosts.length) return out;
+  for (const f of items) {
+    if (!isSeat(f)) continue;
+    let best = hosts[0], bd = Infinity;
+    for (const h of hosts) { const d = Math.hypot(h.x - f.x, h.y - f.y); if (d < bd) { bd = d; best = h; } }
+    out.set(f.id, best.id);
+  }
+  return out;
+}
+
 const names = (fs: FurnitureItem[]) => fs.map((f) => f.name).join(', ');
 
 /** Independent checker. Reads only the model and the furniture; never trusts a generator's claims. */
@@ -103,7 +120,10 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
 
   // Clearance envelopes
   let clrFails = 0;
+  const pairs = pairSeats(solid);
+  const paired = (a: FurnitureItem, b: FurnitureItem) => pairs.get(a.id) === b.id || pairs.get(b.id) === a.id;
   for (const f of solid) {
+    const host = pairs.has(f.id) ? solid.find((g) => g.id === pairs.get(f.id)) : undefined;
     const s = spaceFor(model, f), c = f.clearance, hw = f.w / 2, hd = f.d / 2;
     const sides: Array<[string, number, ORect]> = [
       ['front', c.front, localRect(f, -hw, hw, hd, hd + c.front)],
@@ -116,11 +136,13 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
       let worst = 0;
       const hit: FurnitureItem[] = [];
       for (const g of solid) {
-        if (g.id === f.id) continue;
+        if (g.id === f.id || paired(f, g)) continue;
         const d = overlapDepth(rect, footprint(g));
         if (d > TOL) { worst = Math.max(worst, Math.min(d, need)); hit.push(g); }
       }
-      const wallPen = s && s.polygon.length >= 3 ? Math.min(rectOutside(rect, s.polygon), need) : 0;
+      // A seat's use zone facing its desk is the knee space under the desk, not floor in front of a wall.
+      const facesHost = !!host && overlapDepth(rect, footprint(host)) > TOL;
+      const wallPen = !facesHost && s && s.polygon.length >= 3 ? Math.min(rectOutside(rect, s.polygon), need) : 0;
       if (wallPen > TOL) worst = Math.max(worst, wallPen);
       if (worst > 0) {
         clrFails++;
