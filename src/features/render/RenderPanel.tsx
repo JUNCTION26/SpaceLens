@@ -84,13 +84,13 @@ export function RenderPanel() {
       <div className="row">
         <button className="go" disabled={busy} onClick={() => void run()}>{busy ? `Rendering... ${secs}s` : 'Render this view'}</button>
         {busy && <button className="chip" onClick={() => abort.current?.abort()}>Cancel</button>}
-        {shot && <button className="chip" onClick={download}>Download PNG</button>}
+        {shot && <button className="chip" onClick={download}>Download</button>}
       </div>
       {error && (
         <div className="msg" role="alert">
           {error.message}{' '}
           <button className="chip" onClick={() => void run()}>Retry</button>{' '}
-          <button className="chip" onClick={openSettings}>Open settings</button>
+          <button className="chip" onClick={openSettings}>Settings</button>
         </div>
       )}
       {shot && <Compare before={shot.frame.dataUrl} after={shot.image} />}

@@ -78,11 +78,11 @@ function FurnitureFromPhoto() {
       {err && <p className="error small">{err}</p>}
       {est && (
         <div className="vision-result">
-          <p className="small"><strong>Estimate, check with a tape</strong> · {Math.round(est.confidence * 100)}% sure</p>
+          <p className="small"><strong>Estimate</strong> · {Math.round(est.confidence * 100)}% sure</p>
           <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')}
-          <p className="muted small">{est.reasoning}</p>
+          <details className="small"><summary>Details</summary><p className="muted">{est.reasoning}</p></details>
           <button className="btn btn-primary" onClick={add}>Add as owned</button>
         </div>
       )}
@@ -186,8 +186,8 @@ function RoomCheck() {
     <div className="vision-body">
       <PhotoInput label={busy ? 'Comparing...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
-      {issues && (issues.length === 0 ? <p className="small">No differences found.</p> : (
-        <ul className="small">{issues.map((x, i) => <li key={i}><strong>{x.kind}</strong>: {x.detail} <span className="muted">{x.suggestion}</span></li>)}</ul>
+      {issues && (issues.length === 0 ? <p className="small">No differences</p> : (
+        <ul className="small">{issues.map((x, i) => <li key={i} title={`${x.detail} ${x.suggestion}`}><strong>{x.kind}</strong></li>)}</ul>
       ))}
     </div>
   );
@@ -219,7 +219,7 @@ function VisionTools() {
         <div key={t.id} className={`vision-row${open === t.id ? ' on' : ''}`}>
           <button className="vision-head" aria-expanded={open === t.id} onClick={() => setOpen((o) => (o === t.id ? null : t.id))}>
             <Icon name={t.icon} size={16} />
-            <span className="vision-title">{t.title}<span className="muted">{t.hint}</span></span>
+            <span className="vision-title" title={t.hint}>{t.title}</span>
             <Icon name={open === t.id ? 'chevronDown' : 'chevronRight'} size={14} />
           </button>
           {open === t.id && t.body()}
