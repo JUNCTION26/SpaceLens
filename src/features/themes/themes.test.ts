@@ -107,7 +107,7 @@ describe('designThemedRoom', () => {
     const phases: string[] = [];
     const res = await designThemedRoom(model, 'build me a Barbie room', { onProgress: (_, ph) => phases.push(ph) });
     expect(res.brief.by).toBe('gemini');
-    expect(res.timings.models).toBe(2);
+    expect(res.timings.models).toBe(1); // the bed; the vanity and poster are finished in code
     expect(phases[0]).toBe('rules');
     const bed = res.candidates[0].furniture.find((f) => /canopy/i.test(f.custom?.prompt ?? ''))!;
     expect(bed.custom!.model).toBe('gemini-lite');
