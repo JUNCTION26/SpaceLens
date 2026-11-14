@@ -22,6 +22,8 @@ export interface MaterialDef {
   tileM: number;
   /** Photo texture colours are kept as-is when the part has no colour. */
   natural?: boolean;
+  /** Multiplier on the photo texture when the part has no colour (to correct a too-light scan). */
+  photoTint?: string;
   normal?: number;
   sheen?: number;
   clearcoat?: number;
@@ -30,15 +32,15 @@ export interface MaterialDef {
 
 export const MATERIAL_DEFS: Record<MaterialId, MaterialDef> = {
   oak: { color: '#c39a6b', rough: 0.55, metal: 0, kind: 'wood', tileM: 1.2, natural: true, normal: 0.5, clearcoat: 0.08 },
-  walnut: { color: '#6e4a32', rough: 0.5, metal: 0, kind: 'wood', tileM: 1.2, natural: true, normal: 0.5, clearcoat: 0.12 },
+  walnut: { color: '#6e4a32', rough: 0.5, metal: 0, kind: 'wood', tileM: 1.2, natural: true, photoTint: '#8c6a56', normal: 0.5, clearcoat: 0.12 },
   pine: { color: '#d8b47f', rough: 0.6, metal: 0, kind: 'wood', tileM: 0.9, natural: true, normal: 0.5 },
   birch: { color: '#e3cfae', rough: 0.55, metal: 0, kind: 'wood', tileM: 1.0, natural: true, normal: 0.4 },
   'white-laminate': { color: '#f1efea', rough: 0.42, metal: 0, kind: 'plain', tileM: 0.6, clearcoat: 0.1 },
   'black-laminate': { color: '#1f1f21', rough: 0.42, metal: 0, kind: 'plain', tileM: 0.6, clearcoat: 0.1 },
-  'black-metal': { color: '#1c1c1e', rough: 0.42, metal: 0.75, kind: 'metal', tileM: 0.5 },
-  steel: { color: '#b9bdc3', rough: 0.3, metal: 1, kind: 'metal', tileM: 0.5 },
-  brass: { color: '#c9a24c', rough: 0.28, metal: 1, kind: 'metal', tileM: 0.5 },
-  chrome: { color: '#eceef1', rough: 0.06, metal: 1, kind: 'metal', tileM: 0.5 },
+  'black-metal': { color: '#1c1c1e', rough: 0.42, metal: 0.75, kind: 'metal', tileM: 0.5, normal: 0.08 },
+  steel: { color: '#b9bdc3', rough: 0.3, metal: 1, kind: 'metal', tileM: 0.5, normal: 0.1 },
+  brass: { color: '#c9a24c', rough: 0.28, metal: 1, kind: 'metal', tileM: 0.5, normal: 0 },
+  chrome: { color: '#eceef1', rough: 0.08, metal: 1, kind: 'metal', tileM: 0.5, normal: 0 },
   fabric: { color: '#9b968d', rough: 0.95, metal: 0, kind: 'fabric', tileM: 0.12, normal: 0.6 },
   linen: { color: '#d8cfbf', rough: 0.96, metal: 0, kind: 'fabric', tileM: 0.1, normal: 0.7 },
   velvet: { color: '#4d6a48', rough: 0.85, metal: 0, kind: 'fabric', tileM: 0.12, normal: 0.3, sheen: 1 },
@@ -304,7 +306,7 @@ function applyMaps(e: Entry) {
   const base = linearOf(color ?? def.color);
   if (photo) {
     if (tinted) { mat.map = photo.detail; mat.color.copy(base).multiplyScalar(1 / DETAIL_MEAN); }
-    else { mat.map = photo.diff; mat.color.set('#ffffff'); }
+    else { mat.map = photo.diff; mat.color.set(def.photoTint ?? '#ffffff'); }
     mat.normalMap = photo.nor;
     mat.roughnessMap = photo.rough;
     mat.roughness = photo.rough ? Math.min(1, def.rough / photo.roughMean) : def.rough;
@@ -317,6 +319,9 @@ function applyMaps(e: Entry) {
   }
   const ns = def.normal ?? 0.4;
   mat.normalScale.set(ns, ns);
+  if (ns <= 0) mat.normalMap = null;
+  // Metals keep their exact colour; a detail map would only add grime.
+  if (def.kind === 'metal') { mat.map = null; mat.color.copy(base); }
   if (mat instanceof THREE.MeshPhysicalMaterial && def.sheen) {
     mat.sheenColor.copy(base).lerp(new THREE.Color('#ffffff'), 0.35);
   }
