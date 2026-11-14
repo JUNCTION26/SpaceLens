@@ -7,6 +7,7 @@ import {
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { catalogEntry, makeItem } from '../furniture/catalog';
 import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '../../core/types';
+import { Icon } from '../../ui/icons';
 import './plan2d.css';
 
 type VB = { x: number; y: number; w: number; h: number };
@@ -84,6 +85,7 @@ export function PlanView() {
   const [menu, setMenu] = useState<{ id: string; sx: number; sy: number } | null>(null);
   const [ghost, setGhost] = useState<{ id: string | null; p: Vec2 } | null>(null);
   const anim = useRef<number>(0);
+  const [layersOpen, setLayersOpen] = useState(false);
 
   // Keep the group in step with the store selection (other panels can select too).
   useEffect(() => {
@@ -241,7 +243,7 @@ export function PlanView() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const st = useStore.getState(); const sel = st.selection; const A = actions.current;
-      if (e.key === 'Escape') { st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
+      if (e.key === 'Escape') { setLayersOpen(false); st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -542,7 +544,7 @@ export function PlanView() {
         }}
         role="img" aria-label={`Floor plan of ${model.name}`}
       >
-        <Grid view={view} px={px} />
+        {px < 0.02 && <Grid view={view} px={px} />}
 
         {/* Heat */}
         {layers.heat && analysis.heat && <Heat grid={analysis.heat} />}
@@ -586,9 +588,12 @@ export function PlanView() {
           const gapPoly = [add(a, mul(inward, 0.01)), add(b, mul(inward, 0.01)), add(b, mul(inward, -t - 0.01)), add(a, mul(inward, -t - 0.01))];
           let sym: JSX.Element;
           if (o.kind === 'window') {
-            const off = t * 0.3;
+            const off = t * 0.32;
             sym = (<g className={cls} style={prov ? { stroke: prov } : undefined}>
               <line x1={a.x + out.x + inward.x * off} y1={a.y + out.y + inward.y * off} x2={b.x + out.x + inward.x * off} y2={b.y + out.y + inward.y * off} />
+              <line x1={a.x + out.x} y1={a.y + out.y} x2={b.x + out.x} y2={b.y + out.y} />
+              <line x1={a.x} y1={a.y} x2={add(a, mul(inward, -t)).x} y2={add(a, mul(inward, -t)).y} />
+              <line x1={b.x} y1={b.y} x2={add(b, mul(inward, -t)).x} y2={add(b, mul(inward, -t)).y} />
               <line x1={a.x + out.x - inward.x * off} y1={a.y + out.y - inward.y * off} x2={b.x + out.x - inward.x * off} y2={b.y + out.y - inward.y * off} />
             </g>);
           } else if (o.kind === 'door' && o.swing !== 'none') {
@@ -597,7 +602,7 @@ export function PlanView() {
             const leafEnd = add(hinge, mul(n, o.widthM));
             const sweep = (cross2(sub(free, hinge), n) > 0) ? 1 : 0;
             sym = (<g className={cls} style={prov ? { stroke: prov } : undefined}>
-              <line x1={hinge.x} y1={hinge.y} x2={leafEnd.x} y2={leafEnd.y} strokeWidth={stroke(2)} />
+              <line x1={hinge.x} y1={hinge.y} x2={leafEnd.x} y2={leafEnd.y} strokeWidth={stroke(1.25)} />
               <path d={`M ${free.x} ${free.y} A ${o.widthM} ${o.widthM} 0 0 ${sweep} ${leafEnd.x} ${leafEnd.y}`} className="plan2d-swing" />
             </g>);
           } else {
@@ -618,11 +623,11 @@ export function PlanView() {
         {layers.dimensions && spaces.map((sp) => sp.polygon.map((_, i) => {
           const [a, b] = wallSegment(sp, i); const w = sp.walls[i]; const t = w?.thicknessM ?? 0.12;
           const L = dist(a, b); if (L < 0.05) return null;
-          const out = mul(wallInwardNormal(sp, i), -1); const off = t + 28 * px;
+          const out = mul(wallInwardNormal(sp, i), -1); const off = t + 22 * px;
           const A = add(a, mul(out, off)), B = add(b, mul(out, off)), M = lerp(A, B, 0.5);
           const status = w?.status ?? 'unknown';
           let ang = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI; if (ang > 90 || ang < -90) ang += 180;
-          const tick = mul(norm(perp(sub(b, a))), 5 * px);
+          const tick = mul(norm(perp(sub(b, a))), 3.5 * px);
           const label = fmtCm(L);
           return (
             <g key={`d${sp.id}${i}`} className={`plan2d-dim plan2d-dim-${status}`}>
@@ -634,8 +639,8 @@ export function PlanView() {
               <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
                 onPointerDown={(e) => { e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
-                <rect x={-fs * 2.4} y={-fs * 0.8} width={fs * 4.8} height={fs * 1.6} rx={fs * 0.3} />
-                <text fontSize={fs} textAnchor="middle" dominantBaseline="central">{label}</text>
+                <rect x={-fs * 2.2} y={-fs * 0.7} width={fs * 4.4} height={fs * 1.4} rx={fs * 0.2} />
+                <text fontSize={fs * 0.85} textAnchor="middle" dominantBaseline="central">{label}</text>
                 <title>{`${label} (${status}). Click to type the real length.`}</title>
               </g>
             </g>
@@ -645,7 +650,7 @@ export function PlanView() {
         {/* Furniture */}
         {furniture.map((f) => (
           <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))} bad={problems.has(f.id)}
-            hl={hlMap.get(f.id)} preview={!!activeCandidateId} />
+            hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
         ))}
 
         {/* Drag feedback: guides, wall distance, overlaps */}
@@ -766,19 +771,31 @@ export function PlanView() {
         );
       })()}
 
-      <div className="plan2d-hint" aria-hidden="true">Shift click or drag to multi-select · Arrows nudge · R rotate · L lock · Ctrl D duplicate · F zoom · Alt drag skips snap</div>
-
-      <div className="plan2d-toolbar panel">
-        <button className="btn btn-sm btn-ghost" onClick={fit} title="Fit plan to view">Fit</button>
+      <div className="plan2d-toolbar" role="toolbar" aria-label="Plan tools">
+        <button className="plan2d-tb" onClick={fit} aria-label="Fit plan to view" data-tip="Fit to view"><Icon name="maximize" /></button>
+        <div className="plan2d-layers">
+          <button className={`plan2d-tb${layersOpen ? ' is-on' : ''}`} onClick={() => setLayersOpen((v) => !v)} aria-haspopup="menu" aria-expanded={layersOpen} aria-label="Layers" data-tip="Layers"><Icon name="layout" /></button>
+          {layersOpen && (
+            <div className="plan2d-layer-menu" role="menu" onPointerDown={(e) => e.stopPropagation()}>
+              {(['dimensions', 'clearance', 'routes', 'provenance', 'heat'] as const).map((k) => (
+                <label key={k} className="plan2d-layer-row">
+                  <input type="checkbox" checked={layers[k]} onChange={() => toggleLayer(k)} />{LAYER_LABEL[k]}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <span className="plan2d-sep" />
-        {(['dimensions', 'clearance', 'routes', 'provenance', 'heat'] as const).map((k) => (
-          <button key={k} className={`btn btn-sm ${layers[k] ? 'plan2d-on' : 'btn-ghost'}`} aria-pressed={layers[k]} onClick={() => toggleLayer(k)}>
-            {LAYER_LABEL[k]}
-          </button>
-        ))}
+        <button className="plan2d-tb" onClick={() => addOpening('door')} disabled={selection?.kind !== 'wall'} aria-label="Add door to selected wall" data-tip="Add door (select a wall)"><Icon name="door" /></button>
+        <button className="plan2d-tb" onClick={() => addOpening('window')} disabled={selection?.kind !== 'wall'} aria-label="Add window to selected wall" data-tip="Add window (select a wall)"><Icon name="window" /></button>
         <span className="plan2d-sep" />
-        <button className="btn btn-sm btn-ghost" onClick={() => addOpening('door')} disabled={selection?.kind !== 'wall'} title="Add a door to the selected wall">+ Door</button>
-        <button className="btn btn-sm btn-ghost" onClick={() => addOpening('window')} disabled={selection?.kind !== 'wall'} title="Add a window to the selected wall">+ Window</button>
+        <span className="plan2d-tb plan2d-help" tabIndex={0} role="note" aria-label="Shortcuts: Shift click or drag to multi-select, arrows nudge, R rotate, L lock, Ctrl D duplicate, F zoom, Alt drag skips snap">
+          ?
+          <span className="plan2d-help-pop" aria-hidden="true">
+            <span><kbd>Shift</kbd>click or drag to multi-select</span><span><kbd>Arrows</kbd>nudge</span><span><kbd>R</kbd>rotate</span>
+            <span><kbd>L</kbd>lock</span><span><kbd>Ctrl D</kbd>duplicate</span><span><kbd>F</kbd>zoom to selection</span><span><kbd>Alt</kbd>drag without snapping</span>
+          </span>
+        </span>
       </div>
 
       {activeCandidateId && <div className="plan2d-preview chip chip-warn">Previewing a layout. Editing applies it.</div>}
@@ -842,17 +859,17 @@ function zoomAt(cur: VB, r: DOMRect, cx: number, cy: number, k: number, size: { 
 
 function Grid({ view, px }: { view: VB; px: number }) {
   const lines: JSX.Element[] = [];
-  const fine = px < 0.012; // show 10 cm lines only when they are at least ~8 px apart
-  const step = fine ? 0.1 : 1;
+  const fine = px < 0.006; // show 10 cm lines only when they are at least ~8 px apart
+  const step = fine ? 0.1 : 0.5;
   const x0 = Math.floor(view.x / step) * step, y0 = Math.floor(view.y / step) * step;
   const maxLines = 400;
   let c = 0;
   for (let x = x0; x <= view.x + view.w && c < maxLines; x += step, c++) {
-    const major = Math.abs(x - Math.round(x)) < 1e-6;
+    const major = Math.abs(x - Math.round(x)) < 1e-6 && fine;
     lines.push(<line key={`x${c}`} x1={x} y1={view.y} x2={x} y2={view.y + view.h} className={major ? 'plan2d-grid-major' : 'plan2d-grid-minor'} strokeWidth={px} />);
   }
   for (let y = y0; y <= view.y + view.h && c < maxLines * 2; y += step, c++) {
-    const major = Math.abs(y - Math.round(y)) < 1e-6;
+    const major = Math.abs(y - Math.round(y)) < 1e-6 && fine;
     lines.push(<line key={`y${c}`} x1={view.x} y1={y} x2={view.x + view.w} y2={y} className={major ? 'plan2d-grid-major' : 'plan2d-grid-minor'} strokeWidth={px} />);
   }
   return <g pointerEvents="none">{lines}</g>;
@@ -871,32 +888,87 @@ function Heat({ grid }: { grid: NonNullable<import('../../core/types').Analysis[
   return <g pointerEvents="none">{cells}</g>;
 }
 
-function Item({ f, px, fs, layers, sel, bad, hl, preview }: {
-  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; bad: boolean; hl?: { color: string; label: string }; preview: boolean;
+function Item({ f, px, fs, layers, sel, bad, hl, preview, hover }: {
+  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; bad: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean;
 }) {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
-  const label = Math.min(fs, (w / Math.max(f.name.length, 4)) * 1.6);
   return (
     <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`} className={`plan2d-item${sel ? ' is-sel' : ''}${bad ? ' is-bad' : ''}${preview ? ' is-preview' : ''}`}>
       {layers.clearance && c && (
         <rect x={-w / 2 - c.left} y={-d / 2 - c.back} width={w + c.left + c.right} height={d + c.back + c.front}
           className="plan2d-clear" strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} />
       )}
-      <rect data-hit={`f:${f.id}`} x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(0.03, w / 10)}
-        style={{ fill: f.color }} className="plan2d-item-body" strokeWidth={(sel || bad ? 2.5 : 1) * px} />
-      <line x1={-w / 2 + 0.03} y1={d / 2 - 0.03} x2={w / 2 - 0.03} y2={d / 2 - 0.03} className="plan2d-front" strokeWidth={3 * px} pointerEvents="none" />
-      {hl && <rect x={-w / 2 - 4 * px} y={-d / 2 - 4 * px} width={w + 8 * px} height={d + 8 * px} fill="none" stroke={hl.color} strokeWidth={2 * px} pointerEvents="none" />}
-      <text fontSize={label} textAnchor="middle" dominantBaseline="central" className="plan2d-item-label" pointerEvents="none"
-        transform={`rotate(${-deg})`}>{f.locked ? '\u{1F512} ' : ''}{f.name}</text>
+      <rect data-hit={`f:${f.id}`} x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(0.02, w / 12)}
+        className="plan2d-item-body" strokeWidth={(sel || bad ? 2 : 1) * px} />
+      <g className="plan2d-sym" strokeWidth={px} pointerEvents="none"><FurnSymbol cat={f.category} w={w} d={d} /></g>
+      {hl && <rect x={-w / 2 - 4 * px} y={-d / 2 - 4 * px} width={w + 8 * px} height={d + 8 * px} fill="none" stroke={hl.color} strokeWidth={1.5 * px} pointerEvents="none" />}
+      {(sel || hover) && (
+        <text fontSize={fs * 0.9} textAnchor="middle" dominantBaseline="central" className="plan2d-item-label plan2d-halo" pointerEvents="none"
+          transform={`rotate(${-deg})`}>{f.locked ? 'Locked · ' : ''}{f.name}</text>
+      )}
       {sel && !f.locked && (
         <g>
-          <line x1={0} y1={d / 2} x2={0} y2={d / 2 + 18 * px} stroke="var(--accent)" strokeWidth={1.5 * px} pointerEvents="none" />
-          <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={7 * px} className="plan2d-rot" strokeWidth={1.5 * px}>
+          <line x1={0} y1={d / 2} x2={0} y2={d / 2 + 18 * px} stroke="var(--accent)" strokeWidth={px} pointerEvents="none" />
+          <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={6 * px} className="plan2d-rot" strokeWidth={1.25 * px}>
             <title>Drag to rotate (15° steps). Press R for 90°.</title>
           </circle>
         </g>
       )}
     </g>
   );
+}
+
+/** Top-down architectural symbol inside the item outline. Local frame: back edge at -d/2, front at +d/2. */
+function FurnSymbol({ cat, w, d }: { cat: string; w: number; d: number }) {
+  const x0 = -w / 2, y0 = -d / 2, x1 = w / 2, y1 = d / 2;
+  const m = Math.min(w, d);
+  const R = (x: number, y: number, ww: number, hh: number, k: string | number, rx = 0) =>
+    <rect key={k} x={x} y={y} width={Math.max(0, ww)} height={Math.max(0, hh)} rx={rx} />;
+  const L = (ax: number, ay: number, bx: number, by: number, k: string | number) => <line key={k} x1={ax} y1={ay} x2={bx} y2={by} />;
+  if (/bed|crib/.test(cat)) {
+    const ph = Math.min(0.22, d * 0.14); const two = w > 1.1; const pw = two ? w / 2 - 0.12 : w - 0.16;
+    const fold = y0 + 0.08 + ph + 0.14;
+    return <>
+      {R(x0 + 0.08, y0 + 0.08, pw, ph, 'p1', 0.03)}
+      {two && R(0.04, y0 + 0.08, pw, ph, 'p2', 0.03)}
+      {L(x0, fold, x1, fold, 'f')}
+      {L(x0, fold, x0 + Math.min(0.35, w * 0.3), fold + 0.25, 'c')}
+      {cat === 'bunk-bed' && L(x0, y0, x1, y1, 'x')}
+    </>;
+  }
+  if (cat === 'bench') return <>{L(x0, 0, x1, 0, 'm')}</>;
+  if (/sofa|armchair/.test(cat)) {
+    const back = Math.min(0.2, d * 0.25), arm = Math.min(0.18, w * 0.15);
+    const seats = cat === 'armchair' ? 1 : Math.max(2, Math.round((w - 2 * arm) / 0.65));
+    const sw = (w - 2 * arm) / seats;
+    return <>
+      {R(x0, y0, w, back, 'b')}{R(x0, y0 + back, arm, d - back, 'l')}{R(x1 - arm, y0 + back, arm, d - back, 'r')}
+      {Array.from({ length: seats - 1 }, (_, i) => L(x0 + arm + sw * (i + 1), y0 + back, x0 + arm + sw * (i + 1), y1 - 0.04, `s${i}`))}
+    </>;
+  }
+  if (cat === 'coffee-table') return <>{R(x0 + 0.05, y0 + 0.05, w - 0.1, d - 0.1, 'i', 0.02)}</>;
+  if (cat === 'table' || cat === 'cafe-table') {
+    // Chairs tucked under both long sides.
+    const cw = 0.4, ch = Math.min(0.18, d * 0.22), n = Math.max(1, Math.floor((w - 0.1) / 0.6)), gap = w / n;
+    return <>{Array.from({ length: n }, (_, i) => {
+      const cx = x0 + gap * (i + 0.5);
+      return <g key={i}>{R(cx - cw / 2, y0 + 0.04, cw, ch, 't', 0.03)}{R(cx - cw / 2, y1 - 0.04 - ch, cw, ch, 'u', 0.03)}</g>;
+    })}</>;
+  }
+  if (/desk|counter/.test(cat)) {
+    const dw = Math.min(0.45, w * 0.35);
+    return <>{L(x0 + 0.04, y0 + 0.06, x1 - 0.04, y0 + 0.06, 'e')}{R(x1 - dw - 0.04, y0 + 0.1, dw, d - 0.2, 'p')}{R(-0.22, y1 - 0.12, 0.44, 0.08, 'c', 0.02)}</>;
+  }
+  if (cat === 'stool') return <circle r={m * 0.3} />;
+  if (/chair/.test(cat)) return <>{R(x0 + w * 0.12, y0 + d * 0.06, w * 0.76, d * 0.18, 'b', 0.02)}</>;
+  if (/shelf|storage|cabinet|wardrobe|dresser|tv-unit|filing|nightstand/.test(cat)) {
+    const n = Math.max(1, Math.round(w / 0.4));
+    const lines = Array.from({ length: n - 1 }, (_, i) => L(x0 + (w / n) * (i + 1), y0, x0 + (w / n) * (i + 1), y1, i));
+    if (cat === 'wardrobe') return <>{L(x0 + 0.05, 0, x1 - 0.05, 0, 'r')}{lines}</>;
+    return <>{L(x0, y1 - 0.03, x1, y1 - 0.03, 'f')}{lines}</>;
+  }
+  if (cat === 'rug') return <>{R(x0 + 0.06, y0 + 0.06, w - 0.12, d - 0.12, 'i')}</>;
+  if (cat === 'plant' || cat === 'lamp') return <><circle r={m * 0.32} />{L(-m * 0.3, 0, m * 0.3, 0, 'h')}{L(0, -m * 0.3, 0, m * 0.3, 'v')}</>;
+  return <>{L(x0 + 0.04, y1 - 0.04, x1 - 0.04, y1 - 0.04, 'f')}</>;
 }

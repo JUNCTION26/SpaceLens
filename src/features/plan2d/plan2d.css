@@ -48,7 +48,7 @@
 .plan2d-sight.is-fail { stroke: var(--bad); stroke-dasharray: .05 .04; }
 .plan2d-hl-label { font-weight: 600; pointer-events: none; }
 .plan2d-toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; padding: 4px 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 20px); }
-.plan2d-on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
 .plan2d-sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
 .plan2d-scale { position: absolute; left: 12px; bottom: 10px; display: flex; gap: 6px; align-items: center; font: 12px var(--mono); color: var(--text); pointer-events: none; }
 .plan2d-legend { position: absolute; right: 10px; bottom: 10px; padding: 8px 10px; font-size: 12px; display: grid; gap: 4px; }
@@ -61,7 +61,7 @@
 .plan2d-edit-hint { font-size: 11px; }
 
 /* The shared .panel class stacks children vertically; the floating toolbar is a row. */
-.plan2d-toolbar.panel { flex-direction: row; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); padding: 4px 6px; z-index: 3; }
+
 .plan2d-legend.panel { gap: 4px; }
 
 .plan2d-guide { stroke: var(--accent-2); }
@@ -75,4 +75,40 @@
 .plan2d-menu button:hover, .plan2d-menu button:focus-visible { background: var(--panel); }
 .plan2d-menu kbd { color: var(--muted); font: 11px var(--mono); }
 .plan2d-menu-bad { color: var(--bad) !important; }
-.plan2d-hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); font-size: 11px; color: var(--muted); pointer-events: none; white-space: nowrap; max-width: calc(100% - 200px); overflow: hidden; text-overflow: ellipsis; }
+
+
+/* Architectural drawing style */
+.plan2d-grid-minor { stroke: var(--line); opacity: .25; }
+.plan2d-grid-major { stroke: var(--line); opacity: .6; }
+.plan2d-floor { fill: var(--bg); }
+.plan2d-gap { fill: var(--bg); }
+.plan2d-wall { stroke: var(--text); opacity: 1; }
+.plan2d-opening { stroke-width: .006; }
+.plan2d-opening line { vector-effect: non-scaling-stroke; stroke-width: 1px; }
+.plan2d-swing { stroke-dasharray: none; vector-effect: non-scaling-stroke; stroke-width: 1px; opacity: .8; }
+.plan2d-dim line { vector-effect: non-scaling-stroke; stroke-width: 1px; }
+.plan2d-dim-label rect { fill: var(--bg); stroke: none; }
+.plan2d-dim-label text { fill: var(--muted); }
+.plan2d-dim-verified .plan2d-dim-label text { fill: var(--text); }
+.plan2d-dim-label:hover rect { fill: var(--panel); stroke: none; }
+.plan2d-dim-label:hover text { fill: var(--accent); }
+.plan2d-item-body { fill: var(--bg); fill-opacity: 1; stroke: var(--text); }
+.plan2d-item.is-preview .plan2d-item-body { fill-opacity: 1; stroke-dasharray: .03 .02; }
+.plan2d-sym { fill: none; stroke: var(--muted); }
+.plan2d-item.is-sel .plan2d-sym { stroke: var(--accent); }
+.plan2d-item-label { font-size: inherit; font-weight: 500; }
+.plan2d-toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; align-items: center; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); z-index: 3; flex-wrap: nowrap; }
+.plan2d-tb { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font: 600 13px var(--mono); }
+.plan2d-tb:hover:not(:disabled), .plan2d-tb:focus-visible, .plan2d-tb.is-on { background: var(--panel-2); color: var(--text); }
+.plan2d-tb:disabled { opacity: .4; cursor: default; }
+.plan2d-tb[data-tip]:hover::after, .plan2d-tb[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 3px 7px; font: 11px/1.4 var(--font, inherit); white-space: nowrap; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; pointer-events: none; z-index: 8; }
+.plan2d-tb:disabled[data-tip]:hover::after { display: block; }
+.plan2d-layers { position: relative; }
+.plan2d-layer-menu { position: absolute; top: calc(100% + 6px); left: 0; min-width: 140px; padding: 4px; display: grid; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; z-index: 9; }
+.plan2d-layer-row { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 4px; font-size: 13px; color: var(--text); cursor: pointer; }
+.plan2d-layer-row:hover { background: var(--panel-2); }
+.plan2d-layer-row input { accent-color: var(--accent); margin: 0; }
+.plan2d-help { cursor: help; }
+.plan2d-help-pop { display: none; position: absolute; top: calc(100% + 6px); right: 0; padding: 8px 10px; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.4 var(--font, inherit); font-weight: 400; color: var(--text); white-space: nowrap; z-index: 9; text-align: left; }
+.plan2d-help:hover .plan2d-help-pop, .plan2d-help:focus .plan2d-help-pop { display: grid; }
+.plan2d-help-pop kbd { display: inline-block; min-width: 52px; margin-right: 8px; color: var(--muted); font: 11px var(--mono); }
