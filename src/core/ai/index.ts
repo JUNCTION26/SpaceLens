@@ -3,7 +3,7 @@ import { getState } from '../store';
 import { AiError, type StreamOutcome } from './engine';
 import { type AiTask, type ThinkingLevel } from './models';
 import {
-  hashKey, isProbing, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
+  hashKey, isProbing, maybeReprobe, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
   type ModelStatus,
 } from './router';
 import { cacheGet, cacheSet, emitActivity, recordTask, recordUsage } from './telemetry';
@@ -30,6 +30,8 @@ export interface AiCall {
   /** Called with the accumulated raw text as it streams in. Pair with partialJson() for schema calls. */
   onPartial?: (text: string) => void;
   signal?: AbortSignal;
+  /** Time to the first token before the next-fastest model is started in parallel (first to answer wins). Default 4000 for 'fast', 8000 otherwise. */
+  budgetMs?: number;
   /** Identical calls with the same key return the cached result. */
   cacheKey?: string;
   temperature?: number;
@@ -76,6 +78,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
     await waitForRoute(key, call.task, 3000);
   }
 
+  maybeReprobe(key, 'age');
   const order = routeFor(key, call.task);
   let data: T | undefined;
   let out: StreamOutcome;
@@ -88,7 +91,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
       temperature: call.temperature,
       tools: call.tools,
       thinking: call.thinking ?? (call.task === 'fast' ? 'minimal' : 'low'),
-    }, TIMING[call.task], call.signal, {
+    }, { ...TIMING[call.task], hedgeMs: call.budgetMs ?? TIMING[call.task].hedgeMs }, call.signal, {
       onStart: (model) => emitActivity({ id, task: call.task, phase: 'model', model, ms: since() }),
       onCommit: (model) => emitActivity({ id, task: call.task, phase: 'streaming', model, ms: since() }),
       onText: call.onPartial,
@@ -103,6 +106,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
 
   const ms = since();
   recordUsage(out.model, { calls: 1, inputTokens: out.inputTokens, outputTokens: out.outputTokens, ms });
+  if (ms > 2 * (call.budgetMs ?? TIMING[call.task].hedgeMs)) maybeReprobe(key, 'slow');
   recordTask(call.task, ms, out.inputTokens, out.outputTokens);
   usage.calls += 1;
   usage.inputTokens += out.inputTokens;

@@ -372,7 +372,8 @@ function shelves(c: Ctx, w: number, h: number, d: number, withCarcass: boolean) 
   if (withCarcass) for (let i = 1; i <= n; i++) ys.push(yb + ((yt - yb) * i) / (n + 1));
   else for (let i = 0; i < n; i++) ys.push(t / 2 + ((h - t) * i) / (n - 1));
   ys.forEach((y, i) => c.parts.push(P(`${item.name} shelf ${i + 1}`, 'panel', [innerW - 0.002, t, d - (withCarcass ? 0.012 : 0)], [x0 + innerW / 2, y, withCarcass ? 0.006 : 0], /glass/.test(style) ? 'glass' : item.material, { color: /glass/.test(style) ? undefined : item.color })));
-  if (/book|decor|styled|full/.test(style)) {
+  // A bookcase is shown with books unless asked to be empty.
+  if (/book|decor|styled|full/.test(style) || (withCarcass && !/empty|plain|bare|glass/.test(style))) {
     const levels = withCarcass ? [yb, ...ys] : ys;
     const tops = withCarcass ? [...ys, yt] : ys.slice(1);
     levels.forEach((y, i) => {

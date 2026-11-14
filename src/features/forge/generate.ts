@@ -119,8 +119,9 @@ const HINTS: Array<[RegExp, string]> = [
   [/grand piano|baby grand/, 'a plan kit style piano for the case and lid, a keyboard kit, three legs'],
   [/\bpiano\b/, 'a keyboard kit'], [/bookcase|bookshelf|shelving|library/, 'a bookcase kit with books'],
   [/gaming chair|office chair|desk chair|swivel/, 'a casters kit'], [/pedestal|round.*table|table.*round/, 'a pedestal kit'],
-  [/arcade/, 'an extrude side profile mirrored, a screen kit, joystick and buttons'], [/cot\b|crib/, 'slats kits on all four sides'],
+  [/arcade/, 'a body extruded with style arcade (the side silhouette, rot [0,1.5708,0]), a screen kit, joystick, buttons and a lit marquee'], [/cot\b|crib/, 'slats kits on all four sides'],
   [/booth|pod/, 'glass doors kit and felt panels'],
+  [/bar counter|home bar|cocktail bar/, 'a raised bar top on the customer side (+z), a brass foot rail, back shelves with bottles'],
   [/standing desk|sit.?stand|height.?adjust/, 'two T-shaped lifting legs (legs kit style trestle in black-metal) and a small control panel'],
   [/hospital|care bed/, 'a raised back section, side rails (slats kit style horizontal), head and foot panels and four small cylinder wheels'],
 ];
@@ -203,6 +204,41 @@ export function repairItems(raw: unknown, parsed: ParsedRequest): string[] {
   }
   // Sliding doors asked for: doors kits slide.
   if (/sliding|slide-?by|bypass/.test(text) && /door/.test(text)) for (const it of items) if (kitOf(it) === 'doors' && !/slid/.test(String(it.style ?? ''))) { it.style = `sliding ${String(it.style ?? '')}`.trim(); fixes.push('sliding doors'); }
+  // A slide runs down away from the object, on the side it was placed.
+  for (const it of items) {
+    if (kitOf(it) !== 'slide' || !Array.isArray(it.pos)) continue;
+    const [x, , z] = it.pos as number[];
+    const want = Math.abs(x) > 0.3 && Math.abs(x) >= Math.abs(z) ? (x > 0 ? 'right' : 'left') : z > 0.3 ? 'front' : undefined;
+    if (want && !String(it.style ?? '').includes(want)) { it.style = want; fixes.push(`slide runs ${want}`); }
+  }
+  // Grand piano: the case and lid take the piano outline, and the lid stands open on its prop.
+  if (/grand piano|baby grand|concert grand/.test(text)) {
+    for (const it of items) {
+      const name = String(it.name ?? '').toLowerCase();
+      if (kitOf(it) === 'plan' || !Array.isArray(it.size) || !Array.isArray(it.pos)) continue;
+      const [w, h] = it.size as number[];
+      if (/case|body|rim|cabinet/.test(name) && w > 0.8) { it.kit = 'plan'; it.style = 'piano'; delete it.shape; fixes.push('piano case outline'); }
+      else if (/lid|top/.test(name) && w > 0.8 && h < 0.1) {
+        const a = 0.5, pos = it.pos as number[];
+        it.kit = 'plan'; it.style = 'piano'; delete it.shape; it.rot = [0, 0, a];
+        pos[0] += (w / 2) * (1 - Math.cos(a)); pos[1] += (w / 2) * Math.sin(a);
+        items.push({ name: 'Lid prop', shape: 'tube', size: [0.02, w * 0.75 * Math.sin(a), 0.02], pos: [pos[0] + w * 0.28, pos[1] - (w / 2) * Math.sin(a) + w * 0.375 * Math.sin(a), pos[2]], material: 'brass' });
+        (o.parts as unknown[]).push(items[items.length - 1]);
+        fixes.push('piano lid open');
+      }
+    }
+  }
+  // Arcade cabinet: the body takes the classic side silhouette.
+  if (/arcade/.test(text) && !items.some((it) => it.style === 'arcade')) {
+    const body = items.filter((it) => Array.isArray(it.size) && /body|cabinet|side/.test(String(it.name ?? '').toLowerCase()) && !coerceKit(it.kit))
+      .sort((a, b) => (b.size as number[])[1] - (a.size as number[])[1])[0];
+    if (body && (body.size as number[])[1] > 1.2) {
+      const [w, h, d] = body.size as number[];
+      body.shape = 'extrude'; body.style = 'arcade'; delete body.profile; body.rot = [0, Math.PI / 2, 0]; body.size = [d, h, w];
+      if (!body.color && !String(body.material).includes('black')) body.material = 'black-laminate';
+      fixes.push('arcade side profile');
+    }
+  }
   // Reception desks bulge toward the visitor.
   if (/reception|front desk|counter/.test(text)) for (const it of items) if (kitOf(it) === 'arc' && !it.style) { it.style = 'convex'; fixes.push('convex curve'); }
   return fixes;

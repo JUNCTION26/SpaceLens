@@ -49,7 +49,13 @@ describe('rankModels', () => {
     const smart = CANDIDATES.smart;
     const probes = { 'gemini-4-argon': ok('gemini-4-argon', 2000), 'gemini-3.5-flash-lite': ok('gemini-3.5-flash-lite', 700), 'gemini-3.5-flash': ok('gemini-3.5-flash', 7000) };
     const r = rankModels('smart', smart, probes);
-    expect(r.slice(0, 3)).toEqual(['gemini-4-argon', 'gemini-3.5-flash-lite', 'gemini-3.5-flash']);
+    // argon (2.0 s) is more than 2x the fastest (0.7 s): speed wins over quality order.
+    expect(r.slice(0, 3)).toEqual(['gemini-3.5-flash-lite', 'gemini-4-argon', 'gemini-3.5-flash']);
+  });
+  it('smart prefers quality only within 2x of the fastest', () => {
+    const probes = { 'gemini-4-carbon': ok('gemini-4-carbon', 1200), 'gemini-3.5-flash-lite': ok('gemini-3.5-flash-lite', 700), 'gemini-4-hydrogen': ok('gemini-4-hydrogen', 15000) };
+    expect(rankModels('smart', CANDIDATES.smart, probes).slice(0, 3)).toEqual(['gemini-4-carbon', 'gemini-3.5-flash-lite', 'gemini-4-hydrogen']);
+    expect(rankModels('vision', CANDIDATES.smart, { 'gemini-4-hydrogen': ok('gemini-4-hydrogen', 15000), 'gemini-3.5-flash-lite': ok('gemini-3.5-flash-lite', 900) })[0]).toBe('gemini-3.5-flash-lite');
   });
   it('unhealthy models go last', () => {
     const probes = { 'gemini-3.1-flash-lite': ok('gemini-3.1-flash-lite', 900), 'gemini-3.5-flash-lite': ok('gemini-3.5-flash-lite', 1500) };

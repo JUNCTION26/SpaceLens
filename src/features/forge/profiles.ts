@@ -45,6 +45,8 @@ export const PROFILE_PRESETS: Record<string, () => Pt[]> = {
   'l-shape': () => [[-0.5, 0], [0.5, 0], [0.5, 1], [0.12, 1], [0.12, 0.42], [-0.5, 0.42]],
   'u-shape': () => [[-0.5, 0], [0.5, 0], [0.5, 1], [0.22, 1], [0.22, 0.4], [-0.22, 0.4], [-0.22, 1], [-0.5, 1]],
   piano,
+  // Arcade cabinet side: kick plate, jutting control panel, recessed screen, marquee hood. Front is x = -0.5.
+  arcade: () => [[-0.2, 0], [0.5, 0], [0.5, 1], [-0.3, 1], [-0.3, 0.86], [-0.08, 0.8], [-0.14, 0.6], [-0.5, 0.54], [-0.5, 0.49], [-0.2, 0.44]],
   surfboard: () => ring(64, (t) => [0.5 * Math.sin(t) * (0.6 + 0.4 * Math.cos(t / 2) ** 2), 0.5 + 0.5 * Math.cos(t)]),
 };
 

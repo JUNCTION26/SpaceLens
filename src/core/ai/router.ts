@@ -23,13 +23,15 @@ export const resetHealth = () => health.clear();
 
 // ---------------------------------------------------------------- ranking
 
-/** Probe total under this counts as responsive enough for 'smart' to prefer quality order. */
-export const SMART_RESPONSIVE_MS = 4000;
+/** A model slower than this (probe total) is never first choice while a faster healthy one exists. */
+export const SLOW_MS = 4000;
 
 /**
- * Orders a task's candidates for one call:
- * - fast: probed-ok models by measured latency;
- * - smart / vision: probed-ok models that respond quickly, in quality order, then slower ok ones by latency;
+ * Orders a task's candidates for one call, by measured latency for every task:
+ * - the fastest probed-ok model sets the pace;
+ * - smart / vision prefer quality order, but only among models within 2x of the fastest (and under
+ *   SLOW_MS unless the fastest itself is slower); everything else follows by measured speed;
+ * - fast takes pure speed order;
  * then models not probed yet (in quality order), then models whose probe failed.
  * Models marked unhealthy at runtime go last.
  */
@@ -38,13 +40,15 @@ export function rankModels(task: AiTask, candidates: string[], probes: Record<st
   const ok = candidates.filter((m) => probes[m]?.ok);
   const unknown = candidates.filter((m) => !probes[m]);
   const failed = candidates.filter((m) => probes[m] && !probes[m]!.ok);
+  const bySpeed = [...ok].sort((a, b) => speed(a) - speed(b));
   let head: string[];
-  if (task === 'fast') {
-    head = [...ok].sort((a, b) => speed(a) - speed(b));
+  if (task === 'fast' || !bySpeed.length) {
+    head = bySpeed;
   } else {
-    const quick = ok.filter((m) => speed(m) <= SMART_RESPONSIVE_MS);
-    const slow = ok.filter((m) => speed(m) > SMART_RESPONSIVE_MS).sort((a, b) => speed(a) - speed(b));
-    head = [...quick, ...slow];
+    const f = speed(bySpeed[0]);
+    const limit = Math.max(Math.min(2 * f, SLOW_MS), f);
+    const quick = ok.filter((m) => speed(m) <= limit);
+    head = [...quick, ...bySpeed.filter((m) => !quick.includes(m))];
   }
   // Failed probes that still produced a first token were slow, not broken: try them before hard failures.
   failed.sort((a, b) => speed(a) - speed(b));
@@ -89,6 +93,15 @@ export function probeResults(key: string): Record<string, ModelStatus> {
   return probe.results;
 }
 
+/** Re-measure in the background: every 10 minutes, and after a slow call. Old results stay in use meanwhile. */
+export const REPROBE_MS = 10 * 60_000;
+export function maybeReprobe(key: string, reason: 'age' | 'slow') {
+  if (isProbing(key)) return;
+  const kh = hashKey(key);
+  const age = probe && probe.keyHash === kh ? Date.now() - probe.at : Infinity;
+  if (reason === 'age' ? age > REPROBE_MS : age > 60_000) void runProbe(key, { force: true, keep: true });
+}
+
 export const probeFresh = (key: string) => Object.keys(probeResults(key)).length > 0 && !(probing?.keyHash === hashKey(key));
 export const isProbing = (key: string) => probing?.keyHash === hashKey(key);
 export function onProbeUpdate(cb: () => void) { probeListeners.add(cb); return () => { probeListeners.delete(cb); }; }
@@ -110,11 +123,11 @@ export async function probeOne(key: string, model: string, capMs = PROBE_CAP_MS)
  * Probes every candidate model in parallel and stores the results (30 min, per key).
  * Results land incrementally, so callers can route as soon as one fast model has answered.
  */
-export function runProbe(key: string, opts: { force?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
+export function runProbe(key: string, opts: { force?: boolean; keep?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
   const kh = hashKey(key);
   if (probing?.keyHash === kh) return probing.promise;
   if (!opts.force && probeFresh(key)) return Promise.resolve(allCandidates().map((m) => probe!.results[m]).filter(Boolean));
-  probe = { keyHash: kh, at: Date.now(), results: {} };
+  probe = { keyHash: kh, at: Date.now(), results: opts.keep && probe?.keyHash === kh ? { ...probe.results } : {} };
   const current = probe;
   const promise = discoverModels(key).then(() => allCandidates()).then((models) => Promise.all(models.map(async (m) => {
     const s = await probeOne(key, m);
@@ -180,9 +193,9 @@ export interface RouteTiming {
 }
 
 export const TIMING: Record<AiTask, RouteTiming> = {
-  fast: { hedgeMs: 2500, firstTokenTimeoutMs: 10_000, totalTimeoutMs: 60_000 },
-  smart: { hedgeMs: 12_000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
-  vision: { hedgeMs: 12_000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
+  fast: { hedgeMs: 4000, firstTokenTimeoutMs: 10_000, totalTimeoutMs: 60_000 },
+  smart: { hedgeMs: 8000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
+  vision: { hedgeMs: 8000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
 };
 
 export interface RouteHooks {
