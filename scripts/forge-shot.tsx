@@ -12,8 +12,8 @@ import type { ObjectSpec } from '../src/core/types';
 
 const q = new URLSearchParams(location.search);
 const i = q.get('i') ?? 'all';
-const injected = (window as unknown as { __FORGE_SPEC?: ObjectSpec }).__FORGE_SPEC;
-let specs = q.get('inject') && injected ? [injected] : i === 'all' ? EXAMPLES : i.split(',').map((k) => EXAMPLES[Number(k)]).filter(Boolean);
+const injected = (window as unknown as { __FORGE_SPEC?: ObjectSpec | ObjectSpec[] }).__FORGE_SPEC;
+let specs = q.get('inject') && injected ? (Array.isArray(injected) ? injected : [injected]) : i === 'all' ? EXAMPLES : i.split(',').map((k) => EXAMPLES[Number(k)]).filter(Boolean);
 const w = Number(q.get('w')), d = Number(q.get('d')), h = Number(q.get('h'));
 if (w && d && h) specs = specs.map((s) => fitSpec(s, { w, d, h }));
 createRoot(document.getElementById('root')!).render(<ForgeShot specs={specs} open={Number(q.get('open') ?? 0)} />);

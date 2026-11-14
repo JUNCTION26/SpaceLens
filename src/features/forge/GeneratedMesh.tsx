@@ -472,7 +472,7 @@ export function ForgeShot({ specs, open = 0, cols, assembling = false }: { specs
       style={{ width: '100%', height: '100%', background: '#ece9e4' }}>
       <color attach="background" args={['#ece9e4']} />
       <hemisphereLight args={['#f4f1ea', '#6b6358', 0.25]} />
-      <directionalLight position={[3, 5, 4]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0003} shadow-normalBias={0.02}
+      <directionalLight position={[3, 5, 4]} intensity={2.2} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0003} shadow-normalBias={0.02}
         shadow-camera-left={-span} shadow-camera-right={span} shadow-camera-top={span} shadow-camera-bottom={-span} />
       <Suspense fallback={null}>
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.8} />
@@ -482,7 +482,7 @@ export function ForgeShot({ specs, open = 0, cols, assembling = false }: { specs
         <planeGeometry args={[60, 60]} />
         <meshStandardMaterial color="#e4e0d9" roughness={0.95} />
       </mesh>
-      <ContactShadows position={[0, 0.002, 0]} scale={span * 1.6} opacity={0.5} blur={2.4} far={1.5} resolution={1024} color="#2a2118" />
+      <ContactShadows position={[0, 0.002, 0]} scale={span * 1.6} opacity={0.5} blur={2.4} far={1.5} resolution={512} color="#2a2118" />
       {placed.map(({ s, x, z }) => (
         <group key={s.id + x + z} position={[x, 0, z]}>
           <GeneratedMesh spec={s} open={open} assembling={assembling} />

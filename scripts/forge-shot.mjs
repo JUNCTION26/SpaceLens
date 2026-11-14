@@ -12,7 +12,7 @@ import { basename, join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const k = args.indexOf(n); return k >= 0 ? args[k + 1] : d; };
-const valued = new Set(['--out', '--port', '--size', '--wait', '--specs', '--sheet', '--cols', '--per', '--restart']);
+const valued = new Set(['--out', '--port', '--size', '--wait', '--specs', '--sheet', '--cols', '--per', '--restart', '--grid']);
 const which = args.find((a, i) => !a.startsWith('--') && !valued.has(args[i - 1])) ?? 'all';
 const out = resolve(flag('--out', 'forge-shots'));
 const port = flag('--port', '5180');
@@ -118,9 +118,20 @@ if (sheetDir) {
 
 if (specsArg) {
   const files = specsArg.split(',').flatMap((f) => (statSync(f).isDirectory() ? readdirSync(f).filter((n) => n.endsWith('.json') && !/^(results|verdicts)\.json$/.test(n)).sort().map((n) => join(f, n)) : [f]));
-  for (const f of files) {
-    const spec = JSON.parse(readFileSync(f, 'utf8'));
-    if (!Array.isArray(spec.parts)) continue;
+  const grid = Number(flag('--grid', '1'));
+  const specs = files.map((f) => ({ f, spec: JSON.parse(readFileSync(f, 'utf8')) })).filter((x) => Array.isArray(x.spec.parts));
+  if (grid > 1) {
+    // Several objects per page (row-major, listed in grid-<n>.txt): far fewer page loads on a busy machine.
+    const pages = [];
+    for (let k = 0; k < specs.length; k += grid) pages.push({ items: specs.slice(k, k + grid), open: 0 });
+    const moving = specs.filter((x) => x.spec.motions?.length);
+    for (let k = 0; k < moving.length; k += grid) pages.push({ items: moving.slice(k, k + grid), open: 1 });
+    for (const [n, pg] of pages.entries()) {
+      const name = `grid-${String(n + 1).padStart(2, '0')}${pg.open ? '-open' : ''}`;
+      writeFileSync(resolve(out, `${name}.txt`), pg.items.map((x, i) => `${i + 1}. ${basename(x.f, '.json')}`).join('\n') + '\n');
+      await shoot(`http://localhost:${port}/scripts/forge-shot.html?inject=1${pg.open ? '&open=1' : ''}`, resolve(out, `${name}.png`), pg.items.map((x) => x.spec));
+    }
+  } else for (const { f, spec } of specs) {
     for (const o of spec.motions?.length ? [0, 1] : [0]) {
       await shoot(`http://localhost:${port}/scripts/forge-shot.html?inject=1${o ? '&open=1' : ''}`, resolve(out, `${basename(f, '.json')}${o ? '-open' : ''}.png`), spec);
     }
