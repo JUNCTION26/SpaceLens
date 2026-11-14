@@ -158,7 +158,7 @@ export async function compareListings(listings: StoreListing[], context: AdviseC
     }));
     const r = await ai<{ reasons: string[]; tradeoffs: string[] }>({
       task: 'fast', schema: WORD_SCHEMA, temperature: 0.2,
-      system: 'You explain a furniture choice that has already been made from measured facts. Do not change the choice. Use only the numbers given. Short plain sentences, no marketing. 2-4 reasons for the pick; one tradeoff per other option (what it does better or worse).',
+      system: 'You explain a furniture choice that has already been made from measured facts. Do not change the choice. Use only the numbers given. Name options by a short form of their title, never "option N". Short plain sentences, no marketing. 2-4 reasons for the pick; one tradeoff per other option (what it does better or worse).',
       parts: [{ text: `Budget: ${context.budgetSek ? `${context.budgetSek} kr` : 'not set'}\nOptions: ${JSON.stringify(table)}\nChosen: option ${pickIndex + 1}.` }],
     });
     const reasons = r.data.reasons?.filter(Boolean).slice(0, 4) ?? [];
@@ -194,5 +194,5 @@ export function negotiationNotes(listing: StoreListing, others: StoreListing[] =
   notes.push('Buying more than one piece? Ask for a bundle price or delivery of everything for one fee.');
   notes.push('Ask whether they refund the difference if the price drops soon after you buy, and when the next sale is.');
   if (listing.price !== null) notes.push(`The ${fmtMoney(listing.price, listing.currency)} price was read ${timeAgo(listing.fetchedAt)}; check it again before you go.`);
-  return { label: 'Suggestions only. The store decides; nothing here is a quote.', notes };
+  return { label: 'Suggestions, not quotes.', notes };
 }
