@@ -223,6 +223,14 @@ button.brand:hover { background: var(--hover); }
 .status-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
 .status-pill.bad { color: var(--text); }
 .status-pill.bad i { background: var(--bad); }
+.status-pill.warn { color: var(--text); }
+.status-pill.warn i { background: var(--warn); }
+.status-pill { cursor: pointer; transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.status-pill.is-cleared { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.status-pill.is-cleared i { animation: pill-ping .9s var(--ease) 2; }
+.status-pill.is-busy i { background: var(--accent); animation: pill-ping 1s var(--ease) infinite; }
+@keyframes pill-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 60%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .status-pill i { animation: none !important; } }
 .status-pill:hover, .status-pill[aria-expanded='true'] { color: var(--text); border-color: var(--line-strong); background: var(--hover); }
 .checks-pop { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 40; width: min(380px, calc(100vw - 24px)); max-height: min(70vh, 560px); overflow: auto; padding: var(--s4); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: pop-in var(--dur) var(--ease); }
 @keyframes pop-in { from { opacity: 0; transform: translate(-50%, -4px); } }
@@ -255,6 +263,16 @@ button.brand:hover { background: var(--hover); }
 .toast-x:hover, .toast-x:focus-visible { color: var(--text); background: var(--hover); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* Crash recovery */
+.crash { display: grid; place-items: center; padding: var(--s5); color: var(--text); }
+.crash-app { min-height: 100vh; background: var(--bg); }
+.crash-area { height: 100%; min-height: 200px; }
+.crash-card { width: min(420px, 100%); display: grid; gap: var(--s3); padding: var(--s5); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+.crash-area .crash-card { box-shadow: none; padding: var(--s4); }
+.crash-card h2 { font-size: var(--fs-lg); font-weight: var(--fw-strong); }
+.crash-card p { color: var(--muted); line-height: 1.5; }
+.crash-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 /* Dialogs */
 .dialog-backdrop, .modal-back { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .45); animation: fade .12s; }

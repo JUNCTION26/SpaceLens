@@ -1,18 +1,25 @@
-.referee { font-size: 13px; color: var(--text); }
-.referee-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.referee-meta { margin-left: auto; color: var(--muted); font-size: 12px; }
-.referee-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.referee { font-size: 13px; color: var(--text); display: grid; gap: 4px; }
+.referee-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.referee-count { font-weight: var(--fw-strong); }
+.referee-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.referee-fixall { margin-left: auto; }
+.referee-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .referee-dot.ok { background: var(--ok); }
 .referee-dot.bad { background: var(--bad); }
 .referee-dot.warn { background: var(--warn, var(--muted)); }
-.referee-list { margin: 0; padding: 0; list-style: none; max-height: 320px; overflow-y: auto; }
-.referee-group { padding: 6px 0; border-bottom: 1px solid var(--line); }
-.referee-group-head { display: flex; align-items: center; gap: 6px; }
-.referee-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.referee-group-head .icon-btn { width: 24px; height: 24px; min-height: 24px; padding: 0; }
-.referee-group-head .icon-btn svg { width: 14px; height: 14px; }
-.referee-sentences { margin: 2px 0 0 14px; padding: 0; list-style: none; display: grid; gap: 2px; color: var(--muted); font-size: 12px; }
+.referee-empty { margin: 8px 0 0; color: var(--muted); line-height: 1.5; }
+.referee-list { margin: 0; padding: 0; list-style: none; }
+.referee-row { display: flex; gap: 10px; align-items: baseline; padding: 10px 6px; margin: 0 -6px; border-radius: var(--radius-sm); transition: background var(--dur) var(--ease); }
+.referee-row + .referee-row { border-top: 1px solid var(--line); }
+.referee-row:hover { background: var(--hover); }
+.referee-row .pb-dot { transform: translateY(-1px); }
+.referee-row-body { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.referee-title { margin: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; line-height: 1.45; }
+button.referee-title { cursor: pointer; }
+button.referee-title:hover { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+.referee-sentences { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .referee-rule { color: var(--text); }
-.referee-passes { padding-top: 6px; }
-.referee-passes summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-.referee-passes .referee-sentences { margin-left: 0; padding-top: 4px; }
+.referee-passes { padding-top: 8px; }
+.referee-passes summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 0; }
+.referee-passes summary:hover { color: var(--text); }
+.referee-passes .referee-sentences, .referee-passes .referee-list { padding-top: 6px; }

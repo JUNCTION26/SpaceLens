@@ -1,91 +1,62 @@
-import { memo, useEffect, useMemo, useState } from 'react';
-import { useShownFurniture, useStore } from '../../core/store';
-import type { FurnitureItem, ValidationResult } from '../../core/types';
-import { findFreeSpot } from '../objects/placement';
-import { summarize, validateLayout } from './validate';
-import { Icon } from '../../ui/icons';
+import { memo } from 'react';
+import { useStore } from '../../core/store';
+import { counts, useProblems } from '../problems/store';
+import { FixButtons, SeverityDot } from '../problems/ProblemCard';
+import type { Problem } from '../problems/types';
 import './referee.css';
 
-/** Returns `value` after it has been stable for `ms`. */
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
+function Row({ p }: { p: Problem }) {
+  const setFocus = useProblems((s) => s.setFocus);
+  const show = () => {
+    const st = useStore.getState();
+    const id = p.itemIds[0] ?? p.openingIds[0];
+    if (!id) return;
+    st.select(p.itemIds[0] ? { kind: 'furniture', id } : { kind: 'opening', id });
+  };
+  return (
+    <li className="referee-row" onPointerEnter={() => setFocus(p.id)} onPointerLeave={() => setFocus(null)} onFocus={() => setFocus(p.id)} onBlur={() => setFocus(null)}>
+      <SeverityDot severity={p.severity} />
+      <div className="referee-row-body">
+        {p.itemIds.length || p.openingIds.length
+          ? <button type="button" className="referee-title" onClick={show} title="Select it on the plan">{p.title}</button>
+          : <p className="referee-title">{p.title}</p>}
+        <FixButtons problem={p} compact />
+      </div>
+    </li>
+  );
 }
 
-interface Group { key: string; title: string; item?: FurnitureItem; results: ValidationResult[] }
-
 export const ChecksPanel = memo(function ChecksPanel() {
-  const model = useStore((s) => s.model);
-  const requirements = useStore((s) => s.requirements);
-  const shown = useShownFurniture();
-  const furniture = useDebounced(shown, 150);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const results = useMemo(() => validateLayout(model, furniture, requirements), [model.version, furniture, requirements]);
-
-  const { sum, groups, passes } = useMemo(() => {
-    const byId = new Map(furniture.map((f) => [f.id, f]));
-    const map = new Map<string, Group>();
-    const passes: ValidationResult[] = [];
-    for (const r of results) {
-      if (r.result === 'pass') { passes.push(r); continue; }
-      const item = r.subjectIds.map((id) => byId.get(id)).find(Boolean);
-      const key = item?.id ?? '__room';
-      let g = map.get(key);
-      if (!g) map.set(key, (g = { key, title: item?.name ?? 'Room', item, results: [] }));
-      g.results.push(r);
-    }
-    const groups = [...map.values()].sort((a, b) =>
-      Number(b.results.some((r) => r.result === 'fail')) - Number(a.results.some((r) => r.result === 'fail')));
-    return { sum: summarize(results), groups, passes };
-  }, [results, furniture]);
-
-  const show = (g: Group) => {
-    const st = useStore.getState();
-    const ids = [...new Set(g.results.flatMap((r) => r.subjectIds))];
-    st.setAnalysis({ highlights: [{ ids, color: 'var(--bad)', label: g.title }] });
-    if (g.item) st.select({ kind: 'furniture', id: g.item.id });
-  };
-
-  const fix = (g: Group) => {
-    if (!g.item) return;
-    const st = useStore.getState();
-    const pose = findFreeSpot(st.model, g.item, furniture);
-    st.dispatch({ type: 'UPDATE_OBJECT', id: g.item.id, patch: pose });
-    st.select({ kind: 'furniture', id: g.item.id });
-  };
-
-  const total = sum.pass + sum.fail + sum.unknown;
+  const problems = useProblems((s) => s.problems);
+  const checks = useProblems((s) => s.checks);
+  const fixingAll = useProblems((s) => s.fixingAll);
+  const fixAll = useProblems((s) => s.fixAll);
+  const main = problems.filter(counts);
+  const tips = problems.filter((p) => !counts(p));
+  const auto = main.filter((p) => p.fixes.some((f) => f.safe)).length;
+  const passes = checks.filter((r) => r.result === 'pass');
+  const total = checks.filter((r) => r.result !== 'unknown').length;
 
   return (
     <section className="referee" aria-label="Checks">
       <div className="referee-head" aria-live="polite">
-        <span className={`referee-dot ${sum.fail ? 'bad' : sum.unknown ? 'warn' : 'ok'}`} aria-hidden="true" />
-        <span>{sum.fail ? `${sum.fail} to fix` : 'All clear'}</span>
-        <span className="referee-meta">{sum.pass}/{total} pass{sum.unknown ? ` · ${sum.unknown} unknown` : ''}</span>
+        <span className={`referee-dot ${main.some((p) => p.severity === 'error') ? 'bad' : main.length ? 'warn' : 'ok'}`} aria-hidden="true" />
+        <span className="referee-count">{main.length ? `${main.length} to fix` : 'All clear'}</span>
+        <span className="referee-meta">{passes.length} of {total} checks pass</span>
+        {auto > 0 && (
+          <button type="button" className="btn btn-sm btn-primary referee-fixall" onClick={() => void fixAll()} disabled={fixingAll}
+            title="Runs only fixes that were checked to clear a problem without causing another. Undo puts everything back.">
+            {fixingAll ? 'Fixing' : auto === main.length ? 'Fix all' : `Fix ${auto} automatically`}
+          </button>
+        )}
       </div>
-      {groups.length > 0 && (
-        <ul className="referee-list">
-          {groups.map((g) => {
-            const failing = g.results.some((r) => r.result === 'fail');
-            return (
-              <li key={g.key} className="referee-group">
-                <div className="referee-group-head">
-                  <span className={`referee-dot ${failing ? 'bad' : 'warn'}`} aria-hidden="true" />
-                  <span className="referee-title">{g.title}</span>
-                  <button className="icon-btn" title="Show" aria-label={`Show ${g.title}`} onClick={() => show(g)}><Icon name="eye" size={14} /></button>
-                  {g.item && failing && <button className="icon-btn" title="Move to the nearest free spot" aria-label={`Fix ${g.title}`} onClick={() => fix(g)}><Icon name="check" size={14} /></button>}
-                </div>
-                <ul className="referee-sentences">
-                  {g.results.map((r) => <li key={r.id}><span className="referee-rule">{r.rule}</span> {r.details}</li>)}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
+      {!main.length && !tips.length && <p className="referee-empty">Nothing overlaps, every door opens and every use zone is free.</p>}
+      {main.length > 0 && <ul className="referee-list">{main.map((p) => <Row key={p.id} p={p} />)}</ul>}
+      {tips.length > 0 && (
+        <details className="referee-passes">
+          <summary>{tips.length} {tips.length === 1 ? 'suggestion' : 'suggestions'}</summary>
+          <ul className="referee-list">{tips.map((p) => <Row key={p.id} p={p} />)}</ul>
+        </details>
       )}
       {passes.length > 0 && (
         <details className="referee-passes">

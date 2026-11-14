@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { useShownFurniture, useStore } from './core/store';
-import { summarize, validateLayout } from './features/referee/validate';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { useStore } from './core/store';
 import type { Mode } from './core/types';
+import { counts, startProblems, useProblems } from './features/problems/store';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { PlanView } from './features/plan2d/PlanView';
 const SceneView = lazy(() => import('./features/scene3d/SceneView').then((m) => ({ default: m.SceneView })));
 import { CapturePanel } from './features/capture/CapturePanel';
@@ -70,12 +71,21 @@ const PANELS: Record<string, React.ComponentType> = {
 const VIEWS = [['2d', '2D'], ['split', 'Split'], ['3d', '3D']] as const;
 
 function ChecksPill() {
-  const model = useStore((s) => s.model);
-  const requirements = useStore((s) => s.requirements);
-  const furniture = useShownFurniture();
+  const problems = useProblems((s) => s.problems);
+  const clearedAt = useProblems((s) => s.clearedAt);
+  const fixingAll = useProblems((s) => s.fixingAll);
   const [open, setOpen] = useState(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fails = useMemo(() => summarize(validateLayout(model, furniture, requirements)).fail, [model.version, furniture, requirements]);
+  const [celebrate, setCelebrate] = useState(false);
+  const toFix = problems.filter(counts);
+  const fails = toFix.length;
+  const worst = toFix.some((p) => p.severity === 'error') ? 'bad' : fails ? 'warn' : '';
+  // A short, quiet "All clear" moment when the last problem goes.
+  useEffect(() => {
+    if (!clearedAt || Date.now() - clearedAt > 1000) return;
+    setCelebrate(true);
+    const t = setTimeout(() => setCelebrate(false), 2200);
+    return () => clearTimeout(t);
+  }, [clearedAt]);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener('spacelens:checks', show);
@@ -84,13 +94,20 @@ function ChecksPill() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Clicks on the plan stay allowed so a fix can be checked by eye; clicks elsewhere close the list.
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest?.('.checks-float, .pane-2d, .toasts')) setOpen(false);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('pointerdown', onDown); };
   }, [open]);
   return (
     <div className="checks-float">
-      <button className={`status-pill${fails ? ' bad' : ''}`} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} title="Design checks">
-        <i aria-hidden="true" />{fails ? `${fails} to fix` : 'All clear'}
+      <button className={`status-pill${worst ? ` ${worst}` : ''}${celebrate ? ' is-cleared' : ''}${fixingAll ? ' is-busy' : ''}`} aria-expanded={open} aria-haspopup="dialog"
+        onClick={() => setOpen(!open)} title={fails ? 'See each problem and fix it in one click' : 'Every check passes'}>
+        <i aria-hidden="true" />{fixingAll ? 'Fixing' : fails ? `${fails} to fix` : 'All clear'}
       </button>
       {open && <div className="checks-pop" role="dialog" aria-label="Checks"><ChecksPanel /></div>}
     </div>
@@ -120,7 +137,12 @@ function InspectorSheet() {
 }
 
 export function App() {
+  return <ErrorBoundary scope="app"><Workspace /></ErrorBoundary>;
+}
+
+function Workspace() {
   useTheme();
+  useEffect(() => { startProblems(); }, []);
   const mode = useStore((s) => s.mode);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
@@ -167,11 +189,11 @@ export function App() {
         <Sidebar active={active} />
         <section className="panel-col" aria-label={active.label}>
           <header className="panel-col-head"><h1>{active.label}</h1></header>
-          <div className="side-body"><Suspense fallback={<PanelSkeleton />}><Panel key={active.key} /></Suspense></div>
+          <div className="side-body"><ErrorBoundary scope="area" label={active.label} key={active.key}><Suspense fallback={<PanelSkeleton />}><Panel /></Suspense></ErrorBoundary></div>
         </section>
         <main className={`stage stage-${shown}`}>
-          {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><PlanView /></section>}
-          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></section>}
+          {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><ErrorBoundary scope="area" label="The plan"><PlanView /></ErrorBoundary></section>}
+          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></ErrorBoundary></section>}
           {AgentDock ? <Suspense fallback={null}><AgentDock overlay={false} /></Suspense> : <VoiceAdd />}
           <InspectorSheet />
         </main>
