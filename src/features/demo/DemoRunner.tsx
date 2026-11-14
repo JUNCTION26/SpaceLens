@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
@@ -148,23 +148,15 @@ export function DemoRunner() {
   const exit = () => { runId.current++; setOn(false); };
   const togglePause = () => { pausedRef.current = !pausedRef.current; setPaused(pausedRef.current); };
 
-  const btn: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, height: 26, padding: '0 8px', borderRadius: 6, border: '1px solid var(--border, rgba(127,127,127,0.25))', background: 'transparent', color: 'inherit', font: 'inherit', fontSize: 12, cursor: 'pointer' };
   return (
-    <div role="status" aria-live="polite" style={{
-      position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 1000,
-      width: 'min(520px, calc(100vw - 32px))', padding: '10px 12px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center',
-      background: 'var(--panel, #fff)', color: 'var(--text, inherit)', border: '1px solid var(--border, rgba(127,127,127,0.2))', boxShadow: '0 8px 24px rgba(0,0,0,0.14)', fontSize: 13, lineHeight: 1.4,
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-          <strong style={{ fontWeight: 600 }}>{cap.title}</strong>
-          <span style={{ fontSize: 11, color: 'var(--muted, #888)', fontVariantNumeric: 'tabular-nums' }}>{idx + 1}/{STEPS.length}</span>
-        </div>
-        <div style={{ color: 'var(--muted, #888)', minHeight: 18 }}>{cap.text}</div>
+    <div role="status" aria-live="polite" className="demo-caption float">
+      <div className="demo-text">
+        <div className="demo-title">{cap.title}<span className="demo-count">{idx + 1} of {STEPS.length}</span></div>
+        <div className="demo-sub">{cap.text}</div>
       </div>
-      <button style={btn} onClick={togglePause} aria-label={paused ? 'Resume' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={14} /></button>
-      <button style={btn} onClick={() => { skipRef.current = true; }}>Next</button>
-      <button style={btn} onClick={exit} aria-label="Exit demo"><Icon name="x" size={14} /></button>
+      <button className="icon-btn" onClick={togglePause} aria-label={paused ? 'Resume' : 'Pause'} title={paused ? 'Resume' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={14} /></button>
+      <button className="btn btn-sm" onClick={() => { skipRef.current = true; }}>Next</button>
+      <button className="icon-btn" onClick={exit} aria-label="Exit demo" title="Exit demo"><Icon name="x" size={14} /></button>
     </div>
   );
 }
