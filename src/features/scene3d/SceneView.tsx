@@ -803,8 +803,8 @@ const isField = (t: EventTarget | null) => t instanceof HTMLElement && (/INPUT|T
 /** Mouse and key reference, opened from the "?" button. */
 function HelpCard({ mode }: { mode: CamMode }) {
   const rows: Array<[string, string]> = mode === 'walk'
-    ? [['Click', 'Look with the mouse'], ['W A S D, arrows', 'Move'], ['Shift', 'Move faster'], ['C, Space', 'Lower or raise eyes'], ['Click while looking', 'Walk to that spot'], ['Esc', 'Release the mouse'], ['Shift+F', 'Full screen']]
-    : [['Drag', 'Orbit'], ['Right-drag, Shift+drag', 'Pan'], ['Wheel', 'Zoom to the pointer'], ['Double-click', 'Focus there'], ['F', 'Frame the selection'], ['0, Home', 'Reset the view'], ['Shift+F', 'Full screen']];
+    ? [['Click', 'Look around'], ['W A S D, arrows', 'Move'], ['Shift', 'Move faster'], ['C, Space', 'Lower, raise eyes'], ['Click again', 'Walk there'], ['Esc', 'Release the mouse']]
+    : [['Drag', 'Turn around'], ['Right-drag, Shift+drag', 'Pan'], ['Wheel', 'Zoom'], ['Double-click', 'Focus there'], ['F', 'Zoom to selection'], ['0, Home', 'Reset the view']];
   return (
     <div className="scene3d-opts scene3d-help" role="dialog" aria-label="Controls">
       <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
@@ -1174,8 +1174,8 @@ export function SceneView() {
   devExtra.current = { locked, lockFailed, fs, pseudoFs, eye, menu };
   const hint = touring || recording ? null
     : COARSE ? 'Tap to move, drag to look'
-      : locked ? 'WASD to move, Shift to run, Esc to release the mouse'
-        : tapToMove ? 'Click to move, drag to look, WASD to walk'
+      : locked ? 'Esc to release the mouse'
+        : tapToMove ? 'Click to move, drag to look'
           : 'Click to look around, WASD to move';
 
   return (
@@ -1220,7 +1220,7 @@ export function SceneView() {
         </div>
       )}
       <div className="scene3d-vignette" aria-hidden="true" />
-      {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate, double-click to focus</div>}
+      {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate</div>}
       <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
         <div className="scene3d-modes" role="toolbar" aria-label="3D view">
           <button className={`scene3d-ib${mode === 'walk' ? ' on' : ''}`} onClick={() => setMode(mode === 'walk' ? 'orbit' : 'walk')} aria-pressed={mode === 'walk'} aria-label="Walk" title={mode === 'walk' ? 'Back to orbit' : 'Walk through'}>
