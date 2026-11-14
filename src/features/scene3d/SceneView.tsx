@@ -10,6 +10,8 @@ import type { FurnitureItem, Opening, Space, Vec2 } from '../../core/types';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
 import { Icon } from '../../ui/icons';
 import './scene3d.css';
+import { XRRig } from '../xr/XRRig';
+import { enterXR, useXRSupport, type XRMode } from '../xr/xrSupport';
 
 type CamMode = 'dollhouse' | 'top' | 'walk';
 const EYES = [
@@ -501,6 +503,16 @@ export function SceneView() {
   const [showBefore, setShowBefore] = useState(true);
   const [hour, setHour] = useState(15);
   const [open, setOpen] = useState(false);
+  const xrSup = useXRSupport();
+  const glRef = useRef<THREE.WebGLRenderer | null>(null);
+  const [xrMode, setXrMode] = useState<XRMode | null>(null);
+  const startXR = async (m: XRMode) => {
+    const gl = glRef.current;
+    if (!(await enterXR(gl, m)) || !gl) return;
+    setXrMode(m);
+    const s = gl.xr.getSession();
+    s?.addEventListener('end', () => setXrMode(null), { once: true });
+  };
   const eye = EYES.find((e) => e.id === eyeId)!.h;
   const walk = useRef<Walk>({ pos: { x: room.cx, y: room.cy }, yaw: 0, pitch: 0, joy: { x: 0, y: 0 }, keys: new Set() });
   const wrap = useRef<HTMLDivElement>(null);
@@ -599,8 +611,8 @@ export function SceneView() {
   return (
     <div className="scene3d" ref={wrap} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
       <Canvas shadows dpr={[1, 2]} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
-        gl={{ antialias: true }} onCreated={({ gl }) => { gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
-        <color attach="background" args={['#1b1e24']} />
+        gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
+        {xrMode !== 'immersive-ar' && <color attach="background" args={['#1b1e24']} />}
         <fog attach="fog" args={['#1b1e24', room.size * 2.5, room.size * 7]} />
         <hemisphereLight args={['#f4f1ea', '#5b5348', 0.18]} />
         <Sun hour={hour} room={room} />
@@ -627,6 +639,7 @@ export function SceneView() {
 
         <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.55} blur={2.8} far={1.6} resolution={512} color="#2a2118" frames={1} />
         <OrbitControls makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.05} minDistance={1} maxDistance={room.size * 5} />
+        <XRRig spawn={figAt} />
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} />
       </Canvas>
 
@@ -644,6 +657,8 @@ export function SceneView() {
           })}
           <span className="scene3d-sep" aria-hidden="true" />
           <button className="scene3d-ib" onClick={fit} aria-label="Fit room in view" title="Fit room in view"><Icon name="maximize" /></button>
+          {xrSup.vr && <button className={`scene3d-ib${xrMode === 'immersive-vr' ? ' on' : ''}`} onClick={() => startXR('immersive-vr')} aria-label="Enter VR" title="Enter VR"><Icon name="eye" /></button>}
+          {xrSup.ar && <button className={`scene3d-ib${xrMode === 'immersive-ar' ? ' on' : ''}`} onClick={() => startXR('immersive-ar')} aria-label="Enter AR" title="Enter AR"><Icon name="sparkles" /></button>}
           <button className={`scene3d-ib${open ? ' on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-label="View options" title="View options"><Icon name="settings" /></button>
         </div>
         {open && (
