@@ -33,7 +33,8 @@ export interface SolveResult { candidates: LayoutCandidate[]; reports: DesignRep
 
 const OPTIONAL = new Set(['rug', 'lamp', 'plant', 'side-table']);
 const FLOAT_HOST = /^(table|cafe-table|kitchen-island)$/;
-const M = 0.004; // safety margin inside the referee's 1 cm tolerance
+const M = 0.004;
+const DBG = !!(globalThis as { process?: { env?: Record<string, string> } }).process?.env?.SOLVE_DEBUG; // safety margin inside the referee's 1 cm tolerance
 
 const dot = (a: P, b: P) => a.x * b.x + a.y * b.y;
 const sub = (a: P, b: P): P => ({ x: a.x - b.x, y: a.y - b.y });
@@ -53,7 +54,7 @@ export function anchorPriority(f: FurnitureItem): number {
     case 'desk': return 80;
     case 'table': case 'cafe-table': case 'kitchen-island': return 75;
     case 'crib': case 'treatment-bed': return 70;
-    case 'wardrobe': return 60;
+    case 'wardrobe': return 82; // tall, window-shy and hard to fit: before desks
     case 'office-pod': return 55;
     case 'dresser': return 50;
     case 'bookshelf': return 45;
@@ -83,7 +84,7 @@ interface Ctx {
 }
 
 // ---------------------------------------------------------------- hard checks (mirror the referee)
-interface Geo { r: ORect; sides: Array<{ side: 'front' | 'back' | 'left' | 'right'; need: number; r: ORect }>; unfold?: ORect }
+interface Geo { r: ORect; rad: number; sides: Array<{ side: 'front' | 'back' | 'left' | 'right'; need: number; r: ORect }>; unfold?: ORect }
 const geoCache = new WeakMap<FurnitureItem, Geo>();
 function geo(ctx: Ctx, f: FurnitureItem): Geo {
   const hit = geoCache.get(f);
@@ -95,6 +96,8 @@ function geo(ctx: Ctx, f: FurnitureItem): Geo {
       ['left', c.left, localRect(f, -hw - c.left, -hw, -hd, hd)], ['right', c.right, localRect(f, hw, hw + c.right, -hd, hd)]] as const)
       .filter(([, need]) => need > 0.01).map(([side, need, r]) => ({ side, need, r })),
     unfold: f.unfoldedD && f.unfoldedD > f.d ? localRect(f, -hw, hw, -hd, hd + (f.unfoldedD - f.d)) : undefined,
+    // Bounding radius of footprint, use zones and unfolded depth, for a cheap broad phase.
+    rad: Math.hypot(hw + Math.max(c.left, c.right), hd + Math.max(c.front, c.back, (f.unfoldedD ?? 0) - f.d)) + 0.02,
   };
   geoCache.set(f, g);
   return g;
@@ -140,7 +143,7 @@ function fits(ctx: Ctx, others: FurnitureItem[], cand: FurnitureItem[]): string 
     for (const o of pool) {
       if (isRug(o)) continue;
       const go = geo(ctx, o);
-      if (Math.abs(go.r.cx - g.r.cx) + Math.abs(go.r.cy - g.r.cy) > 8) continue;
+      if (Math.hypot(go.r.cx - g.r.cx, go.r.cy - g.r.cy) > g.rad + go.rad) continue;
       if (overlapDepth(g.r, go.r) > M) return `overlap:${o.id}`;
       if (g.unfold && overlapDepth(g.unfold, go.r) > M) return `unfold:${o.id}`;
       if (go.unfold && overlapDepth(go.unfold, g.r) > M) return `unfold:${o.id}`;
@@ -218,7 +221,7 @@ type Spec =
   | { kind: 'fixed' }
   | { kind: 'wall'; wall: number; t: number }
   | { kind: 'free'; x: number; y: number; rot: number }
-  | { kind: 'array'; x0: number; y0: number; x1: number; y1: number; rows: number; cols: number; rot: number; strategy: number };
+  | { kind: 'array'; x0: number; y0: number; x1: number; y1: number; rows: number; cols: number; rot: number; strategy: number; hug?: number };
 interface Group { id: string; roots: string[]; members: string[]; priority: number; fixed: boolean; kind: 'wall' | 'array' | 'free' | 'fixed'; optional: boolean }
 interface Placed { group: Group; spec: Spec; mirror: boolean; items: FurnitureItem[] }
 interface State { placed: Placed[]; items: FurnitureItem[]; deferred: string[]; dropped: string[]; score: number }
@@ -292,14 +295,20 @@ function rootPoses(ctx: Ctx, g: Group, spec: Spec): Pose[] | null {
   if (spec.kind === 'wall') return [wallPose(ctx, ctx.byId.get(g.roots[0])!, spec.wall, spec.t)];
   if (spec.kind === 'free') return [{ x: spec.x, y: spec.y, rotation: spec.rot }];
   const n = g.roots.length, out: Pose[] = [];
-  const W = spec.x1 - spec.x0, H = spec.y1 - spec.y0;
+  // hug: outer tables sit as close to the region edge as their use zone allows, leaving central aisles.
+  const h = spec.hug ?? 0;
+  const axis = (lo: number, hi: number, k: number, m: number) => {
+    if (!h || m <= 1) return lo + ((k + 0.5) * (hi - lo)) / m;
+    const a = lo + h, b = hi - h;
+    return a + (k * (b - a)) / (m - 1);
+  };
   for (let i = 0; i < spec.rows; i++) {
     const inRow = Math.min(spec.cols, n - i * spec.cols);
     if (inRow <= 0) break;
     for (let j = 0; j < inRow; j++) {
       // A short last row is centred under the others.
-      const x = spec.x0 + (inRow === spec.cols ? (j + 0.5) * W / spec.cols : W / 2 + (j - (inRow - 1) / 2) * W / spec.cols);
-      out.push({ x, y: spec.y0 + (i + 0.5) * H / spec.rows, rotation: spec.rot });
+      const x = inRow === spec.cols ? axis(spec.x0, spec.x1, j, spec.cols) : (spec.x0 + spec.x1) / 2 + (j - (inRow - 1) / 2) * (spec.x1 - spec.x0) / spec.cols;
+      out.push({ x, y: axis(spec.y0, spec.y1, i, spec.rows), rotation: spec.rot });
     }
   }
   return out.length === n ? out : null;
@@ -479,16 +488,31 @@ function arraySlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
     regions.push(fr);
     // The free region grown back by the table's own use zone, which may overlap other use zones.
     const grow = Math.max(f0.clearance.front, f0.clearance.left, 0.3) * 0.8, b = ctx.room.box;
-    regions.push({ x0: Math.max(b.minX, fr.x0 - grow), y0: Math.max(b.minY, fr.y0 - grow), x1: Math.min(b.maxX, fr.x1 + grow), y1: Math.min(b.maxY, fr.y1 + grow) });
+    const big = { x0: Math.max(b.minX, fr.x0 - grow), y0: Math.max(b.minY, fr.y0 - grow), x1: Math.min(b.maxX, fr.x1 + grow), y1: Math.min(b.maxY, fr.y1 + grow) };
+    regions.push(big);
+    // Keep a band clear along one side (window landings, a walkway past the counter).
+    for (const r0 of [fr, big]) for (const band of [0.6, 1.0]) {
+      regions.push({ ...r0, y0: r0.y0 + band }, { ...r0, y1: r0.y1 - band }, { ...r0, x0: r0.x0 + band }, { ...r0, x1: r0.x1 - band });
+    }
   }
   const b = ctx.room.box;
   regions.push({ x0: b.minX, y0: b.minY, x1: b.maxX, y1: b.maxY });
+  // The room minus a band along one wall (where a counter or sofa usually goes).
+  for (const band of [0.8, 1.4]) {
+    regions.push({ x0: b.minX + band, y0: b.minY, x1: b.maxX, y1: b.maxY }, { x0: b.minX, y0: b.minY, x1: b.maxX - band, y1: b.maxY });
+    regions.push({ x0: b.minX, y0: b.minY + band, x1: b.maxX, y1: b.maxY }, { x0: b.minX, y0: b.minY, x1: b.maxX, y1: b.maxY - band });
+  }
+  const uniq = regions.filter((a, i) => regions.findIndex((b) => Math.abs(a.x0 - b.x0) + Math.abs(a.y0 - b.y0) + Math.abs(a.x1 - b.x1) + Math.abs(a.y1 - b.y1) < 0.15) === i);
+  regions.length = 0; regions.push(...uniq);
   const shapes: Array<[number, number]> = [];
   for (let r = 1; r <= n; r++) { const c = Math.ceil(n / r); if (r * c - n < c) shapes.push([r, c]); }
   const rots = Math.abs(f0.w - f0.d) < 0.01 ? [base] : [base, base + Math.PI / 2];
   const out: Spec[] = [];
+  const reach = Math.max(f0.w, f0.d) / 2 + Math.max(f0.clearance.front, f0.clearance.back, f0.clearance.left, f0.clearance.right) + 0.17;
   for (const reg of regions) for (const [rows, cols] of shapes) for (const rot of rots) for (const strategy of n > 1 ? [1, 0, 2] : [0]) {
     out.push({ kind: 'array', ...reg, rows, cols, rot, strategy });
+    // Tables pushed out to the walls only make sense with seats on the outer sides (strategy 1).
+    if (n > 1) for (const hug of [reach, reach - 0.15]) out.push({ kind: 'array', ...reg, rows, cols, rot, strategy, hug });
     if (n === 1) {
       // A lone table also tries the middle of the room and nudges off the region centre.
       const cx = (reg.x0 + reg.x1) / 2, cy = (reg.y0 + reg.y1) / 2;
@@ -568,7 +592,7 @@ function cls(ctx: Ctx, p: Placed): string {
     const pos = s.t <= lo + 0.15 ? 'a' : s.t >= w.len - lo - 0.15 ? 'b' : 'mid';
     return `w${s.wall}${pos}`;
   }
-  if (s.kind === 'array') return `arr${s.rows}x${s.cols}r${Math.round(s.rot * 10)}s${s.strategy}`;
+  if (s.kind === 'array') return `arr${s.rows}x${s.cols}r${Math.round(s.rot * 10)}s${s.strategy}${s.hug ? 'h' : ''}`;
   if (s.kind === 'free') return `f${Math.round(s.x)}:${Math.round(s.y)}`;
   return 'fixed';
 }
@@ -627,10 +651,19 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
   if (spec.kind === 'array') {
     const n = p.group.roots.length, name = ctx.byId.get(p.group.roots[0])!.category === 'cafe-table' ? 'Tables' : 'Tables';
     if (n === 1) return `${root.name} centred`;
-    return spec.rows === 1 || spec.cols === 1 ? `${name} in a row of ${n}` : `${name} in a ${spec.rows} x ${spec.cols} grid`;
+    const grid = spec.rows === 1 || spec.cols === 1 ? `${name} in a row of ${n}` : `${name} in a ${spec.rows} x ${spec.cols} grid`;
+    return spec.hug ? `${grid} around a centre aisle` : `${grid}, evenly spaced`;
   }
-  if (wall != null) return `${root.name} on the ${wallWord(ctx, wall)}`;
-  return root.name;
+  const noun = root.name.replace(/\s+\d.*$/, '');
+  if (wall != null) {
+    const c2 = cls(ctx, p);
+    if (c2.endsWith('a') || c2.endsWith('b')) {
+      const near = (os: typeof ctx.room.doors) => os.some((o) => polyDist([o.a, o.b, o.b, o.a], [toPlanOf(root, -root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, -root.d / 2), toPlanOf(root, root.w / 2, root.d / 2), toPlanOf(root, -root.w / 2, root.d / 2)]) < 1.2);
+      return `${noun} in the ${near(ctx.room.doors) ? 'door ' : near(ctx.room.windows) ? 'window ' : ''}corner`;
+    }
+    return `${noun} on the ${wallWord(ctx, wall)}`;
+  }
+  return noun;
 }
 
 function conceptName(ctx: Ctx, st: State, depth: number): string {
@@ -770,6 +803,8 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   let failedGroup: Group | null = null;
   let lastPlaced: string[] = [];
   let lastYield = now();
+  const spare: State[][] = [];
+  let backtracks = 0;
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi];
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -787,6 +822,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
         const all = [...st.items, ...res.items];
         cands.push({ spec, mirror, items: res.items, deferred: res.deferred, q: quickScore(ctx, all, gIds), wallKey: spec.kind === 'wall' ? `w${spec.wall}` : spec.kind });
       }
+      if (DBG && g.kind === 'array') console.log('  state', st.placed.map((p) => cls(ctx, p)).join(','), 'specs', specs.length, 'cands', cands.length, [...ctx.rejects].map(([k, n]) => `${k}=${n}`).join(' '));
       if (!cands.length) continue;
       // Keep the best few per wall so every wall stays in play, then score those in full.
       cands.sort((a, b) => b.q - a.q);
@@ -796,7 +832,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       const scored = short.map((c) => ({ c, s: scoreItems(ctx, [...st.items, ...c.items]) })).sort((a, b) => b.s - a.s);
       let kept = 0;
       for (const { c, s } of scored) {
-        if (kept >= K) break;
+        if (kept >= Math.max(K, Math.ceil((B * 2) / states.length))) break;
         const all = [...st.items, ...c.items];
         if (!softRoute && !routeOk(all)) { ctx.rejects.set('route', (ctx.rejects.get('route') ?? 0) + 1); continue; }
         next.push({ placed: [...st.placed, { group: g, spec: c.spec, mirror: c.mirror, items: c.items }], items: all, deferred: [...st.deferred, ...c.deferred], dropped: st.dropped, score: s });
@@ -814,15 +850,38 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
         continue;
       }
       if (g.optional) { for (const st of states) st.dropped = [...st.dropped, ...g.members]; continue; }
+      // Backtrack: resume from the best untried states of the deepest earlier level that has some.
+      let j = gi - 1;
+      while (j >= 0 && !(spare[j]?.length)) j--;
+      if (j >= 0 && backtracks < 12 && now() - t0 < budget * 0.6) {
+        backtracks++;
+        states = spare[j].splice(0, B);
+        gi = j;
+        continue;
+      }
+      if (DBG) console.log('fail', g.id, [...ctx.rejects], 'spare', spare.map((x) => x?.length), 'bt', backtracks, states.map((st) => st.placed.map((p) => `${p.group.id}:${JSON.stringify(p.spec)}`).join(' ')));
       failedGroup = g;
       lastPlaced = states[0]?.items.map((f) => f.name) ?? [];
       break;
     }
     // Diverse beam: best per signature first, then by score.
     next.sort((a, b) => b.score - a.score);
-    const seen = new Set<string>(), beam: State[] = [];
-    for (const st of next) { const sg = signature(ctx, st); if (!seen.has(sg)) { seen.add(sg); beam.push(st); } if (beam.length >= B) break; }
+    const seen = new Set<string>(), beam: State[] = [], rest: State[] = [], dup: State[] = [];
+    // One state per concept first (so 'side by side' survives next to 'facing walls'), then per signature.
+    const ideas = new Set<string>();
+    for (const st of next) {
+      if (beam.length >= Math.ceil(B / 2)) break;
+      const idea = conceptName(ctx, st, 2);
+      if (!ideas.has(idea)) { ideas.add(idea); seen.add(signature(ctx, st)); beam.push(st); }
+    }
+    for (const st of next) {
+      if (beam.includes(st)) continue;
+      const sg = signature(ctx, st);
+      if (!seen.has(sg)) { seen.add(sg); (beam.length < B ? beam : rest).push(st); } else dup.push(st);
+    }
+    spare[gi] = [...rest, ...dup].slice(0, 40);
     states = beam;
+    if (DBG) console.log('group', g.id, 'states', states.length, 'next', next.length, 'ms', Math.round(now() - t0));
     opts.onProgress?.(((gi + 1) / groups.length) * 0.6);
   }
 
@@ -860,10 +919,10 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   states = states.filter((st) => st.dropped.every((id) => OPTIONAL.has(ctx.byId.get(id)!.category)));
 
   // Local pass: slide, flip and nudge each group while the score rises.
-  const deadline = t0 + budget * 0.85;
+  const deadline = t0 + budget * 0.7;
   const improve = async (st: State): Promise<State> => {
     let cur = st;
-    for (let pass = 0; pass < 4; pass++) {
+    for (let pass = 0; pass < 3; pass++) {
       let better = false;
       for (let k = 0; k < cur.placed.length; k++) {
         const p = cur.placed[k];
@@ -899,9 +958,14 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     }
     return cur;
   };
+  // Improve one state per concept first, so the variants differ in idea, not just in centimetres.
   const pool: State[] = [];
   const order = [...states].sort((a, b) => b.score - a.score);
-  for (const st of order.slice(0, Math.max(variants * 2, 4))) pool.push(await improve(st));
+  const picks: State[] = [], concepts = new Set<string>();
+  for (const st of order) { const c = conceptName(ctx, st, 1); if (!concepts.has(c)) { concepts.add(c); picks.push(st); } }
+  for (const st of order) if (!picks.includes(st)) picks.push(st);
+  for (const st of picks.slice(0, variants + 2)) pool.push(await improve(st));
+  if (DBG) console.log('improved', pool.length, Math.round(now() - t0));
   opts.onProgress?.(0.85);
 
   // Full evaluation, referee, variety.
@@ -915,20 +979,31 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   }
   finals.sort((a, b) => b.ds - a.ds);
   const chosen: typeof finals = [];
+  // A different concept first, then a different first or second anchor, then anything that moved.
   for (const f of finals) {
     if (chosen.length >= variants) break;
-    if (chosen.some((c) => c.sig === f.sig || meanDisplacement(c.st.items, f.st.items) < 0.25)) continue;
+    const cn = conceptName(ctx, f.st, 1);
+    if (f.ds >= (finals[0]?.ds ?? 0) - 12 && !chosen.some((c) => conceptName(ctx, c.st, 1) === cn)) chosen.push(f);
+  }
+  for (const depth of [1, 2]) for (const f of finals) {
+    if (chosen.length >= variants || chosen.includes(f)) continue;
+    const sg = signature(ctx, f.st, depth);
+    if (chosen.some((c) => signature(ctx, c.st, depth) === sg || meanDisplacement(c.st.items, f.st.items) < 0.25)) continue;
     chosen.push(f);
   }
   for (const f of finals) { if (chosen.length >= variants) break; if (!chosen.includes(f) && !chosen.some((c) => meanDisplacement(c.st.items, f.st.items) < 0.25)) chosen.push(f); }
   if (!chosen.length) return { candidates: [], reports: [], infeasibility: infeasible(ctx, null, [], work, req) };
 
   const out: Array<{ verdicts: RuleVerdict[]; cand: LayoutCandidate }> = [];
+  // Name: the first phrase, plus the first later phrase that tells same-named variants apart.
   const names = new Set<string>();
+  const phrases = chosen.map((f) => f.st.placed.filter((p) => !p.group.fixed && p.group.priority >= 15).map((p) => phrase(ctx, f.st, p)));
   for (const [i, f] of chosen.entries()) {
-    let name = conceptName(ctx, f.st, 1);
-    if (names.has(name)) name = conceptName(ctx, f.st, 2);
-    if (names.has(name)) name = `${name} (${i + 1})`;
+    const ps = phrases[i];
+    const twins = phrases.filter((q, j) => j !== i && q[0] === ps[0]);
+    const extra = twins.length ? ps.slice(1).find((x, k) => twins.some((q) => q[k + 1] !== x)) : undefined;
+    let name = ps.length ? ps[0] + (extra ? `, ${lc(extra)}` : '') : conceptName(ctx, f.st, 1);
+    if (names.has(name)) name = `${name}, variant ${i + 1}`;
     names.add(name);
     const L = layoutCtx(ctx, f.st.items);
     const g = floorGrid(L, 0.1);
@@ -952,6 +1027,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       },
     });
   }
+  if (DBG) console.log('final', finals.length, chosen.length, finals.map((f) => f.sig + ' ' + Math.round(f.ds)), Math.round(now() - t0));
   summaries(out);
   opts.onProgress?.(1);
   return {
