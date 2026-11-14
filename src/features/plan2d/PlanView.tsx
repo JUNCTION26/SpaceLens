@@ -4,6 +4,8 @@ import {
   add, area, bounds, centroid, closestPointOnSegment, convexOverlap, dist, fmtCm, fmtM2, itemCorners, lerp, mul, norm,
   openingSegment, perp, polygonInside, sub, uid, wallId, wallInwardNormal, wallLength, wallSegment,
 } from '../../core/geometry';
+import { CATALOG_DND, findFreeSpot } from '../objects/placement';
+import { catalogEntry, makeItem } from '../furniture/catalog';
 import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '../../core/types';
 import './plan2d.css';
 
@@ -11,10 +13,22 @@ type VB = { x: number; y: number; w: number; h: number };
 type Drag =
   | { kind: 'pan'; start: Vec2; vb: VB; sx: number; sy: number }
   | { kind: 'vertex'; spaceId: string; index: number; pos: Vec2; moved: boolean }
-  | { kind: 'item'; id: string; off: Vec2; pos: Vec2; moved: boolean }
+  | { kind: 'item'; id: string; ids: string[]; origins: Record<string, Vec2>; off: Vec2; pos: Vec2; rot?: number; moved: boolean; guides: Guide[]; wall: { cm: number; at: Vec2 } | null }
+  | { kind: 'marquee'; a: Vec2; b: Vec2 }
   | { kind: 'rotate'; id: string; rot: number };
 
+type Guide = { a: Vec2; b: Vec2 };
 const SNAP = 0.05;
+const WALL_SNAP = 0.15;
+
+// Catalog id of the item currently being dragged from the library (dataTransfer is unreadable during dragover).
+let dndCatalogId: string | null = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('dragstart', (e) => { try { dndCatalogId = e.dataTransfer?.getData(CATALOG_DND) || null; } catch { dndCatalogId = null; } });
+  window.addEventListener('dragend', () => { dndCatalogId = null; });
+}
+
+const aabb = (c: Vec2[]) => bounds(c) as { minX: number; minY: number; maxX: number; maxY: number };
 const snap = (n: number, s = SNAP) => Math.round(n / s) * s;
 const pts = (p: Vec2[]) => p.map((q) => `${q.x},${q.y}`).join(' ');
 
@@ -63,6 +77,19 @@ export function PlanView() {
   const pinch = useRef<{ d: number; vb: VB; c: Vec2 } | null>(null);
   const [editWall, setEditWall] = useState<{ spaceId: string; i: number; pos: Vec2; value: string } | null>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
+  const [multi, setMultiState] = useState<string[]>([]);
+  const multiRef = useRef<string[]>([]);
+  const setMulti = (ids: string[]) => { multiRef.current = ids; setMultiState(ids); };
+  const [hover, setHover] = useState<{ id: string; sx: number; sy: number } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; sx: number; sy: number } | null>(null);
+  const [ghost, setGhost] = useState<{ id: string | null; p: Vec2 } | null>(null);
+  const anim = useRef<number>(0);
+
+  // Keep the group in step with the store selection (other panels can select too).
+  useEffect(() => {
+    if (selection?.kind !== 'furniture') { if (multiRef.current.length) setMulti([]); return; }
+    if (!multiRef.current.includes(selection.id)) setMulti([selection.id]);
+  }, [selection]);
 
   const setD = (d: Drag | null) => { dragRef.current = d; setDrag(d); };
   const fit = useCallback(() => setVb(fitBox(useStore.getState().model.spaces)), []);
@@ -99,17 +126,30 @@ export function PlanView() {
   }, [model.spaces, drag]);
   const furniture = useMemo(() => {
     if (!drag || (drag.kind !== 'item' && drag.kind !== 'rotate')) return shown;
-    return shown.map((f) => f.id !== drag.id ? f : drag.kind === 'item' ? { ...f, x: drag.pos.x, y: drag.pos.y } : { ...f, rotation: drag.rot });
+    if (drag.kind === 'rotate') return shown.map((f) => f.id !== drag.id ? f : { ...f, rotation: drag.rot });
+    const o0 = drag.origins[drag.id]; const dx = drag.pos.x - o0.x, dy = drag.pos.y - o0.y;
+    return shown.map((f) => {
+      const o = drag.origins[f.id]; if (!o) return f;
+      return f.id === drag.id ? { ...f, x: drag.pos.x, y: drag.pos.y, rotation: drag.rot ?? f.rotation } : { ...f, x: o.x + dx, y: o.y + dy };
+    });
   }, [shown, drag]);
 
-  const problems = useMemo(() => {
+  const { problems, overlapsWith } = useMemo(() => {
     const bad = new Set<string>();
+    const withMap = new Map<string, string[]>();
+    const push = (a: FurnitureItem, b: FurnitureItem) => { const l = withMap.get(a.id) ?? []; l.push(b.name); withMap.set(a.id, l); };
     const cs = furniture.map((f) => itemCorners(f));
+    const soft = (f: FurnitureItem) => f.category === 'rug' || !!catalogEntry(f.catalogId)?.overlaps;
     for (let i = 0; i < furniture.length; i++) {
-      for (let j = i + 1; j < furniture.length; j++) if (convexOverlap(cs[i], cs[j]) > 0.01) { bad.add(furniture[i].id); bad.add(furniture[j].id); }
+      for (let j = i + 1; j < furniture.length; j++) {
+        if (convexOverlap(cs[i], cs[j]) > 0.01) {
+          bad.add(furniture[i].id); bad.add(furniture[j].id);
+          if (!soft(furniture[i]) && !soft(furniture[j])) { push(furniture[i], furniture[j]); push(furniture[j], furniture[i]); }
+        }
+      }
       if (spaces.length && !spaces.some((s) => polygonInside(cs[i], s.polygon))) bad.add(furniture[i].id);
     }
-    return bad;
+    return { problems: bad, overlapsWith: withMap };
   }, [furniture, spaces]);
 
   /** Editing a previewed candidate applies it first. */
@@ -121,31 +161,115 @@ export function PlanView() {
   const selId = selection?.id;
   const isSel = (kind: string, id: string) => selection?.kind === kind && selId === id;
 
-  // Keyboard: Esc, Delete, R.
+  // Smoothly animate the view box to a target.
+  const animateTo = (target: VB) => {
+    cancelAnimationFrame(anim.current);
+    const from = { ...vb }; const t0 = performance.now();
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 280); const e = 1 - Math.pow(1 - k, 3);
+      setVb({ x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, w: from.w + (target.w - from.w) * e, h: from.h + (target.h - from.h) * e });
+      if (k < 1) anim.current = requestAnimationFrame(step);
+    };
+    anim.current = requestAnimationFrame(step);
+  };
+  const animRef = useRef(animateTo); animRef.current = animateTo;
+
+  // Other parts of the app can ask the plan to reset its view.
+  useEffect(() => {
+    const onReset = () => fit();
+    window.addEventListener('spacelens:reset-view', onReset);
+    return () => window.removeEventListener('spacelens:reset-view', onReset);
+  }, [fit]);
+
+  /** Selected furniture ids (the group, or just the primary). */
+  const groupIds = () => {
+    const sel = useStore.getState().selection;
+    if (sel?.kind !== 'furniture') return [];
+    return multiRef.current.includes(sel.id) ? multiRef.current : [sel.id];
+  };
+  const lockedWarn = (items: FurnitureItem[]) => {
+    if (items.length) useStore.getState().toast(items.length > 1 ? 'All selected items are locked' : `${items[0].name} is locked`, 'warn');
+  };
+  const editGroup = (ids: string[], patch: (f: FurnitureItem) => Partial<FurnitureItem> | null) => {
+    const items = useShownList().filter((f) => ids.includes(f.id));
+    const free = items.filter((f) => !f.locked);
+    if (!free.length) { lockedWarn(items); return; }
+    ensureEditable();
+    for (const f of free) { const pt = patch(f); if (pt) useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: pt }); }
+  };
+  const deleteGroup = (ids: string[]) => {
+    const items = useShownList().filter((f) => ids.includes(f.id));
+    const free = items.filter((f) => !f.locked);
+    if (!free.length) { lockedWarn(items); return; }
+    ensureEditable();
+    for (const f of free) useStore.getState().dispatch({ type: 'REMOVE_OBJECT', id: f.id });
+    if (free.length < items.length) useStore.getState().toast(`Kept ${items.length - free.length} locked`, 'info');
+    setMulti([]); useStore.getState().select(null);
+  };
+  const duplicateGroup = (ids: string[]) => {
+    const items = useShownList().filter((f) => ids.includes(f.id)); if (!items.length) return;
+    ensureEditable();
+    const placed: FurnitureItem[] = []; const newIds: string[] = [];
+    for (const f of items) {
+      const st = useStore.getState();
+      const copy: FurnitureItem = { ...f, id: uid('f'), locked: false, clearance: { ...f.clearance } };
+      const pose = findFreeSpot(st.model, copy, [...st.model.furniture, ...placed]);
+      const item = { ...copy, ...pose }; placed.push(item); newIds.push(item.id);
+      st.dispatch({ type: 'PLACE_OBJECT', item });
+    }
+    setMulti(newIds); useStore.getState().select({ kind: 'furniture', id: newIds[0] });
+  };
+  const toggleLock = (ids: string[]) => {
+    const items = useShownList().filter((f) => ids.includes(f.id)); if (!items.length) return;
+    ensureEditable();
+    const to = !items.every((f) => f.locked);
+    for (const f of items) useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { locked: to } });
+  };
+  const zoomToSelection = () => {
+    const ids = groupIds(); const items = useShownList().filter((f) => ids.includes(f.id));
+    if (!items.length) { animRef.current(fitBox(useStore.getState().model.spaces)); return; }
+    const b = aabb(items.flatMap((f) => itemCorners(f)));
+    const pad = Math.max(0.6, 0.25 * Math.max(b.maxX - b.minX, b.maxY - b.minY));
+    animRef.current({ x: b.minX - pad, y: b.minY - pad, w: b.maxX - b.minX + pad * 2, h: b.maxY - b.minY + pad * 2 });
+  };
+  const actions = useRef({ editGroup, deleteGroup, duplicateGroup, toggleLock, zoomToSelection, groupIds });
+  actions.current = { editGroup, deleteGroup, duplicateGroup, toggleLock, zoomToSelection, groupIds };
+
+  // Keyboard: Esc, Delete, R, arrows, L, Ctrl+D, F.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      const st = useStore.getState(); const sel = st.selection;
-      if (e.key === 'Escape') { st.select(null); setEditWall(null); return; }
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const st = useStore.getState(); const sel = st.selection; const A = actions.current;
+      if (e.key === 'Escape') { st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (sel.kind === 'furniture') {
-          const f = (st.activeCandidateId ? st.candidates.find((c) => c.id === st.activeCandidateId)?.furniture : st.model.furniture)?.find((x) => x.id === sel.id);
-          if (!f) return;
-          if (f.locked) { st.toast(`${f.name} is locked`, 'warn'); return; }
-          ensureEditable(); st.dispatch({ type: 'REMOVE_OBJECT', id: sel.id }); st.select(null);
+          A.deleteGroup(A.groupIds());
         } else if (sel.kind === 'vertex') {
           const [sid, idx] = splitId(sel.id); const sp = st.model.spaces.find((s) => s.id === sid);
           if (!sp || sp.polygon.length <= 3) { st.toast('A room needs at least 3 corners', 'warn'); return; }
           st.dispatch({ type: 'REMOVE_VERTEX', spaceId: sid, index: idx }); st.select(null);
         } else if (sel.kind === 'opening') { st.dispatch({ type: 'REMOVE_OPENING', id: sel.id }); st.select(null); }
         e.preventDefault();
-      } else if ((e.key === 'r' || e.key === 'R') && sel.kind === 'furniture') {
-        const f = useShownList().find((x) => x.id === sel.id); if (!f) return;
-        if (f.locked) { st.toast(`${f.name} is locked`, 'warn'); return; }
-        ensureEditable();
-        useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { rotation: normAng(f.rotation + Math.PI / 2) } });
+        return;
+      }
+      if (sel.kind !== 'furniture') return;
+      const ids = A.groupIds();
+      if ((e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); A.duplicateGroup(ids); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'r' || e.key === 'R') {
+        const da = e.shiftKey ? -Math.PI / 12 : Math.PI / 2;
+        A.editGroup(ids, (f) => ({ rotation: normAng(f.rotation + da) }));
+      } else if (e.key === 'l' || e.key === 'L') {
+        A.toggleLock(ids);
+      } else if (e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        const s = e.shiftKey ? 0.1 : 0.01;
+        const dx = e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0;
+        const dy = e.key === 'ArrowUp' ? -s : e.key === 'ArrowDown' ? s : 0;
+        A.editGroup(ids, (f) => ({ x: Math.round((f.x + dx) * 1000) / 1000, y: Math.round((f.y + dy) * 1000) / 1000 }));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -166,7 +290,52 @@ export function PlanView() {
     return () => el.removeEventListener('wheel', onWheel);
   }, [size]);
 
+  /** Wall snap, alignment guides and wall distance for a dragged item. Alt skips snapping. */
+  const snapItem = (f: FurnitureItem, raw: Vec2, ids: string[], free: boolean) => {
+    let pos = free ? raw : { x: snap(raw.x, 0.01), y: snap(raw.y, 0.01) };
+    let rot: number | undefined;
+    const guides: Guide[] = [];
+    const single = ids.length === 1;
+    // Back edge to wall.
+    if (single && !free) {
+      let best: { gap: number; pt: Vec2; n: Vec2 } | null = null;
+      for (const sp of spaces) for (let i = 0; i < sp.polygon.length; i++) {
+        const [a, b] = wallSegment(sp, i);
+        const { point, t } = closestPointOnSegment(raw, a, b); if (t <= 0.02 || t >= 0.98) continue;
+        const gap = Math.abs(dist(raw, point) - f.d / 2);
+        if (gap < WALL_SNAP && (!best || gap < best.gap)) best = { gap, pt: point, n: wallInwardNormal(sp, i) };
+      }
+      if (best) { pos = add(best.pt, mul(best.n, f.d / 2)); rot = normAng(Math.atan2(-best.n.x, best.n.y)); }
+    }
+    // Alignment with other items' edges and centres.
+    const moving = { ...f, x: pos.x, y: pos.y, rotation: rot ?? f.rotation };
+    const mb = aabb(itemCorners(moving));
+    const tol = 6 * px;
+    const mx = [mb.minX, (mb.minX + mb.maxX) / 2, mb.maxX], my = [mb.minY, (mb.minY + mb.maxY) / 2, mb.maxY];
+    let bx: { d: number; v: number; o: { minY: number; maxY: number } } | null = null;
+    let by: { d: number; v: number; o: { minX: number; maxX: number } } | null = null;
+    if (!free) for (const o of furniture) {
+      if (ids.includes(o.id)) continue;
+      const ob = aabb(itemCorners(o));
+      const ox = [ob.minX, (ob.minX + ob.maxX) / 2, ob.maxX], oy = [ob.minY, (ob.minY + ob.maxY) / 2, ob.maxY];
+      for (const a of mx) for (const b of ox) { const dd = b - a; if (Math.abs(dd) < tol && (!bx || Math.abs(dd) < Math.abs(bx.d))) bx = { d: dd, v: b, o: ob }; }
+      for (const a of my) for (const b of oy) { const dd = b - a; if (Math.abs(dd) < tol && (!by || Math.abs(dd) < Math.abs(by.d))) by = { d: dd, v: b, o: ob }; }
+    }
+    if (bx && rot == null) { pos = { ...pos, x: pos.x + bx.d }; guides.push({ a: { x: bx.v, y: Math.min(mb.minY, bx.o.minY) }, b: { x: bx.v, y: Math.max(mb.maxY, bx.o.maxY) } }); }
+    if (by && rot == null) { pos = { ...pos, y: pos.y + by.d }; guides.push({ a: { x: Math.min(mb.minX, by.o.minX), y: by.v }, b: { x: Math.max(mb.maxX, by.o.maxX), y: by.v } }); }
+    // Distance to nearest wall.
+    let wall: { cm: number; at: Vec2 } | null = null;
+    const cs = itemCorners({ ...moving, x: pos.x, y: pos.y });
+    let bestD = Infinity;
+    for (const sp of spaces) for (let i = 0; i < sp.polygon.length; i++) {
+      const [a, b] = wallSegment(sp, i);
+      for (const c of cs) { const { point } = closestPointOnSegment(c, a, b); const dd = dist(c, point); if (dd < bestD) { bestD = dd; wall = { cm: Math.round(dd * 100), at: lerp(c, point, 0.5) }; } }
+    }
+    return { pos, rot, guides, wall };
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button === 2) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     if (pointers.current.size === 2) {
@@ -187,13 +356,32 @@ export function PlanView() {
       if (f && !f.locked) setD({ kind: 'rotate', id, rot: f.rotation });
     } else if (hit.startsWith('f:')) {
       const id = hit.slice(2); const f = furniture.find((x) => x.id === id)!;
+      setMenu(null); setHover(null);
+      if (e.shiftKey) {
+        const cur = selection?.kind === 'furniture' ? (multiRef.current.length ? multiRef.current : [selection.id]) : [];
+        const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+        setMulti(next);
+        select(next.length ? { kind: 'furniture', id: next.includes(id) ? id : next[next.length - 1] } : null);
+        return;
+      }
+      const group = multiRef.current.includes(id) && selection?.kind === 'furniture' ? multiRef.current : [id];
+      if (group.length === 1) setMulti([id]);
       select({ kind: 'furniture', id });
-      if (!f.locked) setD({ kind: 'item', id, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false });
+      const ids = group.filter((gid) => !furniture.find((x) => x.id === gid)?.locked);
+      if (!f.locked) {
+        const origins: Record<string, Vec2> = {};
+        for (const gid of ids) { const g = furniture.find((x) => x.id === gid); if (g) origins[gid] = { x: g.x, y: g.y }; }
+        setD({ kind: 'item', id, ids, origins, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false, guides: [], wall: null });
+      }
     } else if (hit.startsWith('o:')) {
       select({ kind: 'opening', id: hit.slice(2) });
     } else if (hit.startsWith('w:')) {
       select({ kind: 'wall', id: hit.slice(2) });
+    } else if (e.shiftKey) {
+      setMenu(null);
+      setD({ kind: 'marquee', a: p, b: p });
     } else {
+      setMenu(null);
       setD({ kind: 'pan', start: { x: e.clientX, y: e.clientY }, vb, sx: px, sy: px });
     }
   };
@@ -212,7 +400,16 @@ export function PlanView() {
       setVb({ x: anchor.x - (c.x - r.left) * nm, y: anchor.y - (c.y - r.top) * nm, w: nw, h: nh });
       return;
     }
-    const d = dragRef.current; if (!d) return;
+    const d = dragRef.current;
+    if (!d) {
+      const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
+      if (hit.startsWith('f:') && e.pointerType === 'mouse') {
+        const r = svgRef.current!.getBoundingClientRect();
+        setHover({ id: hit.slice(2), sx: e.clientX - r.left, sy: e.clientY - r.top });
+      } else if (hover) setHover(null);
+      return;
+    }
+    if (d.kind === 'marquee') { setD({ ...d, b: toPlan(e.clientX, e.clientY) }); return; }
     if (d.kind === 'pan') {
       setVb({ ...d.vb, x: d.vb.x - (e.clientX - d.start.x) * d.sx, y: d.vb.y - (e.clientY - d.start.y) * d.sy });
       return;
@@ -226,7 +423,10 @@ export function PlanView() {
       for (const nb of [prev, next]) { if (Math.abs(p.x - nb.x) < tol) q.x = nb.x; if (Math.abs(p.y - nb.y) < tol) q.y = nb.y; }
       setD({ ...d, pos: q, moved: true });
     } else if (d.kind === 'item') {
-      setD({ ...d, pos: { x: snap(p.x + d.off.x), y: snap(p.y + d.off.y) }, moved: true });
+      const raw = { x: p.x + d.off.x, y: p.y + d.off.y };
+      const f = shown.find((x) => x.id === d.id)!;
+      const r = snapItem(f, raw, d.ids, e.altKey);
+      setD({ ...d, pos: r.pos, rot: r.rot, guides: r.guides, wall: r.wall, moved: true });
     } else if (d.kind === 'rotate') {
       const f = furniture.find((x) => x.id === d.id)!;
       // Handle sits on the front side (+y local); angle from centre to pointer.
@@ -242,7 +442,24 @@ export function PlanView() {
     const d = dragRef.current; setD(null);
     if (!d) return;
     if (d.kind === 'vertex' && d.moved) dispatch({ type: 'MOVE_VERTEX', spaceId: d.spaceId, index: d.index, to: d.pos });
-    if (d.kind === 'item' && d.moved) { ensureEditable(); useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: d.id, patch: { x: d.pos.x, y: d.pos.y } }); }
+    if (d.kind === 'item' && d.moved) {
+      ensureEditable();
+      const o0 = d.origins[d.id]; const dx = d.pos.x - o0.x, dy = d.pos.y - o0.y;
+      for (const id of d.ids) {
+        const o = d.origins[id]; if (!o) continue;
+        const patch: Partial<FurnitureItem> = id === d.id ? { x: d.pos.x, y: d.pos.y, ...(d.rot != null ? { rotation: d.rot } : {}) } : { x: o.x + dx, y: o.y + dy };
+        useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id, patch });
+      }
+      const others = overlapsWith.get(d.id);
+      if (others?.length) toast(`Overlaps ${others[0]}`, 'warn');
+    }
+    if (d.kind === 'marquee') {
+      const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), y0 = Math.min(d.a.y, d.b.y), y1 = Math.max(d.a.y, d.b.y);
+      const hits = furniture.filter((f) => f.x >= x0 && f.x <= x1 && f.y >= y0 && f.y <= y1).map((f) => f.id);
+      const prev = selection?.kind === 'furniture' ? multiRef.current : [];
+      const next = Array.from(new Set([...prev, ...hits]));
+      setMulti(next); select(next.length ? { kind: 'furniture', id: next[0] } : null);
+    }
     if (d.kind === 'rotate') { ensureEditable(); useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: d.id, patch: { rotation: d.rot } }); }
     if (d.kind === 'pan' && Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) < 4) select(null);
   };
@@ -290,13 +507,39 @@ export function PlanView() {
   const stroke = (k = 1) => k * px;
 
   return (
-    <div className="plan2d">
+    <div className="plan2d"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(CATALOG_DND)) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+        setGhost({ id: dndCatalogId, p: toPlan(e.clientX, e.clientY) });
+      }}
+      onDragLeave={(e) => { if (!(e.currentTarget as Node).contains(e.relatedTarget as Node)) setGhost(null); }}
+      onDrop={(e) => {
+        const id = e.dataTransfer.getData(CATALOG_DND); setGhost(null);
+        if (!id) return;
+        e.preventDefault();
+        const q = toPlan(e.clientX, e.clientY);
+        ensureEditable();
+        const item = makeItem(id, { x: snap(q.x, 0.01), y: snap(q.y, 0.01) });
+        useStore.getState().dispatch({ type: 'PLACE_OBJECT', item });
+        setMulti([item.id]); select({ kind: 'furniture', id: item.id });
+      }}>
       <svg
         ref={svgRef}
         className={`plan2d-svg${drag?.kind === 'pan' ? ' plan2d-panning' : ''}`}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
+        onPointerLeave={() => setHover(null)}
+        onContextMenu={(e) => {
+          const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
+          e.preventDefault();
+          if (!hit.startsWith('f:')) { setMenu(null); return; }
+          const id = hit.slice(2);
+          if (!(multiRef.current.includes(id) && selection?.kind === 'furniture')) { setMulti([id]); select({ kind: 'furniture', id }); }
+          const r = svgRef.current!.getBoundingClientRect();
+          setMenu({ id, sx: e.clientX - r.left, sy: e.clientY - r.top }); setHover(null);
+        }}
         role="img" aria-label={`Floor plan of ${model.name}`}
       >
         <Grid view={view} px={px} />
@@ -401,9 +644,40 @@ export function PlanView() {
 
         {/* Furniture */}
         {furniture.map((f) => (
-          <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id)} bad={problems.has(f.id)}
+          <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))} bad={problems.has(f.id)}
             hl={hlMap.get(f.id)} preview={!!activeCandidateId} />
         ))}
+
+        {/* Drag feedback: guides, wall distance, overlaps */}
+        {drag?.kind === 'item' && drag.moved && (() => {
+          const f = furniture.find((x) => x.id === drag.id); if (!f) return null;
+          const over = drag.ids.flatMap((id) => overlapsWith.get(id) ?? []).filter((n, i, a) => a.indexOf(n) === i && !drag.ids.some((id) => furniture.find((x) => x.id === id)?.name === n));
+          const b = aabb(itemCorners(f));
+          return (
+            <g pointerEvents="none">
+              {drag.guides.map((g, i) => <line key={i} x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} className="plan2d-guide" strokeWidth={px} strokeDasharray={`${5 * px} ${4 * px}`} />)}
+              {drag.wall && <text x={drag.wall.at.x} y={drag.wall.at.y} fontSize={fs} textAnchor="middle" dominantBaseline="central" className="plan2d-live plan2d-halo">{drag.wall.cm} cm</text>}
+              {over.length > 0 && <text x={f.x} y={b.minY - 10 * px} fontSize={fs} textAnchor="middle" className="plan2d-over plan2d-halo">Overlaps {over.join(', ')}</text>}
+            </g>
+          );
+        })()}
+
+        {/* Marquee */}
+        {drag?.kind === 'marquee' && (
+          <rect x={Math.min(drag.a.x, drag.b.x)} y={Math.min(drag.a.y, drag.b.y)} width={Math.abs(drag.b.x - drag.a.x)} height={Math.abs(drag.b.y - drag.a.y)}
+            className="plan2d-marquee" strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} pointerEvents="none" />
+        )}
+
+        {/* Drop ghost */}
+        {ghost && (() => {
+          const e = ghost.id ? catalogEntry(ghost.id) : undefined; const w = e?.w ?? 0.6, d = e?.d ?? 0.6;
+          return (
+            <g pointerEvents="none" transform={`translate(${ghost.p.x} ${ghost.p.y})`}>
+              <rect x={-w / 2} y={-d / 2} width={w} height={d} className="plan2d-ghost" strokeWidth={1.5 * px} strokeDasharray={`${5 * px} ${3 * px}`} />
+              {e && <text y={d / 2 + fs * 1.2} fontSize={fs} textAnchor="middle" className="plan2d-live plan2d-halo">{e.name}</text>}
+            </g>
+          );
+        })()}
 
         {/* Routes */}
         {layers.routes && analysis.routes.map((r) => r.points.length > 1 && (
@@ -470,6 +744,29 @@ export function PlanView() {
           <span className="muted plan2d-edit-hint">cm or m</span>
         </form>
       )}
+
+      {hover && !drag && !menu && (() => {
+        const f = furniture.find((x) => x.id === hover.id); if (!f) return null;
+        return <div className="plan2d-tip" style={{ left: hover.sx + 14, top: hover.sy + 14 }}>{f.name} <span className="muted">{Math.round(f.w * 100)}×{Math.round(f.d * 100)} cm</span></div>;
+      })()}
+
+      {menu && (() => {
+        const ids = groupIds().length ? groupIds() : [menu.id];
+        const items = furniture.filter((f) => ids.includes(f.id));
+        const allLocked = items.length > 0 && items.every((f) => f.locked);
+        const run = (fn: () => void) => () => { fn(); setMenu(null); };
+        return (
+          <div className="plan2d-menu card" role="menu" style={{ left: Math.min(menu.sx, size.w - 150), top: Math.min(menu.sy, size.h - 150) }}
+            onPointerDown={(e) => e.stopPropagation()}>
+            <button role="menuitem" onClick={run(() => editGroup(ids, (f) => ({ rotation: normAng(f.rotation + Math.PI / 2) })))}>Rotate<kbd>R</kbd></button>
+            <button role="menuitem" onClick={run(() => duplicateGroup(ids))}>Duplicate<kbd>Ctrl D</kbd></button>
+            <button role="menuitem" onClick={run(() => toggleLock(ids))}>{allLocked ? 'Unlock' : 'Lock'}<kbd>L</kbd></button>
+            <button role="menuitem" className="plan2d-menu-bad" onClick={run(() => deleteGroup(ids))}>Delete<kbd>Del</kbd></button>
+          </div>
+        );
+      })()}
+
+      <div className="plan2d-hint" aria-hidden="true">Shift click or drag to multi-select · Arrows nudge · R rotate · L lock · Ctrl D duplicate · F zoom · Alt drag skips snap</div>
 
       <div className="plan2d-toolbar panel">
         <button className="btn btn-sm btn-ghost" onClick={fit} title="Fit plan to view">Fit</button>

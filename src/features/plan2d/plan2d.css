@@ -63,3 +63,16 @@
 /* The shared .panel class stacks children vertically; the floating toolbar is a row. */
 .plan2d-toolbar.panel { flex-direction: row; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); padding: 4px 6px; z-index: 3; }
 .plan2d-legend.panel { gap: 4px; }
+
+.plan2d-guide { stroke: var(--accent-2); }
+.plan2d-over { fill: var(--bad); font-weight: 600; }
+.plan2d-halo { paint-order: stroke; stroke: var(--bg); stroke-width: .02; }
+.plan2d-marquee { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); }
+.plan2d-ghost { fill: var(--accent); fill-opacity: .15; stroke: var(--accent); }
+.plan2d-tip { position: absolute; pointer-events: none; z-index: 6; padding: 4px 8px; font-size: 12px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
+.plan2d-menu { position: absolute; z-index: 7; display: grid; padding: 4px; min-width: 140px; }
+.plan2d-menu button { display: flex; justify-content: space-between; gap: 12px; background: none; border: 0; color: var(--text); padding: 6px 8px; border-radius: 4px; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.plan2d-menu button:hover, .plan2d-menu button:focus-visible { background: var(--panel); }
+.plan2d-menu kbd { color: var(--muted); font: 11px var(--mono); }
+.plan2d-menu-bad { color: var(--bad) !important; }
+.plan2d-hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); font-size: 11px; color: var(--muted); pointer-events: none; white-space: nowrap; max-width: calc(100% - 200px); overflow: hidden; text-overflow: ellipsis; }
