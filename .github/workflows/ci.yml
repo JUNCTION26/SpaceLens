@@ -22,3 +22,17 @@ jobs:
       - run: npm run check:boundaries
       - run: npm test
       - run: npm run build
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The API server uses Node built-ins only, so no install step is needed.
+      - run: npm run test:server
+      - name: Fails fast without a key
+        run: |
+          if node server/index.mjs 2> err.txt; then echo "started without a key"; exit 1; fi
+          grep -q "GEMINI_API_KEY is required" err.txt
