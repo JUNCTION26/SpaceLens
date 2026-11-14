@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  extractJsonBlock, fmtDims, isLikelyProductUrl, mainSection, parseDdgResults, parseDimensions, parseNumber, parsePrice, parsePrices,
+  extractJsonBlock, fmtDims, isCategoryUrl, isLikelyProductUrl, isListTitle, mainSection, parseDdgResults, parseDimensions, parseNumber, parsePrice, parsePrices,
   parseQueryLimits, parseReaderMarkdown, searchTerms, stripStoreSuffix, timeAgo,
 } from './parse';
 
@@ -96,6 +96,11 @@ Markdown Content:
     expect(isLikelyProductUrl('https://www.ikea.com/se/en/cat/three-seat-sofas-10670/')).toBe(false);
     expect(isLikelyProductUrl('https://www.walmart.com/browse/home/sofas-couches/gray/4044_103150_4038_9394595/Y29s')).toBe(false);
     expect(isLikelyProductUrl('https://www.amazon.com/3-seater-grey-sofa/s?k=3+seater+grey+sofa')).toBe(false);
+    expect(isCategoryUrl('https://rowicohome.com/en/furniture/sofas/3-seater-sofas/grey-3-seater-sofas')).toBe(true);
+    expect(isCategoryUrl('https://www.diy.com/home-furniture-storage/furniture/sofas.cat?Colour+group=Grey')).toBe(true);
+    expect(isCategoryUrl('https://jysk.se/vardagsrum/soffor/soffa-gedved-3-sits-gra')).toBe(false);
+    expect(isListTitle('Grey 3 Seater Sofas | John Lewis & Partners')).toBe(true);
+    expect(isListTitle('Soffa GEDVED 3-sits grå')).toBe(false);
   });
 });
 

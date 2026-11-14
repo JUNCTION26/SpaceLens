@@ -224,6 +224,9 @@ export function isLikelyProductUrl(url: string): boolean {
   return /\/(p|product|products|produkt|produkte|dp|item|artikel|art|pd)\//.test(p) || /[-_/]\d{5,}|[-_][a-z]?\d{4,}\/?$/.test(p) || /-p-?\d+/.test(p);
 }
 
+/** A page title that names a range of products ("Grey 3 seater sofas"), not one product. */
+export const isListTitle = (t: string) => /\b(sofas|soffor|couches|chairs|stolar|tables|beds|sängar|incredible prices)\b/i.test(t) && !/\d{5,}/.test(t);
+
 /** Category, search and listing pages: never a single product. */
 export function isCategoryUrl(url: string): boolean {
   let u: URL;
@@ -232,6 +235,8 @@ export function isCategoryUrl(url: string): boolean {
   if (/\/p\//.test(p)) return false;
   if (/\/(cat|category|categories|kategori|kategorie|c|b|s|sb2|browse|search|sok|suche|rooms|ideas|inspiration|blog|collections?|sp)\//.test(p)) return true;
   if (/[?&](k|q|query|search|colour|color)=/.test(u.search)) return true;
+  if (/\.cat$|\/(sofas|soffor|couches|chairs|stolar|tables|beds|sangar|furniture)\/[^/]*seater|-sofas\/?$|-soffor\/?$/.test(p)) return true;
+  if (/[?&][a-z+]*(colour|color|group|seats)[a-z+]*=/i.test(u.search)) return true;
   return p.split('/').filter(Boolean).length <= 1;
 }
 
