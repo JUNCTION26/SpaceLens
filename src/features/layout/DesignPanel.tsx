@@ -9,6 +9,7 @@ import { useReports } from '../design/reportStore';
 import { DecisionsPanel } from '../design/DecisionsPanel';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
+import { showLayouts } from './progress';
 import './layout.css';
 
 
@@ -59,6 +60,9 @@ export function DesignPanel() {
   const [pins, setPins] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const reports = useReports((s) => s.reports);
+  const running = useReports((s) => s.running);
+  const stages = useReports((s) => s.stages);
+  const current = running ? stages.find((x) => x.status === 'running') : undefined;
 
   // Layouts go stale when the room itself changes, not when furniture moves (applying one moves furniture).
   const roomSig = JSON.stringify([model.spaces.map((s) => s.polygon), model.openings.map((o) => [o.wallIndex, o.offsetM, o.widthM, o.kind]), model.ceilingM]);
@@ -82,9 +86,9 @@ export function DesignPanel() {
     if (override) useStore.getState().setRequirements(override);
     setBusy(true);
     try {
-      const res = await designRoom(useStore.getState().model, r, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true) });
-      useReports.getState().setReports(res.reports);
-      useStore.getState().setCandidates(res.candidates, res.infeasibility);
+      // Rule-based layouts arrive in a few seconds; model concepts and the second opinion update them in place.
+      const res = await designRoom(useStore.getState().model, r, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true), onProgress: (p) => showLayouts(p) });
+      showLayouts(res);
     } catch (e) {
       console.error(e);
       notify('Could not make layouts. Nothing changed.', {
@@ -150,7 +154,7 @@ export function DesignPanel() {
       )}
       <div className="layout-toolbar">
         <span className="muted">{candidates.length} layout{candidates.length > 1 ? 's' : ''}</span>
-        {busy && <span className="muted">Working...</span>}
+        {current ? <span className="layout-progress" role="status"><i aria-hidden="true" />{current.label}</span> : busy && <span className="muted">Working</span>}
         <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
       </div>
       {compare && (
@@ -185,6 +189,7 @@ export function DesignPanel() {
                   <strong>{c.name}</strong>
                   {!rep && <span className={`chip ${tone}`}>{passed}/{c.checks.length} checks</span>}
                   {nowFail > 0 && <span className="chip chip-bad">{nowFail} now fail</span>}
+                  {rep?.critique && <span className="chip layout-second" title={rep.critique.summary}>Second opinion {Math.round(rep.critique.score)}/10</span>}
                   {rep && <ScoreRing value={c.metrics.score} />}
                 </div>
                 {reasons.length > 0 ? (

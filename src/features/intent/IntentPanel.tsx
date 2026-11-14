@@ -8,6 +8,7 @@ import { useReports } from '../design/reportStore';
 import { useUi } from '../../ui/uiStore';
 import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
+import { showLayouts } from '../layout/progress';
 import './intent.css';
 
 const EXAMPLES = [
@@ -99,10 +100,15 @@ export function IntentPanel() {
       const res = await designRoom(st.model, r, {
         variants: 3, signal: ctrl.signal, brief: briefRef.current,
         onStage: (s) => { if (runRef.current === ctrl) useReports.getState().setStages(s); },
+        // Show rule-based layouts as soon as they exist; later phases update the same list.
+        onProgress: (p, phase) => {
+          if (runRef.current !== ctrl) return;
+          showLayouts(p);
+          if (phase === 'rules' && p.candidates.length) { st.setRequirements(r); useUi.getState().setTab('design', 'layouts'); }
+        },
       });
       if (runRef.current !== ctrl) return;
-      useReports.getState().setReports(res.reports);
-      st.setCandidates(res.candidates, res.infeasibility);
+      showLayouts(res);
       st.setRequirements(r);
       setTriedGen(true);
       if (res.candidates.length) {
