@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
     "docs:rules": "vite-node scripts/docs-rules.mjs rules",
     "docs:safety": "vite-node scripts/docs-rules.mjs safety",
     "eval:stoa": "node scripts/stoa-eval.mjs"
