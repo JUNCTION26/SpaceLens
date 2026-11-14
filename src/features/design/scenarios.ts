@@ -55,6 +55,15 @@ export function foldBed(): FurnitureItem {
   };
 }
 
+/** Gym equipment described by its owner: a treadmill and a weight bench. */
+function gymItem(id: string, name: string, w: number, d: number, h: number, clearance: { front: number; back: number; left: number; right: number }, faces: 'window' | 'none', color: string): FurnitureItem {
+  const spec: ObjectSpec = {
+    id: `spec-${id}`, name, prompt: name.toLowerCase(), size: { w, d, h }, parts: [], model: 'rules', latencyMs: 0, createdAt: 0,
+    semantics: { category: id, role: 'appliance', wallBacked: false, frontClearanceM: clearance.front, sideClearanceM: clearance.left, pairsWith: [], faces, tall: h > 1.2, description: name },
+  };
+  return { id, catalogId: 'generated', name, category: id, x: 1, y: 1, rotation: 0, w, d, h, clearance, locked: false, owned: false, priceSek: 0, priceStatus: 'estimated', color, sourceKind: 'generated', custom: spec };
+}
+
 const bay: Vec2[] = [{ x: 0, y: 0 }, { x: 1.5, y: 0 }, { x: 1.9, y: -0.6 }, { x: 3.1, y: -0.6 }, { x: 3.5, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 4.5 }, { x: 0, y: 4.5 }];
 const ell: Vec2[] = [{ x: 0, y: 0 }, { x: 7, y: 0 }, { x: 7, y: 3.6 }, { x: 4, y: 3.6 }, { x: 4, y: 6.5 }, { x: 0, y: 6.5 }];
 
@@ -124,8 +133,30 @@ export const SCENARIOS: Scenario[] = [
     model: room(ell, [opening('door', 'door', 4, 3.2, 0.9, 'in'), opening('w1', 'window', 0, 1.8, 1.6), opening('w2', 'window', 0, 5.4, 1.6), opening('w3', 'window', 5, 3.2, 1.4)]),
     ids: [['sofa-3', 1], ['coffee-table', 1], ['tv-unit', 1], ['rug-200', 1], ['armchair', 1], ['dining-4', 1], ['chair', 4], ['sideboard', 1], ['plant', 1]], req: null!,
   },
+  {
+    key: 'o-kitchen', title: 'Kitchen and dining for 6, 5 x 4.4 m', minScore: 65,
+    model: room(rect(5, 4.4), [opening('door', 'door', 2, 4.2, 0.9, 'in'), opening('win', 'window', 0, 2.5, 1.6)]),
+    ids: [['counter', 1], ['dining-6', 1], ['chair', 6], ['sideboard', 1], ['plant', 1]], req: null!,
+  },
+  {
+    key: 'p-gym', title: 'Home gym corner, 4 x 3.6 m', minScore: 60,
+    model: room(rect(4, 3.6), [opening('door', 'door', 2, 3.3, 0.8, 'in'), opening('win', 'window', 1, 1.8, 1.4)]),
+    ids: [['rug-160', 1], ['bookshelf-low', 1], ['plant', 1]], req: null!,
+    extra: () => [gymItem('treadmill', 'Treadmill', 0.8, 1.8, 1.4, { front: 0.3, back: 1.0, left: 0.4, right: 0.4 }, 'window', '#3a3f45'), gymItem('weight-bench', 'Weight bench', 0.5, 1.3, 0.45, { front: 0.4, back: 0.4, left: 0.6, right: 0.6 }, 'none', '#555b63')],
+  },
+  {
+    key: 'q-classroom', title: 'Classroom for 20, 8 x 7 m', minScore: 60,
+    model: room(rect(8, 7), [opening('door', 'door', 2, 7.2, 1.0, 'in'), opening('win1', 'window', 1, 2, 2.0), opening('win2', 'window', 1, 5, 2.0)]),
+    ids: [['desk-120', 10], ['chair', 20], ['desk-140', 1], ['office-chair', 1], ['tv-unit', 1], ['bookshelf', 2]], req: null!,
+  },
+  {
+    key: 'r-clinic', title: 'Clinic treatment room, wheelchair access, 4 x 4.5 m', minScore: 60,
+    model: room(rect(4, 4.5), [opening('door', 'door', 2, 3.2, 1.0, 'in'), opening('win', 'window', 0, 2.0, 1.2)]),
+    ids: [['treatment-bed', 1], ['clinic-stool', 1], ['desk-accessible', 1], ['office-chair', 1], ['storage-cabinet', 1], ['waiting-chair', 1]], req: null!,
+  },
 ];
 for (const s of SCENARIOS) s.req = brief(s.ids);
+SCENARIOS.find((s) => s.key === 'r-clinic')!.req.minRouteWidthM = 0.9;
 // In a bedroom the way to the window is a secondary path (60 cm); the door-to-bed paths are scored by the rules.
 for (const k of ['b-bedroom', 'f-kids', 'l-narrow']) SCENARIOS.find((s) => s.key === k)!.req.minRouteWidthM = 0.6;
 

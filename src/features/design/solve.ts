@@ -349,6 +349,7 @@ function rootPoses(ctx: Ctx, g: Group, spec: Spec): Pose[] | null {
 function benchPoses(ctx: Ctx, g: Group, spec: Extract<Spec, { kind: 'array' }>): Pose[] | null {
   const n = g.roots.length, f0 = ctx.byId.get(g.roots[0])!, W = f0.w, D = f0.d, pairs = Math.ceil(n / 2);
   const { gap, per, align } = spec.bench!;
+  if (per === 0) return classRows(ctx, g, spec);
   const u = { x: Math.cos(spec.rot), y: Math.sin(spec.rot) }, v = { x: -Math.sin(spec.rot), y: Math.cos(spec.rot) };
   const cx = (spec.x0 + spec.x1) / 2, cy = (spec.y0 + spec.y1) / 2;
   const ex = Math.abs(u.x) * (spec.x1 - spec.x0) / 2 + Math.abs(u.y) * (spec.y1 - spec.y0) / 2;
@@ -599,8 +600,42 @@ function arraySlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   return out;
 }
 
+/** Classroom rows: every desk faces the same way (towards the board), rows split by a walkway. */
+function classRows(ctx: Ctx, g: Group, spec: Extract<Spec, { kind: 'array' }>): Pose[] | null {
+  const n = g.roots.length, f0 = ctx.byId.get(g.roots[0])!, W = f0.w, D = f0.d;
+  const u = { x: Math.cos(spec.rot), y: Math.sin(spec.rot) }, v = { x: -Math.sin(spec.rot), y: Math.cos(spec.rot) };
+  const cx = (spec.x0 + spec.x1) / 2, cy = (spec.y0 + spec.y1) / 2;
+  const ex = Math.abs(u.x) * (spec.x1 - spec.x0) / 2 + Math.abs(u.y) * (spec.y1 - spec.y0) / 2;
+  const ey = Math.abs(v.x) * (spec.x1 - spec.x0) / 2 + Math.abs(v.y) * (spec.y1 - spec.y0) / 2;
+  const rows = spec.rows, cols = spec.cols, gap = spec.bench!.gap;
+  if (rows * cols < n) return null;
+  const pitch = D + Math.max(f0.clearance.front, 0.75) + 0.25; // desk, chair pull-out, a narrow pass
+  const len = cols * W + (cols > 3 ? gap : 0);
+  if (len / 2 > ex + 1e-6 || rows * pitch > 2 * ey + 1e-6) return null;
+  const out: Pose[] = [];
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols && out.length < n; j++) {
+    const lx = -len / 2 + W / 2 + j * W + (cols > 3 && j >= Math.ceil(cols / 2) ? gap : 0);
+    const ly = -ey + D / 2 + i * pitch + (2 * ey - rows * pitch) / 2;
+    // Front (the chair side) faces +v, so everyone looks towards -v.
+    out.push({ x: cx + u.x * lx + v.x * ly, y: cy + u.y * lx + v.y * ly, rotation: spec.rot });
+  }
+  return out.length === n ? out : null;
+}
+
 function benchSlots(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   const pairs = Math.ceil(g.roots.length / 2);
+  const board = [...ctx.byId.values()].some((f) => f.category === 'tv-unit');
+  if (board && g.roots.length >= 6) {
+    // A room with a board: rows facing it, each way round; the rules pick the one that looks at the board.
+    const b = ctx.room.box, base = ctx.room.walls[0]?.rot ?? 0, n = g.roots.length, out: Spec[] = [];
+    const regions = [{ x0: b.minX + 0.8, y0: b.minY + 0.8, x1: b.maxX - 0.8, y1: b.maxY - 0.8 }, { x0: b.minX + 0.6, y0: b.minY + 1.4, x1: b.maxX - 0.6, y1: b.maxY - 0.6 }, { x0: b.minX + 0.6, y0: b.minY + 0.6, x1: b.maxX - 0.6, y1: b.maxY - 1.4 }, { x0: b.minX + 1.4, y0: b.minY + 0.6, x1: b.maxX - 0.6, y1: b.maxY - 0.6 }, { x0: b.minX + 0.6, y0: b.minY + 0.6, x1: b.maxX - 1.4, y1: b.maxY - 0.6 }];
+    // Once the board is up, the rows turn to face it.
+    const tv = items.find((f) => f.category === 'tv-unit');
+    const look = tv ? { x: tv.x - ctx.room.centre.x, y: tv.y - ctx.room.centre.y } : null;
+    const qs = look ? [[0, 1, 2, 3].sort((a, c) => { const va = base + (a * Math.PI) / 2, vc = base + (c * Math.PI) / 2; return (Math.sin(va) * look.x - Math.cos(va) * look.y) > (Math.sin(vc) * look.x - Math.cos(vc) * look.y) ? -1 : 1; })[0]] : [0, 1, 2, 3];
+    for (let r = 2; r <= n; r++) { const c = Math.ceil(n / r); if (r * c - n >= c) continue; for (const reg of regions) for (const q of qs) out.push({ kind: 'array', ...reg, rows: r, cols: c, rot: base + (q * Math.PI) / 2, strategy: 0, bench: { gap: 0.9, per: 0, align: 0 } }); }
+    return out;
+  }
   const b = ctx.room.box, base = ctx.room.walls[0]?.rot ?? 0;
   // Rows run away from the main window wall, so every desk gets daylight from the side.
   const winLen = new Map<number, number>();
@@ -752,11 +787,13 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     if (facesWin) return 'Bed facing the window';
     return `Bed on the ${wallWord(ctx, wall)}`;
   }
+  if (spec.kind === 'array' && spec.bench && spec.bench.per === 0) return `Desks in ${spec.rows} rows facing the board`;
   if (spec.kind === 'array' && spec.bench) {
     const pairs = Math.ceil(p.group.roots.length / 2), clusters = Math.ceil(Math.min(spec.cols, pairs) / spec.bench.per) * spec.rows;
     const run = ctx.room.windows.length ? ' running from the windows' : '';
     return clusters > 1 ? `Desks in ${clusters} facing clusters of ${spec.bench.per * 2}${run}` : `Desks in one facing cluster${run}`;
   }
+  if (c === 'desk' && st.placed.some((q) => q.spec.kind === 'array' && q.spec.bench)) return wall != null ? `${root.name.replace(/\s+\d.*$/, '')} on the ${wallWord(ctx, wall)}` : 'Desk in the room';
   if (c === 'desk') {
     const desks = st.placed.filter((q) => q.items[0].category === 'desk');
     if (desks.length >= 2) {
@@ -772,6 +809,7 @@ function phrase(ctx: Ctx, st: State, p: Placed): string {
     if (wall != null && ctx.room.windows.some((o) => dot(o.inward, ctx.room.walls[wall].n) < -0.9)) return 'Desk facing the window';
     return wall != null ? `Desk on the ${wallWord(ctx, wall)}` : 'Desk in the room';
   }
+  if (c === 'tv-unit' && !p.items.some((f) => /^sofa/.test(f.category)) && ![...ctx.byId.values()].some((f) => /^sofa/.test(f.category))) return wall != null ? `Screen on the ${wallWord(ctx, wall)}` : 'Screen in the room';
   if (c === 'tv-unit') {
     const sofa = p.items.find((f) => /^sofa/.test(f.category));
     const floating = sofa && !layoutCtx(ctx, st.items).byId.get(sofa.id)?.back;
