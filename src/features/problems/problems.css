@@ -1,0 +1,37 @@
+/* Problems: severity dots, the hover card, fix buttons and the checks list. */
+.pb-dot { flex: none; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pb-error { background: var(--bad); }
+.pb-warn { background: var(--warn); }
+.pb-tip { background: var(--faint); }
+
+.pb-card {
+  position: absolute; z-index: 8; width: max-content; max-width: min(300px, calc(100% - 24px)); padding: 10px 12px; display: grid; gap: 10px;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+  font-size: var(--fs); color: var(--text); animation: pb-in 140ms var(--ease) both;
+}
+.pb-card-row { display: grid; gap: 8px; }
+.pb-card-row + .pb-card-row { padding-top: 10px; border-top: 1px solid var(--line); }
+.pb-card-title { margin: 0; display: flex; gap: 8px; align-items: baseline; line-height: 1.4; }
+.pb-card-title .pb-dot { transform: translateY(-1px); }
+.pb-more { justify-self: start; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.pb-more:hover { color: var(--text); text-decoration: underline; }
+
+.pb-fixes { display: flex; flex-wrap: wrap; gap: 6px; }
+.pb-fix {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel);
+  color: var(--text); font: 500 12px var(--font); cursor: pointer; white-space: nowrap;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.pb-fix:hover, .pb-fix:focus-visible { background: var(--hover); border-color: var(--accent); outline: none; }
+.pb-fix:active { transform: scale(.97); }
+.pb-fix.is-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pb-fix.is-primary:hover, .pb-fix.is-primary:focus-visible { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
+.pb-fix.is-remove { color: var(--muted); border-color: transparent; background: none; }
+.pb-fix.is-remove:hover, .pb-fix.is-remove:focus-visible { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: none; }
+.pb-fixes.is-compact .pb-fix { height: 26px; padding: 0 8px; }
+.pb-finding { font-size: var(--fs-sm); color: var(--muted); }
+.pb-finding::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: pb-dots 1.2s steps(4) infinite; }
+
+@keyframes pb-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes pb-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@media (prefers-reduced-motion: reduce) { .pb-card { animation: none; } .pb-fix { transition: none; } }
