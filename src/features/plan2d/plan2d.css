@@ -145,6 +145,8 @@
 .plan2d-item.is-bad .plan2d-item-body { stroke: var(--plan-ink); }
 .plan2d-mark { cursor: pointer; }
 .plan2d-mark-hit { fill: transparent; stroke: transparent; }
+/* Plan units are metres: a default 1-unit stroke would turn the hit circle into a metre-wide ring. */
+circle.plan2d-mark-hit { stroke: none; }
 .plan2d-mark-dot { stroke: var(--plan-floor); transition: r var(--dur) var(--ease); }
 .plan2d-mark.is-error .plan2d-mark-dot { fill: var(--bad); }
 .plan2d-mark.is-warn .plan2d-mark-dot { fill: var(--warn); }
