@@ -106,6 +106,8 @@ let generation = 0;
 
 /** Replace the voice (e.g. a neural TTS). */
 export function setSpeechEngine(e: SpeechEngine) { engine.cancel(); engine = e; }
+/** Go back to the browser's own voice. */
+export function useBrowserSpeech() { engine.cancel(); engine = new BrowserSpeech(); }
 export function setMuted(on: boolean) { muted = on; if (on) stopSpeaking(); }
 export const isSpeaking = () => pending > 0;
 /** What is being said right now (for echo filtering and captions). */
