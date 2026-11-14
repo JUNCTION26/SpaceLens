@@ -103,6 +103,10 @@ export interface FurnitureItem {
   sourceKind: SourceKind;
   /** Present when the object was generated to the person's own description. */
   custom?: ObjectSpec;
+  /** Height of the item's underside above the floor, metres. 0 or absent = stands on the floor. */
+  elevationM?: number;
+  /** Where it is fixed. Wall items hang on a wall and do not take floor space. */
+  mount?: 'floor' | 'wall' | 'ceiling';
   /** Present when the item comes from a real store listing. */
   listing?: StoreListing;
 }
@@ -301,6 +305,8 @@ export interface ObjectPart {
   profile?: Array<[number, number]>;
   /** Parts sharing a group move together (a fold-down bed platform, a drawer, a door). */
   group?: string;
+  /** Words printed on the part's front face: a name on a poster, a sign, a label. */
+  text?: { value: string; color?: string; background?: string; style?: 'sans' | 'serif' | 'script' | 'display' };
 }
 
 /** A moving group: how a fold-down bed drops, a drawer slides or a door swings. */
