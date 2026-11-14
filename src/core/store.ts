@@ -62,13 +62,27 @@ const initialModel = load<SpaceModel>(LS_MODEL) ?? sampleRoom();
 // VITE_GEMINI_KEY is only read from a local, gitignored .env.local during development.
 const devKey = import.meta.env.DEV ? ((import.meta.env.VITE_GEMINI_KEY as string | undefined) ?? '') : '';
 const storedSettings = load<Settings>(LS_SETTINGS);
+// A private setup link can carry the key after the hash (`#key=...`). The hash never reaches a
+// server; the key is saved in this browser and removed from the address bar at once.
+function keyFromLink(): string {
+  try {
+    const m = /[#&]key=([^&]+)/.exec(globalThis.location?.hash ?? '');
+    if (!m) return '';
+    const key = decodeURIComponent(m[1]);
+    const rest = globalThis.location.hash.replace(/[#&]key=[^&]+/, '').replace(/^&/, '#');
+    globalThis.history?.replaceState(null, '', globalThis.location.pathname + globalThis.location.search + (rest === '#' ? '' : rest));
+    return /^[0-9A-Za-z_.\-]{20,}$/.test(key) ? key : '';
+  } catch { return ''; }
+}
+const linkKey = keyFromLink();
 const initialSettings: Settings = {
   geminiModel: 'gemini-3.5-flash-lite',
   theme: 'system',
   ...(storedSettings ?? {}),
-  // In development the local env key wins, so a new key takes effect without clearing saved settings.
-  geminiKey: devKey || storedSettings?.geminiKey || '',
+  // A setup link wins, then the local development key, then whatever this browser saved.
+  geminiKey: linkKey || devKey || storedSettings?.geminiKey || '',
 };
+if (linkKey) save(LS_SETTINGS, initialSettings);
 // Older defaults were retired or too slow for interactive use.
 if (['gemini-2.5-flash', 'gemini-flash-latest'].includes(initialSettings.geminiModel)) initialSettings.geminiModel = 'gemini-3.5-flash-lite';
 
