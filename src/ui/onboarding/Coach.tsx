@@ -3,7 +3,8 @@ import { useStore } from '../../core/store';
 
 const KEY = 'spacelens.coach.done.v1';
 
-const nav = (k: string) => () => document.querySelector(`[data-nav="${k}"]`);
+// Only sidebar entries count: on phones the sidebar is hidden, so the tour ends after the plan step.
+const nav = (k: string) => () => visible(document.querySelector(`.sidebar [data-nav="${k}"]`));
 const visible = (el: Element | null) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? el : null; };
 
 const STEPS: Array<{ title: string; text: string; find: () => Element | null }> = [

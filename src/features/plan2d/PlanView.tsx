@@ -156,6 +156,18 @@ export function PlanView() {
   // Refit when a different model is loaded.
   const modelId = model.id;
   useEffect(() => { fit(); }, [modelId, fit]);
+  // Also refit when a different plan replaces the rooms (same project, new building), not on small edits.
+  const shape = useMemo(() => {
+    const b = model.spaces.length ? aabb(model.spaces.flatMap((s) => s.polygon)) : null;
+    return b ? { n: model.spaces.length, w: b.maxX - b.minX, h: b.maxY - b.minY, x: b.minX, y: b.minY } : null;
+  }, [model.spaces]);
+  const lastShape = useRef(shape);
+  useEffect(() => {
+    const a = lastShape.current, b = shape; lastShape.current = shape;
+    if (!a || !b) return;
+    const big = (p: number, q: number) => Math.abs(p - q) > 0.3 * Math.max(p, q, 1);
+    if (a.n !== b.n || big(a.w, b.w) || big(a.h, b.h) || Math.hypot(a.x - b.x, a.y - b.y) > 1) fit();
+  }, [shape, fit]);
 
   useEffect(() => {
     const el = svgRef.current; if (!el) return;
