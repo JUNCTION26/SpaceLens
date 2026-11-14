@@ -230,3 +230,21 @@ describe('planner programs', () => {
     for (const r of res.reports) expect(r.program.relations.some((x) => x.reason === 'Chair faces the secondary desk.' && x.target === 'd1')).toBe(false);
   }, 90000);
 });
+
+describe('describeLayout', () => {
+  it('names a layout by what was placed and only states things that hold', async () => {
+    const { describeLayout } = await import('./solve');
+    const m = bedroom();
+    const fs = [
+      { ...at('bed-double', 'bed', 2.4, 2.4, Math.PI / 2), clearance: { front: 0.6, back: 0, left: 0, right: 0 } },
+      at('nightstand', 'n1', 3.2, 2.4 - 0.945, Math.PI / 2), at('nightstand', 'n2', 3.2, 2.4 + 0.945, Math.PI / 2),
+      at('desk-120', 'desk', 0.3, 0.6, -Math.PI / 2), at('desk-chair', 'ch', 0.88, 0.6, Math.PI / 2),
+    ];
+    const d = describeLayout(m, fs);
+    expect(d.name).toMatch(/east wall/);
+    expect(d.name).toMatch(/desk by the window/i);
+    expect(d.summary.length).toBeGreaterThan(10);
+    const v = evaluateRules(m, fs);
+    for (const r of d.reasons) expect(v.some((x) => x.message === r.text && x.score >= 0.9)).toBe(true);
+  });
+});

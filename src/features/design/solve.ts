@@ -15,7 +15,7 @@ import {
   besideOptions, facingOptions, flankOptions, inFrontOptions, isStructural, programScore, relationScore, rotationFacing, rugOptions,
   seatArrangements, structuralRank, type Pose,
 } from './relations';
-import { designScore, explainDetailed } from './score';
+import { deductions, designScore, explainDetailed, pointsOf } from './score';
 import { isHostCategory, isSeatCategory, normaliseItem, semanticsOf } from './semantics';
 import { assignSeatHosts } from './program';
 
@@ -1262,3 +1262,50 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     infeasibility: null,
   };
 }
+
+// ---------------------------------------------------------------- honest descriptions
+export interface LayoutDescription {
+  /** Short name from the final poses, e.g. "Bed on the east wall, desk by the window". */
+  name: string;
+  /** The layout's strongest point and its main trade-off, from the rule verdicts. */
+  summary: string;
+  /** Per item: sentences that are true of this layout (rule verdicts that hold). */
+  reasons: Array<{ itemId: string; text: string }>;
+}
+
+/**
+ * Describe a solved layout from what was actually placed. Every sentence comes from the final poses or
+ * a rule verdict, so a card can never claim a wall, a window or a centre the layout does not have.
+ */
+export function describeLayout(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null = null, opts: { spaceId?: string } = {}): LayoutDescription {
+  const space = spaceOf(model, opts.spaceId);
+  if (!space || space.polygon.length < 3 || !furniture.length) return { name: 'Layout', summary: '', reasons: [] };
+  const room = buildRoom(model, space.id);
+  const L = analyse(room, furniture, req);
+  const verdicts = evaluateCtx(L);
+  const side = (wi: number) => { const n = room.walls[wi].n; return Math.abs(n.y) >= Math.abs(n.x) ? (n.y > 0 ? 'north' : 'south') : (n.x > 0 ? 'west' : 'east'); };
+  const nearWin = (a: AItem) => room.windows.some((w) => polyDist([w.a, w.b, w.b, w.a], a.poly) < 1.0);
+  const ph: string[] = [];
+  const first = (cats: string[]) => L.items.find((a) => cats.includes(a.f.category));
+  const bed = first(['bed', 'bunk-bed']), tv = first(['tv-unit']), sofa = first(['sofa', 'sofa-bed']), counter = first(['counter']), rec = first(['reception-desk']);
+  const desks = L.items.filter((a) => a.f.category === 'desk'), tables = L.items.filter((a) => /^(table|cafe-table)$/.test(a.f.category));
+  const noun = (a: AItem) => a.f.name.replace(/\s+\d.*$/, '');
+  if (bed) ph.push(bed.back && bed.back.gap < 0.1 ? `${noun(bed)} against the ${side(bed.back.wall)} wall` : `${noun(bed)} along the wall`);
+  if (tv && sofa) ph.push(`${noun(sofa)} facing the TV${tv.back ? ` on the ${side(tv.back.wall)} wall` : ''}`);
+  else if (sofa) ph.push(sofa.back && sofa.back.gap < 0.1 ? `${noun(sofa)} on the ${side(sofa.back.wall)} wall` : `${noun(sofa)} floating in the room`);
+  if (rec) ph.push(verdicts.some((v) => v.ruleId === 'reception-door' && v.score >= 0.9) ? 'Reception desk facing the entrance' : 'Reception desk in the room');
+  if (counter && counter.back) ph.push(`Counter on the ${side(counter.back.wall)} wall`);
+  if (desks.length >= 3) ph.push(`${desks.length} desks in facing clusters`);
+  else if (desks.length) ph.push(desks.length === 2 ? `Two desks${desks.some(nearWin) ? ' by the window' : ''}` : `Desk ${nearWin(desks[0]) ? 'by the window' : desks[0].back && desks[0].back.gap < 0.1 ? `on the ${side(desks[0].back.wall)} wall` : 'in the room'}`);
+  if (tables.length > 1) ph.push(`${tables.length} tables`);
+  else if (tables.length) ph.push(`${noun(tables[0])} ${wallGapOf(room, tables[0]) > 0.4 ? 'in the open floor' : 'by the wall'}`);
+  const name = ph.slice(0, 2).map((s, i) => (i ? lc(s) : s)).join(', ') || 'Layout';
+  const ded = deductions(verdicts);
+  const strength = verdicts.filter((v) => v.severity === 'strong' && v.score >= 0.95 && v.itemIds.length).sort((a, b) => pointsOf(b.ruleId, b.severity) - pointsOf(a.ruleId, a.severity))[0];
+  const weak = ded[0] ? verdicts.filter((v) => v.ruleId === ded[0].ruleId).sort((a, b) => a.score - b.score)[0] : undefined;
+  const summary = [strength?.message, weak && weak.score < 0.75 ? `Trade-off: ${lc(weak.message)}` : undefined].filter(Boolean).join(' ');
+  const reasons: LayoutDescription['reasons'] = [];
+  for (const a of L.items) for (const v of verdicts) if (v.severity !== 'hard' && v.score >= 0.9 && v.itemIds[0] === a.f.id && pointsOf(v.ruleId, v.severity) > 0) reasons.push({ itemId: a.f.id, text: v.message });
+  return { name, summary, reasons };
+}
+function wallGapOf(room: RoomCtx, a: AItem): number { return Math.min(...a.poly.map((p) => Math.min(...room.walls.map((w) => Math.abs(dot(sub(p, w.a), w.n)))))); }
