@@ -471,7 +471,7 @@ async function building(c) {
 
 async function drawings(c) {
   await c.open('nav=drawings&sample=1&view=split');
-  const sample = await c.page.locate('.drawings-sample');
+  const sample = await c.page.waitFor(`!!document.querySelector('.drawings-sample')`, 30000).catch(() => false);
   if (!c.ok(sample, 'sample drawings are offered')) { await c.shot('empty'); return; }
   await c.page.click('.drawings-sample');
   const loaded = await c.page.waitFor(`!!document.querySelector('.drawings-sheet img')`, 90000).catch(() => false);
