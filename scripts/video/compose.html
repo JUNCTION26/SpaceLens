@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SpaceLens video compositor</title>
+<style>html, body { margin: 0; background: #000; } canvas { display: block; width: 480px; height: 270px; }</style>
+</head>
+<body>
+<canvas id="cv" width="1920" height="1080"></canvas>
+<script type="module">
+// Plays the recorded app frames on a canvas at their real timing, adds camera moves, captions,
+// title cards and narration, and encodes the result with WebCodecs, frame by frame. Driven by /edl.json.
+import { WebmMuxer } from './webm-mux.js';
+import { Mp4Muxer } from './mp4-mux.js';
+
+const log = (m) => { console.log(m); fetch('/log', { method: 'POST', body: String(m) }).catch(() => {}); };
+const edl = await (await fetch('/edl.json')).json();
+const W = edl.w, H = edl.h;
+const cv = document.getElementById('cv');
+cv.width = W; cv.height = H;
+const g = cv.getContext('2d');
+const FONT = '"Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif';
+const ACCENT = '#6b77f0';
+const XF = 0.45; // crossfade between scenes, seconds
+
+// ---------- frames: global list, decoded in a sliding window ----------
+const all = [];
+for (const s of edl.scenes) {
+  if (s.kind !== 'clip') continue;
+  s.first = all.length;
+  for (const f of s.clip.frames) all.push({ url: f.url, t: f.t });
+  s.last = all.length - 1;
+}
+const cache = new Map(); // index -> ImageBitmap | Promise
+let inflight = 0;
+function want(i) {
+  if (i < 0 || i >= all.length || cache.has(i)) return;
+  inflight++;
+  const p = fetch(all[i].url).then((r) => r.blob()).then((b) => createImageBitmap(b)).then((bmp) => { cache.set(i, bmp); }).catch(() => { cache.delete(i); }).finally(() => { inflight--; });
+  cache.set(i, p);
+}
+const ready = (i) => { const v = cache.get(i); return v && !(v instanceof Promise) ? v : null; };
+function frameFor(s, local) {
+  const raw = Math.min(s.clip.rawDur, Math.max(0, local * s.clip.speed));
+  const fr = s.clip.frames;
+  let lo = 0, hi = fr.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (fr[mid].t <= raw) lo = mid; else hi = mid - 1; }
+  return s.first + lo;
+}
+function bitmapAt(idx, floor) {
+  for (let i = idx; i >= floor; i--) { const b = ready(i); if (b) return b; }
+  for (let i = idx + 1; i <= Math.min(all.length - 1, idx + 6); i++) { const b = ready(i); if (b) return b; }
+  return null;
+}
+function pump(idx, keep) {
+  for (let i = idx; i < idx + 36 && inflight < 6; i++) want(i);
+  for (const k of cache.keys()) if (k < idx - 3 && !keep.has(k)) { const b = cache.get(k); if (!(b instanceof Promise)) b.close?.(); cache.delete(k); }
+}
+
+// ---------- camera ----------
+const ease = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
+function fitView(r) {
+  if (!r) return [0, 0, 1, 1];
+  let [x, y, w, h] = r;
+  const aspect = (W / H) / (16 / 9); // views are in normalised frame units of a 16:9 frame
+  const cx = x + w / 2, cy = y + h / 2;
+  // Keep the aspect, never zoom past 2.2x, never less than the rect.
+  let vw = Math.max(w, h * aspect, 1 / 2.2);
+  vw = Math.min(1, vw);
+  const vh = vw / aspect;
+  let vx = Math.min(1 - vw, Math.max(0, cx - vw / 2));
+  let vy = Math.min(1 - vh, Math.max(0, cy - vh / 2));
+  return [vx, vy, vw, vh];
+}
+function viewAt(s, local) {
+  const f = s.clip.focus;
+  let cur = [0, 0, 1, 1];
+  let prev = cur;
+  for (const k of f) {
+    if (k.t > local) break;
+    prev = cur;
+    const target = fitView(k.rect);
+    const e = ease((local - k.t) / (k.dur ?? 1.0));
+    cur = prev.map((v, i) => v + (target[i] - v) * e);
+  }
+  return cur;
+}
+
+// ---------- drawing ----------
+function roundRect(x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function drawClip(s, local, alpha) {
+  const idx = frameFor(s, local);
+  const bmp = bitmapAt(idx, s.first);
+  if (!bmp) return;
+  const [vx, vy, vw, vh] = viewAt(s, local);
+  const put = (b, a) => { g.globalAlpha = a; g.drawImage(b, vx * b.width, vy * b.height, vw * b.width, vh * b.height, 0, 0, W, H); };
+  g.imageSmoothingQuality = 'high';
+  put(bmp, alpha);
+  // Footage recorded at a few frames a second: dissolve into the next frame so motion reads smoothly.
+  if (idx < s.last) {
+    const raw = Math.min(s.clip.rawDur, local * s.clip.speed);
+    const ta = all[idx].t, tb = all[idx + 1].t;
+    const win = Math.min(tb - ta, 0.6);
+    const a = (raw - (tb - win)) / Math.max(win, 1e-3);
+    const nb = a > 0 ? ready(idx + 1) : null;
+    if (nb) put(nb, alpha * Math.min(1, a));
+  }
+  g.globalAlpha = 1;
+}
+function drawCard(s, local, alpha) {
+  g.globalAlpha = alpha;
+  const grd = g.createLinearGradient(0, 0, W, H);
+  grd.addColorStop(0, '#0f1222'); grd.addColorStop(1, '#1d2250');
+  g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  // soft accent glow
+  const rg = g.createRadialGradient(W * 0.72, H * 0.3, 10, W * 0.72, H * 0.3, W * 0.6);
+  rg.addColorStop(0, 'rgba(107,119,240,0.35)'); rg.addColorStop(1, 'rgba(107,119,240,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, W, H);
+  const k = ease(local / 0.8);
+  const c = s.card;
+  g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#ffffff';
+  g.font = `700 ${168}px ${FONT}`;
+  const ty = c.small ? H * 0.40 : H * 0.47;
+  g.globalAlpha = alpha * k;
+  g.fillText(c.title, W / 2, ty + (1 - k) * 30);
+  g.fillStyle = ACCENT; g.fillRect(W / 2 - 70, ty + 44, 140, 8);
+  g.fillStyle = '#e6e9ff';
+  g.font = `500 ${56}px ${FONT}`;
+  c.lines.forEach((l, i) => { const kk = ease((local - 0.3 - i * 0.25) / 0.6); g.globalAlpha = alpha * kk; g.fillText(l, W / 2, ty + 150 + i * 78); });
+  if (c.small) {
+    g.fillStyle = '#aeb5e0'; g.font = `400 ${38}px ${FONT}`;
+    c.small.forEach((l, i) => { const kk = ease((local - 0.9 - i * 0.25) / 0.6); g.globalAlpha = alpha * kk; g.fillText(l, W / 2, ty + 150 + c.lines.length * 78 + 60 + i * 56); });
+  }
+  g.globalAlpha = 1; g.textAlign = 'left';
+}
+function drawCaption(s, local) {
+  const caps = s.captions ?? [];
+  let cur = null;
+  for (const c of caps) if (local >= c.t0 && local < c.t1) cur = c;
+  if (!cur) return;
+  const kin = ease((local - cur.t0) / 0.35), kout = ease((cur.t1 - local) / 0.3);
+  const k = Math.min(kin, kout);
+  g.save();
+  g.globalAlpha = k;
+  g.font = `600 54px ${FONT}`;
+  const tw = g.measureText(cur.text).width;
+  let sw = 0;
+  if (cur.sub) { g.font = `400 36px ${FONT}`; sw = g.measureText(cur.sub).width; }
+  const bw = Math.max(tw, sw) + 80, bh = cur.sub ? 160 : 108;
+  const x = 72, y = H - 80 - bh + (1 - kin) * 24;
+  g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = 30;
+  g.fillStyle = 'rgba(14,16,28,0.86)'; roundRect(x, y, bw, bh, 22); g.fill();
+  g.shadowBlur = 0;
+  g.fillStyle = ACCENT; roundRect(x, y, 10, bh, 5); g.fill();
+  g.fillStyle = '#ffffff'; g.font = `600 54px ${FONT}`; g.textBaseline = 'middle';
+  g.fillText(cur.text, x + 44, y + (cur.sub ? 58 : bh / 2 + 2));
+  if (cur.sub) { g.fillStyle = '#c9cff5'; g.font = `400 36px ${FONT}`; g.fillText(cur.sub, x + 44, y + 116); }
+  g.restore();
+}
+function drawChapter(s, local) {
+  if (!s.chapter) return;
+  const k = Math.min(ease(local / 0.4), ease((s.dur - local) / 0.3));
+  g.save(); g.globalAlpha = k;
+  g.font = `600 30px ${FONT}`;
+  const label = `${String(s.n).padStart(2, '0')}  ${s.chapter}`;
+  const tw = g.measureText(label).width;
+  g.fillStyle = 'rgba(14,16,28,0.78)'; roundRect(56, 44, tw + 48, 58, 29); g.fill();
+  g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.fillText(label, 80, 74);
+  g.restore();
+}
+function drawProgress(T) {
+  const k = Math.min(1, T / edl.total);
+  g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(0, H - 8, W, 8);
+  g.fillStyle = ACCENT; g.fillRect(0, H - 8, W * k, 8);
+}
+function sceneAt(T) { let i = 0; while (i < edl.scenes.length - 1 && T >= edl.scenes[i + 1].start) i++; return i; }
+function drawScene(s, local, alpha) { if (s.kind === 'card') drawCard(s, local, alpha); else drawClip(s, local, alpha); }
+function render(T) {
+  const i = sceneAt(T), s = edl.scenes[i], local = T - s.start;
+  const keep = new Set();
+  if (i > 0 && edl.scenes[i - 1].kind === 'clip') keep.add(edl.scenes[i - 1].last);
+  if (s.kind === 'clip') pump(frameFor(s, local), keep);
+  else { const nx = edl.scenes.slice(i + 1).find((x) => x.kind === 'clip'); if (nx) pump(nx.first, keep); }
+  g.fillStyle = '#0d0f14'; g.fillRect(0, 0, W, H);
+  if (i > 0 && local < XF) {
+    const p = edl.scenes[i - 1];
+    drawScene(p, p.dur, 1);
+    drawScene(s, local, ease(local / XF));
+  } else drawScene(s, local, 1);
+  if (s.kind === 'clip') { drawCaption(s, local); drawChapter(s, local); }
+  if (T > 0.05) drawProgress(T);
+}
+
+// ---------- audio: the narration mixed offline into one track ----------
+const RATE = 48000;
+async function mixAudio() {
+  const clips = edl.scenes.filter((s) => s.audio);
+  if (!clips.length) return null;
+  const len = Math.ceil((edl.total + 0.5) * RATE);
+  const off = new OfflineAudioContext(2, len, RATE);
+  for (const s of clips) {
+    try {
+      const buf = await off.decodeAudioData(await (await fetch(s.audio.url)).arrayBuffer());
+      const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(s.start + s.audio.at);
+    } catch (e) { log(`audio ${s.id} failed: ${e.message}`); }
+  }
+  return off.startRendering();
+}
+
+// ---------- encode: every frame rendered at its exact time, so a busy machine only makes it slower ----------
+async function need(T) {
+  const i = sceneAt(T), s = edl.scenes[i], local = T - s.start;
+  const ids = [];
+  if (s.kind === 'clip') { const k = frameFor(s, local); ids.push(k); if (k < s.last) ids.push(k + 1); }
+  if (i > 0 && local < XF && edl.scenes[i - 1].kind === 'clip') ids.push(edl.scenes[i - 1].last);
+  for (const k of ids) want(k);
+  for (const k of ids) { const v = cache.get(k); if (v instanceof Promise) await v; }
+}
+
+function feedAudio(encoder, buf) {
+  const step = 4800;
+  for (let o = 0; o < buf.length; o += step) {
+    const n = Math.min(step, buf.length - o);
+    const data = new Float32Array(n * 2);
+    data.set(buf.getChannelData(0).subarray(o, o + n), 0);
+    data.set(buf.getChannelData(1).subarray(o, o + n), n);
+    const ad = new AudioData({ format: 'f32-planar', sampleRate: RATE, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((o / RATE) * 1e6), data });
+    encoder.encode(ad);
+    ad.close();
+  }
+}
+
+async function encodeAll() {
+  const audio = await mixAudio();
+  const outs = [];
+  const fail = (e) => log(`encoder error: ${e.message}`);
+  if (edl.webm) {
+    const mux = new WebmMuxer({ video: { codec: 'V_VP9', width: W, height: H }, audio: audio ? { sampleRate: RATE, channels: 2 } : null });
+    const v = new VideoEncoder({ output: (c, m) => mux.add(1, c, m), error: fail });
+    v.configure({ codec: 'vp09.00.10.08', width: W, height: H, bitrate: edl.videoBps, framerate: edl.fps, latencyMode: 'quality' });
+    let a = null;
+    if (audio) { a = new AudioEncoder({ output: (c, m) => mux.add(2, c, m), error: fail }); a.configure({ codec: 'opus', sampleRate: RATE, numberOfChannels: 2, bitrate: 160000 }); }
+    outs.push({ name: edl.webm, v, a, mux, finish: () => mux.finish(edl.total * 1000) });
+  }
+  if (edl.mp4) {
+    const mux = new Mp4Muxer({ video: { width: W, height: H }, audio: audio ? { sampleRate: RATE, channels: 2, bitrate: 160000 } : null });
+    const v = new VideoEncoder({ output: (c, m) => mux.addVideo(c, m), error: fail });
+    v.configure({ codec: 'avc1.640028', width: W, height: H, bitrate: edl.videoBps, framerate: edl.fps, latencyMode: 'realtime', avc: { format: 'avc' } });
+    let a = null;
+    if (audio) { a = new AudioEncoder({ output: (c, m) => mux.addAudio(c, m), error: fail }); a.configure({ codec: 'mp4a.40.2', sampleRate: RATE, numberOfChannels: 2, bitrate: 160000 }); }
+    outs.push({ name: edl.mp4, v, a, mux, finish: () => mux.finish() });
+  }
+  if (audio) for (const o of outs) feedAudio(o.a, audio);
+
+  const N = Math.round(edl.total * edl.fps);
+  const t0 = performance.now();
+  for (let i = 0; i < N; i++) {
+    const T = i / edl.fps;
+    await need(T);
+    render(T);
+    const vf = new VideoFrame(cv, { timestamp: Math.round((i * 1e6) / edl.fps), duration: Math.round(1e6 / edl.fps) });
+    for (const o of outs) o.v.encode(vf, { keyFrame: i % (edl.fps * 2) === 0 });
+    vf.close();
+    while (outs.some((o) => o.v.encodeQueueSize > 6)) await new Promise((r) => setTimeout(r, 4));
+    if (i % (edl.fps * 10) === 0) log(`frame ${i} / ${N} (${((performance.now() - t0) / 1000).toFixed(0)} s)`);
+  }
+  for (const o of outs) { await o.v.flush(); if (o.a) await o.a.flush(); }
+  for (const o of outs) {
+    const blob = o.finish();
+    log(`${o.name}: ${(blob.size / 1e6).toFixed(1)} MB, ${N} frames in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+    await fetch(`/upload?name=${encodeURIComponent(o.name)}`, { method: 'POST', body: blob });
+  }
+}
+
+async function poster() {
+  const s = edl.scenes.find((x) => x.id === edl.posterScene) ?? edl.scenes.find((x) => x.kind === 'clip');
+  if (s && s.kind === 'clip') {
+    const idx = frameFor(s, s.dur * (edl.posterAt ?? 0.8));
+    want(idx);
+    const t0 = performance.now();
+    while (!ready(idx) && performance.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 50));
+    const bmp = ready(idx);
+    g.fillStyle = '#0d0f14'; g.fillRect(0, 0, W, H);
+    if (bmp) g.drawImage(bmp, 0, 0, W, H);
+    const grd = g.createLinearGradient(0, 0, W * 0.75, 0);
+    grd.addColorStop(0, 'rgba(12,14,30,0.92)'); grd.addColorStop(0.6, 'rgba(12,14,30,0.65)'); grd.addColorStop(1, 'rgba(12,14,30,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#fff'; g.font = `700 150px ${FONT}`; g.textBaseline = 'alphabetic'; g.fillText('SpaceLens', 110, 470);
+    g.fillStyle = ACCENT; g.fillRect(116, 512, 140, 8);
+    g.fillStyle = '#e6e9ff'; g.font = `500 54px ${FONT}`;
+    ['Measure a room.', 'Design it.', 'Walk through it.'].forEach((l, i) => g.fillText(l, 116, 620 + i * 72));
+  }
+  const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+  await fetch(`/upload?name=${encodeURIComponent(edl.posterName)}`, { method: 'POST', body: blob });
+}
+
+window.__compose = {
+  /** Render single frames to PNG for a quick look without encoding. */
+  async stills(times) {
+    for (const T of times) {
+      await need(T); render(T);
+      const b = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      await fetch(`/check?name=still-${String(T).replace('.', '_')}.png`, { method: 'POST', body: b });
+    }
+  },
+  async run() {
+  try {
+    if (edl.posterName) await poster();
+    await encodeAll();
+    log('done');
+  } catch (e) { log(`ERROR ${e.stack || e.message}`); }
+} };
+log(`ready: ${all.length} frames, ${edl.total.toFixed(1)} s`);
+</script>
+</body>
+</html>
