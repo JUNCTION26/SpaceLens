@@ -518,7 +518,15 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
 
   const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height));
   const framed = useRef<{ key: string; aspect: number; mode: CamMode } | null>(null);
+  // Where the last glide ended, for controls that mount after the first framing.
+  const lastT = useRef<THREE.Vector3 | null>(null);
   const flyTo = (toP: THREE.Vector3, toT: THREE.Vector3) => {
+    if (controls) {
+      // spend any leftover inertia now, so the camera does not drift off the new view after the glide
+      const c = controls as unknown as { enableDamping: boolean };
+      const damp = c.enableDamping; c.enableDamping = false; controls.update(); c.enableDamping = damp;
+    }
+    lastT.current = toT.clone();
     const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
     anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP: toP.clone(), toT: toT.clone() };
     gesture.current.touched = false;
@@ -531,6 +539,7 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
   boxRef.current = { minX: room.cx - room.w / 2, minY: room.cy - room.d / 2, maxX: room.cx + room.w / 2, maxY: room.cy + room.d / 2, ceil: room.model.ceilingM || 2.5 };
   useEffect(() => {
     if (!controls) return;
+    if (lastT.current && !anim.current) { controls.target.copy(lastT.current); controls.update(); }
     const start = () => { anim.current = null; gesture.current.touched = true; };
     const change = () => {
       if (anim.current) return;
@@ -707,7 +716,7 @@ function DevHandle({ mode, extra }: { mode: string; extra: MutableRefObject<Reco
         const s = get();
         const c = s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean } | null;
         const t = c?.target ?? new THREE.Vector3();
-        return { p: r(s.camera.position), t: r(t), dist: +s.camera.position.distanceTo(t).toFixed(3), enabled: c?.enabled ?? null, frameloop: s.frameloop, dpr: s.viewport.dpr };
+        return { p: r(s.camera.position), t: r(t), dist: +s.camera.position.distanceTo(t).toFixed(3), enabled: c?.enabled ?? null, frameloop: s.frameloop, dpr: s.viewport.dpr, lost: s.gl.getContext().isContextLost() };
       },
       mode,
       get frames() { return get().gl.info.render.frame; },
@@ -937,28 +946,38 @@ export function SceneView() {
   useEffect(() => { applyDemoLink(); }, []);
 
   /* ----- Full screen: the 3D view alone, with the control strip fading out while the mouse rests ----- */
+  // Where the Fullscreen API is missing or refused (iPhone, embedded pages) the view fills the window instead.
+  const [pseudoFs, setPseudoFs] = useState(false);
   const toggleFs = () => {
     const el = wrap.current;
     if (!el) return;
+    if (pseudoFs) { setPseudoFs(false); return; }
     if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); return; }
     const p = el.requestFullscreen?.();
-    if (!p) { useStore.getState().toast('Full screen is not available here', 'warn'); return; }
-    p.catch(() => useStore.getState().toast('Full screen is not available here', 'warn'));
+    if (!p) { setPseudoFs(true); return; }
+    p.catch(() => setPseudoFs(true));
   };
   useEffect(() => {
     const on = () => setFs(!!wrap.current && document.fullscreenElement === wrap.current);
     document.addEventListener('fullscreenchange', on);
     return () => document.removeEventListener('fullscreenchange', on);
   }, []);
+  useEffect(() => {
+    if (!pseudoFs) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPseudoFs(false); };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [pseudoFs]);
+  const full = fs || pseudoFs;
   const idleT = useRef<number | undefined>(undefined);
   const wake = () => {
-    if (!fs) return;
+    if (!full) return;
     setIdle(false);
     clearTimeout(idleT.current);
     idleT.current = window.setTimeout(() => setIdle(true), 2500);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (fs) wake(); else { clearTimeout(idleT.current); setIdle(false); } }, [fs]);
+  useEffect(() => { if (full) wake(); else { clearTimeout(idleT.current); setIdle(false); } }, [full]);
 
   /* ----- Walk: pointer lock for mouse look ----- */
   const lock = () => {
@@ -1113,6 +1132,9 @@ export function SceneView() {
   const downAt = useRef<{ x: number; y: number } | null>(null);
   const onDown = (e: React.PointerEvent) => {
     downAt.current = { x: e.clientX, y: e.clientY };
+    // The orbit controls cancel the default pointer action, so a search box elsewhere would keep the
+    // keyboard; take focus so F, Home and WASD reach the 3D view right after a click in it.
+    if (wrap.current && document.activeElement !== wrap.current) wrap.current.focus({ preventScroll: true });
     if (menu) setMenu(null);
     if (mode === 'walk' && !locked) drag.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
   };
@@ -1149,7 +1171,7 @@ export function SceneView() {
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
   const devExtra = useRef<Record<string, unknown>>({});
-  devExtra.current = { locked, lockFailed, fs, eye, menu };
+  devExtra.current = { locked, lockFailed, fs, pseudoFs, eye, menu };
   const hint = touring || recording ? null
     : COARSE ? 'Tap to move, drag to look'
       : locked ? 'WASD to move, Shift to run, Esc to release the mouse'
@@ -1157,7 +1179,7 @@ export function SceneView() {
           : 'Click to look around, WASD to move';
 
   return (
-    <div className={`scene3d${fs ? ' is-fs' : ''}${idle ? ' is-idle' : ''}`} ref={wrap} style={{ background: backdrop }}
+    <div className={`scene3d${full ? ' is-fs' : ''}${pseudoFs ? ' is-pseudo' : ''}${idle ? ' is-idle' : ''}`} ref={wrap} tabIndex={-1} style={{ background: backdrop }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onClick}>
       <Canvas shadows dpr={[1, 2]} performance={{ min: 0.6, debounce: 250 }} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
         gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
@@ -1205,8 +1227,8 @@ export function SceneView() {
             <Icon name="walk" />
           </button>
           {touring && <button className="scene3d-ib on" onClick={stopTour} aria-label="Stop tour" title="Stop tour"><Icon name="pause" /></button>}
-          <button className={`scene3d-ib${fs ? ' on' : ''}`} onClick={toggleFs} aria-pressed={fs} aria-label="Full screen" title={fs ? 'Leave full screen (Esc)' : 'Full screen (Shift+F)'}>
-            <Icon name={fs ? 'x' : 'maximize'} />
+          <button className={`scene3d-ib${full ? ' on' : ''}`} onClick={toggleFs} aria-pressed={full} aria-label="Full screen" title={full ? 'Leave full screen (Esc)' : 'Full screen (Shift+F)'}>
+            <Icon name={full ? 'x' : 'maximize'} />
           </button>
           <button className={`scene3d-ib${menu === 'help' ? ' on' : ''}`} onClick={() => setMenu(menu === 'help' ? null : 'help')} aria-expanded={menu === 'help'} aria-label="Controls" title="Controls">
             <span className="scene3d-q" aria-hidden="true">?</span>
