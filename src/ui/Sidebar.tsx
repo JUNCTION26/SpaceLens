@@ -18,7 +18,7 @@ export function Sidebar({ active }: { active: NavItem }) {
             <div className="nav-label">{g}</div>
             {NAV.filter((n) => n.group === g).map((n) => (
               <button key={n.key} data-nav={n.key} className={`nav-item${n.key === active.key ? ' on' : ''}`} aria-current={n.key === active.key ? 'page' : undefined}
-                title={collapsed ? n.label : undefined} onClick={() => open(n.key)}>
+                title={collapsed ? n.label : n.hint} onClick={() => open(n.key)}>
                 <Icon name={n.icon} size={16} /><span>{n.label}</span>
               </button>
             ))}
