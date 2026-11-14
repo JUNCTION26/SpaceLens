@@ -18,13 +18,16 @@ function Row({ p }: { p: Problem }) {
       <SeverityDot severity={p.severity} />
       <div className="referee-row-body">
         {p.itemIds.length || p.openingIds.length
-          ? <button type="button" className="referee-title" onClick={show} title={p.title}>{p.title}</button>
-          : <p className="referee-title" title={p.title}>{p.title}</p>}
+          ? <button type="button" className="referee-title" onClick={show} title={p.title}>{clip(p.title)}</button>
+          : <p className="referee-title" title={p.title}>{clip(p.title)}</p>}
         <FixButtons problem={p} compact max={2} />
       </div>
     </li>
   );
 }
+
+/** Generated titles can run long; show the first six words. */
+export const clip = (t: string, n = 6) => { const w = t.split(/\s+/); return w.length > n ? `${w.slice(0, n).join(' ')}…` : t; };
 
 export const ChecksPanel = memo(function ChecksPanel() {
   const problems = useProblems((s) => s.problems);

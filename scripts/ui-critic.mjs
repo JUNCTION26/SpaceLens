@@ -49,6 +49,10 @@ const METRICS = `(() => {
   const vis = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.right < 0 || r.top > H || r.left > W) return false;
+    // Closed <details> keep their content laid out (content-visibility: hidden), so ask the browser directly.
+    if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) return false;
+    const shut = el.closest('details:not([open])');
+    if (shut && !el.closest('summary')) return false;
     for (let e = el; e && e !== document.body; e = e.parentElement) {
       const cs = getComputedStyle(e);
       if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05) return false;
@@ -109,7 +113,7 @@ Return only JSON: {"score": number, "visibleControlCount": number, "topProblems"
 "remove": [string] (elements to delete outright), "hide": [string] (move behind More/Details/hover), "keep": [string] (what works)}.
 Be concrete: name elements by their visible text.`;
 
-const MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+const MODELS = ['gemini-3.8-flash', 'gemini-4-hydrogen', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
 let firstModel = 0; // a model that answers 404/400 is skipped for the rest of the run
 let lastError = '';
 async function critique(png, screen) {

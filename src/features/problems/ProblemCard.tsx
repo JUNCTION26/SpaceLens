@@ -43,7 +43,7 @@ export function ProblemCard({ problems, style, onEnter, onLeave, onClose }: {
       onKeyDown={(e) => { if (e.key === 'Escape') onClose?.(); }}>
       {shown.map((p) => (
         <div key={p.id} className="pb-card-row">
-          <p className="pb-card-title" title={p.title}><SeverityDot severity={p.severity} />{p.title}</p>
+          <p className="pb-card-title" title={p.title}><SeverityDot severity={p.severity} />{p.title.split(/\s+/).length > 6 ? `${p.title.split(/\s+/).slice(0, 6).join(' ')}…` : p.title}</p>
           <FixButtons problem={p} max={2} />
         </div>
       ))}
