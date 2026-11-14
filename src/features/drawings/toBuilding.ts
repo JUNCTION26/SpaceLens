@@ -87,7 +87,8 @@ export function buildFromPaths(pp: PagePaths, items: TextItem[], page: number, o
   const W = plan.pageW, H = plan.pageH;
   const norm = (p: P): Vec2 => ({ x: p.x / W, y: p.y / H });
   const m = plan.mPerPt ?? 0;
-  const ang = plan.angle;
+  // keep the sheet's orientation: turn by the smallest angle that squares the walls to the axes
+  const ang = plan.angle > Math.PI / 4 ? plan.angle - Math.PI / 2 : plan.angle;
   const cos = Math.cos(-ang), sin = Math.sin(-ang);
   // page points -> model metres (rotated so the walls run along the axes)
   const allPts = plan.rooms.flatMap((r) => r.polygon);

@@ -133,7 +133,13 @@ export function DrawingsPanel() {
       try { imageUrl = URL.createObjectURL(await (await fetch(pg.dataUrl)).blob()); } catch { /* keep the data URL */ }
       const out = drawingToBuilding(doc, page, { imageUrl });
       setBuilt({ page, model: out.model, report: out.report });
-      setPickRoom(null); setOverlay(false); setTool('pan'); setZoom(1); setPan({ x: 0, y: 0 });
+      setPickRoom(null); setOverlay(false); setTool('pan');
+      // frame the detected building on the sheet
+      const pts = out.report.rooms.flatMap((r) => r.outline);
+      if (pts.length) {
+        const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
+        flyTo([{ page, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }]);
+      } else { setZoom(1); setPan({ x: 0, y: 0 }); }
     } catch (e) {
       toast(`Could not read the plan: ${(e as Error).message}`, 'error');
     } finally { setBuilding(false); setLoading(null); }
@@ -159,7 +165,7 @@ export function DrawingsPanel() {
   function open3d() {
     if (!built?.report.ok) return;
     dispatch({ type: 'REPLACE_MODEL', model: built.model });
-    setView('split');
+    setView('3d');
     setMode('design');
     toast(`${built.report.rooms.length} rooms built from the drawing`, 'ok');
   }
@@ -203,7 +209,9 @@ export function DrawingsPanel() {
     const x0 = Math.min(...rs.map((r) => r.x)), y0 = Math.min(...rs.map((r) => r.y));
     const x1 = Math.max(...rs.map((r) => r.x + r.w)), y1 = Math.max(...rs.map((r) => r.y + r.h));
     const sb = sheetBox();
-    const z = Math.min(6, Math.max(1, 0.5 / Math.max(x1 - x0, y1 - y0, 0.02)));
+    // fit the regions into the stage with a margin, whatever its shape
+    const fit = 0.85 * Math.min(stageSize.w / (sb.w * Math.max(x1 - x0, 0.02)), stageSize.h / (sb.h * Math.max(y1 - y0, 0.02)));
+    const z = Math.min(6, Math.max(1, Math.min(fit, 0.5 / Math.max(x1 - x0, y1 - y0, 0.02) * 2)));
     setAnim(true); setZoom(z);
     setPan({ x: -((x0 + x1) / 2 - 0.5) * sb.w * z, y: -((y0 + y1) / 2 - 0.5) * sb.h * z });
     window.setTimeout(() => setAnim(false), 600);
