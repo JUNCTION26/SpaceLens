@@ -161,10 +161,9 @@ function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
         </li>
       ))}</ol>}
       {!evs.length && (
-        <div className="row"><span className="muted">No evidence yet</span>
-          <button className="btn btn-sm" onClick={markMeasured}>Mark as measured</button></div>
+        <div className="row">
+          <button className="btn btn-sm" onClick={markMeasured}>Mark measured</button></div>
       )}
-      {usedBy.length > 0 && <div className="muted">Used by: {usedBy.join(', ')}</div>}
     </Section>
   );
 }
@@ -359,9 +358,12 @@ export function InspectorPanel() {
   return (
     <div className="provenance">
       <Selected />
-      <Uncertainty />
-      <WhatIf />
-      <History />
+      <details className="provenance-more">
+        <summary>More</summary>
+        <Uncertainty />
+        <WhatIf />
+        <History />
+      </details>
     </div>
   );
 }
