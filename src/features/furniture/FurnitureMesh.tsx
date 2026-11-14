@@ -1,6 +1,7 @@
-import { memo, useEffect, useMemo } from 'react';
+import { memo, Suspense, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import { RoundedBox } from '@react-three/drei';
+import { RoundedBox, useGLTF } from '@react-three/drei';
+import { modelSpecFor, modelUrl, type ModelSpec } from './assets';
 import type { FurnitureItem } from '../../core/types';
 
 type Mat = THREE.MeshStandardMaterial;
@@ -321,13 +322,51 @@ function Body(props: P & { category: string; catalogId: string }) {
   }
 }
 
+/** A real glTF model, fitted exactly to the item's footprint and height. Loaded on first use. */
+function ModelBody({ spec, item, selected, ghost }: { spec: ModelSpec; item: FurnitureItem; selected: boolean; ghost: boolean }) {
+  const { scene } = useGLTF(modelUrl(spec));
+  const { obj, mats } = useMemo(() => {
+    const inner = scene.clone(true);
+    inner.rotation.y = spec.yaw;
+    const holder = new THREE.Group(); holder.add(inner); holder.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(holder), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    inner.position.set(-c.x, -box.min.y, -c.z);
+    const fit = new THREE.Group(); fit.add(holder);
+    fit.scale.set(item.w / (size.x || 1), item.h / (size.y || 1), item.d / (size.z || 1));
+    const made: THREE.Material[] = [];
+    const tint = new THREE.Color('#ffffff').lerp(new THREE.Color(item.color), 0.55);
+    inner.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = !ghost; mesh.receiveShadow = true;
+      const conv = (src: THREE.Material) => {
+        const mat = src.clone() as THREE.MeshStandardMaterial;
+        if (spec.fabric?.includes(src.name) && mat.color) mat.color.multiply(tint);
+        if (ghost) { mat.transparent = true; mat.opacity = 0.35; mat.depthWrite = false; }
+        if (selected && mat.emissive) { mat.emissive = new THREE.Color('#4da3ff'); mat.emissiveIntensity = 0.25; }
+        made.push(mat); return mat;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(conv) : conv(mesh.material);
+    });
+    return { obj: fit, mats: made };
+  }, [scene, spec, item.w, item.h, item.d, item.color, selected, ghost]);
+  useEffect(() => () => mats.forEach((x) => x.dispose()), [mats]);
+  return <primitive object={obj} />;
+}
+
 function FurnitureMeshImpl({ item, selected, ghost }: { item: FurnitureItem; selected?: boolean; ghost?: boolean }) {
   const mats = useMemo(() => makeMats(item.color, !!selected, !!ghost, item.material), [item.color, selected, ghost, item.material]);
   useEffect(() => () => { Object.values(mats).flat().forEach((x) => (x as Mat).dispose()); }, [mats]);
   const shadow = !ghost;
+  const spec = modelSpecFor(item);
+  const body = <Body w={item.w} d={item.d} h={item.h} m={mats} shadow={shadow} category={item.category} catalogId={item.catalogId} />;
   return (
     <group position={[item.x, 0, item.y]} rotation={[0, -item.rotation, 0]} userData={{ furnitureId: item.id }}>
-      <Body w={item.w} d={item.d} h={item.h} m={mats} shadow={shadow} category={item.category} catalogId={item.catalogId} />
+      {spec ? (
+        <Suspense fallback={body}>
+          <ModelBody spec={spec} item={item} selected={!!selected} ghost={!!ghost} />
+        </Suspense>
+      ) : body}
       {selected && (
         <lineSegments position={[0, item.h / 2, 0]}>
           <edgesGeometry args={[new THREE.BoxGeometry(item.w + 0.04, item.h + 0.04, item.d + 0.04)]} />
