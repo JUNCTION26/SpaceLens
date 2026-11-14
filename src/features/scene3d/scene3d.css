@@ -24,3 +24,8 @@
 .scene3d-here { display: table; margin-bottom: 6px; padding: 4px 10px; background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 999px; color: var(--text); font-size: 13px; font-weight: 600; }
 .scene3d-rec { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
 .scene3d-rec::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--bad, #e5484d); }
+.scene3d-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+.scene3d-labels .scene3d-roomlabel { position: absolute; left: 0; top: 0; will-change: transform, opacity; transition: opacity .15s; }
+.scene3d-labels .scene3d-roomlabel span { display: none; }
+.scene3d-labels .scene3d-roomlabel.full span { display: block; }
+.scene3d-labels .scene3d-roomlabel.hot { border-color: var(--accent, #4da3ff); z-index: 1; }

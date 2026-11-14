@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { ContactShadows, Edges, Environment, Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
-  area, bounds, centroid, itemCorners, norm, openingSegment, pointInPolygon, sub, wallId,
+  area, bounds, centroid, itemCorners, pointInPolygon, wallId,
 } from '../../core/geometry';
-import type { FurnitureItem, Opening, Space, Vec2 } from '../../core/types';
+import type { FurnitureItem, Space, Vec2 } from '../../core/types';
+import { BOX_MATS, buildingBoxes, isOutdoor, mergedPlates, writeBox, type BoxMat } from './buildingMesh';
 import { buildGrid, isRug, type OccGrid } from '../sim/grid';
-import { clearOfWalls, entranceSpawn, solidSegments, spaceAt, wallEdges, yawFor, type WallEdge } from '../sim/walls';
+import { clearOfWalls, doorBridges, entranceSpawn, onFloor, solidSegments, spaceAt, wallEdges, yawFor } from '../sim/walls';
 import { pathBetween, planTour } from '../sim/tour';
 import { applyDemoLink } from '../building/demo';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
@@ -61,11 +62,15 @@ const wallMat = new THREE.MeshStandardMaterial({
 });
 wallMat.normalScale.set(0.35, 0.35);
 const ceilMat = new THREE.MeshStandardMaterial({ color: '#f7f5f0', roughness: 0.95 });
-const wallSelMat = new THREE.MeshStandardMaterial({ color: '#9fd0ff', roughness: 0.8 });
 const glassMat = new THREE.MeshPhysicalMaterial({ color: '#eef6ff', transmission: 1, thickness: 0.01, ior: 1.5, roughness: 0.04, metalness: 0, transparent: true, opacity: 1, depthWrite: false });
 const frameMat = new THREE.MeshStandardMaterial({ color: '#fafaf8', roughness: 0.35 });
 const doorMat = new THREE.MeshStandardMaterial({ color: '#d9cbb5', roughness: 0.6 });
 const baseMat = new THREE.MeshStandardMaterial({ color: '#fbfaf7', roughness: 0.4 });
+const railMat = new THREE.MeshStandardMaterial({ color: '#3d4148', roughness: 0.45, metalness: 0.6 });
+const outdoorFloorMat = new THREE.MeshStandardMaterial({ color: '#bdb6aa', roughness: 0.95 });
+const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const BOX_MAT: Record<BoxMat, THREE.Material> = { wall: wallMat, glass: glassMat, frame: frameMat, base: baseMat, rail: railMat, door: doorMat };
+const SEL_COLOR = new THREE.Color('#9fd0ff'), PLAIN = new THREE.Color('#ffffff');
 
 function useRoom() {
   const model = useStore((s) => s.model);
@@ -81,151 +86,176 @@ function useRoom() {
     const edges = wallEdges(model);
     const solids = solidSegments(model, edges);
     const spawn = entranceSpawn(model);
-    return { model, cx, cy, w, d, size, key, edges, solids, spawn };
+    const bridges = doorBridges(edges);
+    return { model, cx, cy, w, d, size, key, edges, solids, spawn, bridges };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model.version, model]);
 }
 
 /* ---------- Geometry ---------- */
 
-function Floor({ space, onWalkTo }: { space: Space; onWalkTo?: (p: Vec2) => void }) {
-  const geo = useMemo(() => {
-    const shape = new THREE.Shape(space.polygon.map((p) => new THREE.Vector2(p.x, -p.y)));
-    return new THREE.ShapeGeometry(shape);
-  }, [space]);
-  return (
-    <mesh geometry={geo} material={floorMat} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={(e) => {
-      e.stopPropagation();
-      if (onWalkTo) { if (e.delta < 6) onWalkTo({ x: e.point.x, y: e.point.z }); return; }
-      useStore.getState().select({ kind: 'space', id: space.id });
-    }} />
-  );
-}
-
-function Ceiling({ space, h }: { space: Space; h: number }) {
-  const geo = useMemo(() => new THREE.ShapeGeometry(new THREE.Shape(space.polygon.map((p) => new THREE.Vector2(p.x, p.y)))), [space]);
-  return <mesh geometry={geo} material={ceilMat} position={[0, h, 0]} rotation={[Math.PI / 2, 0, 0]} receiveShadow raycast={() => null} />;
-}
-
-interface Box { pos: [number, number, number]; size: [number, number, number]; mat: THREE.Material }
-
 /**
- * Boxes for one wall. A facade wall stands outside the room's edge (inner face on the polygon); a
- * wall shared by two rooms is drawn once, centred on the shared line with both halves' thickness.
- * Local frame: x along the wall from `a`, +z outward from the owning room.
+ * Floors (or ceilings) of every room as one mesh each for indoor and outdoor areas. Clicks select
+ * or walk to the room under the pointer; hovering only writes a ref, so nothing re-renders.
  */
-function wallBoxes(edge: WallEdge, ceiling: number): { boxes: Box[]; extras: Box[] } {
-  const L = edge.length;
-  const interior = !!edge.neighbour;
-  const t = interior ? Math.max(0.06, edge.thicknessM + edge.neighbourThicknessM) : edge.thicknessM || 0.12;
-  const zc = interior ? 0 : t / 2;
-  const ext = interior ? t / 2 : t;
-  const boxes: Box[] = [], extras: Box[] = [];
-  const solid = (x0: number, x1: number, y0: number, y1: number) => {
-    if (x1 - x0 < 1e-3 || y1 - y0 < 1e-3) return;
-    boxes.push({ pos: [(x0 + x1) / 2, (y0 + y1) / 2, zc], size: [x1 - x0, y1 - y0, t], mat: wallMat });
-  };
-  let cur = -ext;
-  for (const g of edge.gaps) {
-    const o = g.opening;
-    const s = Math.max(cur, g.s), e = g.e;
-    if (e - s < 0.05) continue;
-    const sill = o.kind === 'window' ? o.sillM : 0;
-    const head = Math.min(ceiling, sill + o.heightM);
-    solid(cur, s, 0, ceiling);
-    solid(s, e, 0, sill);
-    solid(s, e, head, ceiling);
-    if (o.kind === 'window') {
-      extras.push({ pos: [(s + e) / 2, (sill + head) / 2, zc], size: [e - s, head - sill, 0.012], mat: glassMat });
-      extras.push({ pos: [(s + e) / 2, sill + 0.02, zc - 0.02], size: [e - s, 0.04, t + 0.06], mat: frameMat });
-      extras.push({ pos: [(s + e) / 2, head - 0.02, zc], size: [e - s, 0.04, t + 0.02], mat: frameMat });
-      extras.push({ pos: [s + 0.02, (sill + head) / 2, zc], size: [0.04, head - sill, t + 0.02], mat: frameMat });
-      extras.push({ pos: [e - 0.02, (sill + head) / 2, zc], size: [0.04, head - sill, t + 0.02], mat: frameMat });
-    }
-    cur = e;
-  }
-  solid(cur, L + ext, 0, ceiling);
-  // Baseboards on each room-facing face, skipping door gaps.
-  const faces = interior ? [-(t / 2 + 0.009), t / 2 + 0.009] : [-0.009];
-  for (const z of faces) {
-    let bs = 0;
-    for (const g of edge.gaps.filter((q) => q.kind !== 'window')) {
-      if (g.s > bs) extras.push({ pos: [(bs + g.s) / 2, 0.05, z], size: [g.s - bs, 0.1, 0.018], mat: baseMat });
-      bs = Math.max(bs, g.e);
-    }
-    if (L > bs) extras.push({ pos: [(bs + L) / 2, 0.05, z], size: [L - bs, 0.1, 0.018], mat: baseMat });
-  }
-  return { boxes, extras };
-}
-
-function Wall({ edge, ceiling, selected, cutaway }: { edge: WallEdge; ceiling: number; selected: boolean; cutaway: boolean }) {
-  const ref = useRef<THREE.Group>(null);
-  const { a, ang, outward, mid, flip } = useMemo(() => {
-    const { a, b, inward } = edge;
-    const outward = { x: -inward.x, y: -inward.y };
-    const d = norm(sub(b, a));
-    // Local +z must point outward; with yaw = -atan2(d), local z maps to (-dy, dx).
-    return { a, ang: -Math.atan2(b.y - a.y, b.x - a.x), outward, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, flip: (-d.y * outward.x + d.x * outward.y) < 0 };
-  }, [edge]);
-  const { boxes, extras } = useMemo(() => wallBoxes(edge, ceiling), [edge, ceiling]);
-  const target = useRef(1);
-  // Only facade walls between the camera and the building fold down; inner walls stay standing.
-  const canCut = cutaway && !edge.neighbour;
-  useFrame(({ camera, invalidate }) => {
-    if (!ref.current) return;
-    const outside = (camera.position.x - mid.x) * outward.x + (camera.position.z - mid.y) * outward.y > 0;
-    target.current = canCut && outside && camera.position.y > 1.9 ? 0.06 : 1;
-    const s = ref.current.scale.y;
-    if (Math.abs(s - target.current) > 0.005) { ref.current.scale.y = s + (target.current - s) * 0.2; invalidate(); }
-  });
-  const onClick = (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); useStore.getState().select({ kind: 'wall', id: wallId(edge.spaceId, edge.wallIndex) }); };
-  return (
-    <group position={[a.x, 0, a.y]} rotation={[0, ang, 0]}>
-      <group scale-z={flip ? -1 : 1}><group ref={ref}>
-        {boxes.map((bx, k) => (
-          <mesh key={k} position={bx.pos} castShadow receiveShadow material={selected ? wallSelMat : bx.mat} onClick={onClick}>
-            <boxGeometry args={bx.size} />
-          </mesh>
-        ))}
-        {extras.map((bx, k) => (
-          <mesh key={'x' + k} position={bx.pos} material={bx.mat} receiveShadow={bx.mat !== glassMat} castShadow={bx.mat === frameMat}><boxGeometry args={bx.size} /></mesh>
-        ))}
-      </group></group>
-    </group>
-  );
-}
-
-/** Room names floating over each floor, for buildings with more than one room. */
-function RoomLabels({ spaces }: { spaces: Space[] }) {
+function Plates({ spaces, y, ceiling, onWalkTo, hover }: { spaces: Space[]; y: number; ceiling?: boolean; onWalkTo?: (p: Vec2) => void; hover?: MutableRefObject<string | null> }) {
+  const invalidate = useThree((st) => st.invalidate);
+  const parts = useMemo(() => {
+    const groups = ceiling ? [spaces.filter((s) => !isOutdoor(s))] : [spaces.filter((s) => !isOutdoor(s)), spaces.filter(isOutdoor)];
+    return groups.map((list, k) => ({ list, mat: ceiling ? ceilMat : k === 0 ? floorMat : outdoorFloorMat, ...mergedPlates(list, y, !ceiling) }));
+  }, [spaces, y, ceiling]);
+  useEffect(() => () => parts.forEach((pt) => pt.geometry.dispose()), [parts]);
+  const roomOf = (pt: (typeof parts)[number], f: number | undefined) => (f == null ? undefined : pt.list[pt.triSpace[f]]);
   return (
     <>
-      {spaces.map((s) => {
-        const c = centroid(s.polygon);
-        const at = pointInPolygon(c, s.polygon) ? c : s.polygon[0];
+      {parts.map((pt, k) => pt.list.length > 0 && (
+        <mesh key={k} geometry={pt.geometry} material={pt.mat} receiveShadow
+          raycast={ceiling ? () => null : undefined}
+          onClick={ceiling ? undefined : (e) => {
+            e.stopPropagation();
+            if (onWalkTo) { if (e.delta < 6) onWalkTo({ x: e.point.x, y: e.point.z }); return; }
+            const sp = roomOf(pt, e.faceIndex ?? undefined);
+            if (sp) useStore.getState().select({ kind: 'space', id: sp.id });
+          }}
+          onPointerMove={ceiling || !hover ? undefined : (e) => {
+            const id = roomOf(pt, e.faceIndex ?? undefined)?.id ?? null;
+            if (hover.current !== id) { hover.current = id; invalidate(); }
+          }}
+          onPointerOut={ceiling || !hover ? undefined : () => { if (hover.current) { hover.current = null; invalidate(); } }} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * Every wall, window, baseboard, railing and door leaf of the building as instanced unit boxes,
+ * one draw call per material. Facade walls between the camera and the building fold down by
+ * rewriting only their instances; inner walls and railings stay standing.
+ */
+function BuildingShell({ room, selectedWall, cutaway }: { room: ReturnType<typeof useRoom>; selectedWall: string | null; cutaway: boolean }) {
+  const data = useMemo(() => buildingBoxes(room.model, room.edges), [room]);
+  const meshes = useRef<Partial<Record<BoxMat, THREE.InstancedMesh | null>>>({});
+  const scale = useRef<number[]>([]);
+  const invalidate = useThree((st) => st.invalidate);
+  const sides = useMemo(() => data.edges.map((e) => ({ mid: { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 }, out: { x: -e.inward.x, y: -e.inward.y } })), [data]);
+
+  useLayoutEffect(() => {
+    scale.current = data.edges.map(() => 1);
+    for (const m of BOX_MATS) {
+      const mesh = meshes.current[m];
+      if (!mesh) continue;
+      data.byMat[m].forEach((bx, i) => writeBox(mesh, i, bx));
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
+    invalidate();
+  }, [data, invalidate]);
+
+  useLayoutEffect(() => {
+    const mesh = meshes.current.wall;
+    if (!mesh) return;
+    data.byMat.wall.forEach((bx, i) => {
+      const e = data.edges[bx.edge];
+      mesh.setColorAt(i, e && selectedWall === wallId(e.spaceId, e.wallIndex) ? SEL_COLOR : PLAIN);
+    });
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    invalidate();
+  }, [data, selectedWall, invalidate]);
+
+  useFrame(({ camera }) => {
+    const sc = scale.current;
+    let dirty: Set<number> | null = null;
+    for (let i = 0; i < data.edges.length; i++) {
+      if (!data.cuttable[i]) continue;
+      const { mid, out } = sides[i];
+      const outside = (camera.position.x - mid.x) * out.x + (camera.position.z - mid.y) * out.y > 0;
+      const target = cutaway && outside && camera.position.y > 1.9 ? 0.06 : 1;
+      if (Math.abs((sc[i] ?? 1) - target) > 0.005) { sc[i] = (sc[i] ?? 1) + (target - (sc[i] ?? 1)) * 0.2; (dirty ??= new Set()).add(i); }
+    }
+    if (!dirty) return;
+    for (const m of ['wall', 'glass', 'frame', 'base'] as BoxMat[]) {
+      const mesh = meshes.current[m];
+      if (!mesh) continue;
+      let touched = false;
+      data.byMat[m].forEach((bx, j) => { if (dirty!.has(bx.edge)) { writeBox(mesh, j, bx, sc[bx.edge]); touched = true; } });
+      if (touched) mesh.instanceMatrix.needsUpdate = true;
+    }
+    invalidate();
+  });
+
+  const onWall = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    const bx = e.instanceId != null ? data.byMat.wall[e.instanceId] : undefined;
+    const ed = bx ? data.edges[bx.edge] : undefined;
+    if (ed) useStore.getState().select({ kind: 'wall', id: wallId(ed.spaceId, ed.wallIndex) });
+  };
+  return (
+    <>
+      {BOX_MATS.map((m) => {
+        const n = data.byMat[m].length;
+        if (!n) return null;
         return (
-          <Html key={s.id} position={[at.x, 0.1, at.y]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-            <div className="scene3d-roomlabel">{s.name}<span>{area(s.polygon).toFixed(0)} m²</span></div>
-          </Html>
+          <instancedMesh key={`${m}:${n}`} ref={(r) => { meshes.current[m] = r; }} args={[unitBox, BOX_MAT[m], n]}
+            castShadow={m !== 'glass'} receiveShadow={m !== 'glass'} onClick={m === 'wall' ? onWall : undefined}
+            raycast={m === 'wall' ? undefined : () => null} />
         );
       })}
     </>
   );
 }
 
-function DoorLeaf({ space, o }: { space: Space; o: Opening }) {
-  if (o.swing === 'none') return null;
-  const { a, b, dir, inward } = openingSegment(space, o);
-  const hinge = o.hinge === 'start' ? a : b;
-  const toward = o.hinge === 'start' ? dir : { x: -dir.x, y: -dir.y };
-  const n = o.swing === 'in' ? inward : { x: -inward.x, y: -inward.y };
-  const th = (70 * Math.PI) / 180;
-  const ld = norm({ x: toward.x * Math.cos(th) + n.x * Math.sin(th), y: toward.y * Math.cos(th) + n.y * Math.sin(th) });
-  const w = o.widthM - 0.02, h = o.heightM - 0.01;
-  return (
-    <mesh position={[hinge.x + ld.x * w / 2, h / 2, hinge.y + ld.y * w / 2]} rotation={[0, -Math.atan2(ld.y, ld.x), 0]} castShadow material={doorMat}>
-      <boxGeometry args={[w, h, 0.04]} />
-    </mesh>
-  );
+interface LabelAnchor { id: string; at: THREE.Vector3; side: number; nameW: number; fullW: number }
+
+/**
+ * Room labels for big plans. Each frame (only when the view changes) the labels are placed by
+ * priority: the hovered room first, then the largest rooms. A label that would overlap one already
+ * placed is hidden, labels fade out as their room gets small on screen, and the hovered room always
+ * shows its full label with the area. All of it writes styles directly, without React renders.
+ */
+function LabelLayout({ spaces, box, hover }: { spaces: Space[]; box: RefObject<HTMLDivElement | null>; hover: MutableRefObject<string | null> }) {
+  const anchors = useMemo<LabelAnchor[]>(() => spaces.map((s) => {
+    const c = centroid(s.polygon);
+    const at = pointInPolygon(c, s.polygon) ? c : s.polygon[0];
+    const a = area(s.polygon);
+    return { id: s.id, at: new THREE.Vector3(at.x, 0.1, at.y), side: Math.sqrt(a), nameW: s.name.length * 7 + 20, fullW: Math.max(s.name.length * 7, 48) + 20 };
+  }).sort((p, q) => q.side - p.side), [spaces]);
+  const v = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera, size }) => {
+    const root = box.current;
+    if (!root) return;
+    const els = new Map<string, HTMLElement>();
+    for (const el of Array.from(root.children) as HTMLElement[]) els.set(el.dataset.id ?? '', el);
+    const cam = camera as THREE.PerspectiveCamera;
+    const k = size.height / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov || 50) / 2));
+    const placed: Array<[number, number, number, number]> = [];
+    const hot = hover.current;
+    const order = hot ? [...anchors.filter((a) => a.id === hot), ...anchors.filter((a) => a.id !== hot)] : anchors;
+    for (const a of order) {
+      const el = els.get(a.id);
+      if (!el) continue;
+      v.copy(a.at).applyMatrix4(camera.matrixWorldInverse);
+      const depth = -v.z;
+      v.copy(a.at).project(camera);
+      const isHot = a.id === hot;
+      const px = (a.side * k) / Math.max(depth, 0.1);
+      const fade = isHot ? 1 : Math.max(0, Math.min(1, (px - 34) / 36));
+      const full = isHot || px > 150;
+      const w = full ? a.fullW : a.nameW, h = full ? 36 : 24;
+      const x = (v.x * 0.5 + 0.5) * size.width, y = (-v.y * 0.5 + 0.5) * size.height;
+      let show = depth > 0 && v.z < 1 && fade > 0.02 && x > -w && x < size.width + w && y > -h && y < size.height + h;
+      if (show && !isHot) {
+        for (const r of placed) if (x - w / 2 < r[2] && x + w / 2 > r[0] && y - h / 2 < r[3] && y + h / 2 > r[1]) { show = false; break; }
+      }
+      if (!show) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
+      placed.push([x - w / 2 - 4, y - h / 2 - 2, x + w / 2 + 4, y + h / 2 + 2]);
+      el.style.display = '';
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -50%)`;
+      el.style.opacity = fade.toFixed(2);
+      el.classList.toggle('full', full);
+      el.classList.toggle('hot', isHot);
+    }
+  });
+  return null;
 }
 
 function Furniture({ items, ghost, interactive, onFocus }: { items: FurnitureItem[]; ghost?: boolean; interactive?: boolean; onFocus?: (it: FurnitureItem) => void }) {
@@ -355,7 +385,7 @@ function Highlights({ items }: { items: FurnitureItem[] }) {
         const it = items.find((f) => f.id === id);
         if (!it) return null;
         return (
-          <mesh key={k + id} position={[it.x, it.h / 2, it.y]} rotation={[0, -it.rotation, 0]}>
+          <mesh key={`${k}:${id}`} position={[it.x, it.h / 2, it.y]} rotation={[0, -it.rotation, 0]}>
             <boxGeometry args={[it.w + 0.04, it.h + 0.04, it.d + 0.04]} />
             <meshBasicMaterial visible={false} />
             <Edges color={h.color} lineWidth={2} />
@@ -476,7 +506,7 @@ function CameraRig({ mode, eye, room, walk, req, onRoom, onTourEnd }: {
   const solidItems = useMemo(() => items.filter((it) => !isRug(it)).map((it) => itemCorners(it)), [items]);
   const blocked = (p: Vec2) => {
     if (!room.model.spaces.length) return false;
-    if (!spaceAt(room.model, p) || !clearOfWalls(p, 0.2, room.solids)) return true;
+    if (!onFloor(room.model, p, room.bridges) || !clearOfWalls(p, 0.2, room.solids)) return true;
     return solidItems.some((c) => pointInPolygon(p, c));
   };
 
@@ -798,6 +828,8 @@ export function SceneView() {
   // The figure, the walk and VR all start at the entrance, looking in.
   const figAt = room.spawn.pos;
   const multi = model.spaces.length > 1;
+  const hoverRoom = useRef<string | null>(null);
+  const labelBox = useRef<HTMLDivElement>(null);
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
 
@@ -811,17 +843,10 @@ export function SceneView() {
         <Sun hour={hour} room={room} />
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
 
-        {model.spaces.map((s) => <Floor key={s.id} space={s} onWalkTo={mode === 'walk' ? walkTo : undefined} />)}
-        {room.edges.filter((e) => e.owner).map((e) => (
-          <Wall key={e.spaceId + e.wallIndex + ':' + model.version} edge={e} ceiling={model.ceilingM}
-            selected={selection?.kind === 'wall' && (selection.id === wallId(e.spaceId, e.wallIndex))} cutaway={cutaway && mode !== 'walk'} />
-        ))}
-        {multi && mode !== 'walk' && <RoomLabels spaces={model.spaces} />}
-        {mode === 'walk' && model.spaces.map((s) => <Ceiling key={'c' + s.id} space={s} h={model.ceilingM} />)}
-        {model.openings.filter((o) => o.kind === 'door').map((o) => {
-          const s = model.spaces.find((x) => x.id === o.spaceId);
-          return s && s.polygon.length > o.wallIndex ? <DoorLeaf key={o.id} space={s} o={o} /> : null;
-        })}
+        <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? walkTo : undefined} hover={multi ? hoverRoom : undefined} />
+        <BuildingShell room={room} selectedWall={selection?.kind === 'wall' ? selection.id : null} cutaway={cutaway && mode !== 'walk'} />
+        {multi && mode !== 'walk' && <LabelLayout spaces={model.spaces} box={labelBox} hover={hoverRoom} />}
+        {mode === 'walk' && <Plates spaces={model.spaces} y={model.ceilingM} ceiling />}
 
         <Furniture items={shown} interactive={mode !== 'walk' && !activeCandidateId} onFocus={focusItem} />
         {activeCandidateId && showBefore && <Furniture items={model.furniture} ghost />}
@@ -837,6 +862,13 @@ export function SceneView() {
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} onRoom={setRoomId} onTourEnd={endTour} />
       </Canvas>
 
+      {multi && mode !== 'walk' && (
+        <div className="scene3d-labels" ref={labelBox} aria-hidden="true">
+          {model.spaces.map((s) => (
+            <div key={s.id} data-id={s.id} className="scene3d-roomlabel" style={{ display: 'none' }}>{s.name}<span>{area(s.polygon).toFixed(0)} m²</span></div>
+          ))}
+        </div>
+      )}
       <div className="scene3d-vignette" aria-hidden="true" />
       {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate, double-click to focus</div>}
       <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
