@@ -66,7 +66,8 @@ const initialSettings: Settings = {
   geminiModel: 'gemini-3.5-flash-lite',
   theme: 'system',
   ...(storedSettings ?? {}),
-  geminiKey: storedSettings?.geminiKey || devKey,
+  // In development the local env key wins, so a new key takes effect without clearing saved settings.
+  geminiKey: devKey || storedSettings?.geminiKey || '',
 };
 // Older defaults were retired or too slow for interactive use.
 if (['gemini-2.5-flash', 'gemini-flash-latest'].includes(initialSettings.geminiModel)) initialSettings.geminiModel = 'gemini-3.5-flash-lite';
