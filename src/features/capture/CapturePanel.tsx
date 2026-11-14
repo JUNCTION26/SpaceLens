@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
+import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { dataUrlToInlineData, gemini, hasGemini } from '../../core/gemini';
 import { useUi } from '../../ui/uiStore';
 import { buildModel, type RoomDraft } from './build';
@@ -173,7 +174,7 @@ export function CapturePanel() {
     <div className="row capture-wrap">
       {hasGemini()
         ? <button className="btn btn-sm" disabled={aiBusy} onClick={askGemini}>{aiBusy ? 'Detecting...' : 'Auto-detect'}</button>
-        : <span className="muted capture-small">Add a Gemini key in Settings for auto-detect.</span>}
+        : <NoKeyPrompt compact />}
       {aiNote && <span className="chip chip-ai">{aiNote}</span>}
     </div>
   );

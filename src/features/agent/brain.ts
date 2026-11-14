@@ -2,7 +2,7 @@
 // which streams back {say, sketch, actions}. The first finished sentence is spoken while the rest
 // is still arriving, sketches appear as soon as each is complete, then actions run one by one,
 // each sketched before it changes the plan.
-import { ai, aiReady } from '../../core/ai';
+import { ai, aiReady, classify } from '../../core/ai';
 import { partialJson } from '../../core/ai/partialJson';
 import { uid } from '../../core/geometry';
 import { getState } from '../../core/store';
@@ -210,7 +210,7 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
       if (ac.signal.aborted) return;
       reply = rules();
       meta = 'Offline rules';
-      useAgent.getState().set({ error: `Model unavailable: ${(e as Error).message.slice(0, 80)}` });
+      useAgent.getState().set({ error: `${classify(e).message} Answering with offline rules.` });
     }
   } else {
     reply = rules();

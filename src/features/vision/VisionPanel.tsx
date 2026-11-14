@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Icon } from '../../ui/icons';
 import './vision.css';
 import { useStore, getState } from '../../core/store';
+import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { gemini, fileToInlineData, hasGemini, usage, type GeminiPart } from '../../core/gemini';
 import type { Requirements } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, findByKeyword } from '../../features/furniture/catalog';
@@ -197,7 +198,7 @@ export function VisionPanel() {
   if (!hasGemini()) {
     return (
       <div className="panel">
-        <p className="muted">Add a Gemini key in Settings.</p>
+        <NoKeyPrompt />
       </div>
     );
   }

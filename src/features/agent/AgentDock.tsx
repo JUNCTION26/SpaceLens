@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../ui/icons';
 import { phaseOf, useAgent, type Phase } from './agentStore';
+import { NoKeyPrompt } from '../../core/ai/AiStatus';
+import { useStore } from '../../core/store';
 import { interrupt, runTurn } from './brain';
+import { applyVoicePreference, neuralVoiceWanted } from './neuralVoice';
 import { preloadMods } from './mods';
 import { SketchOverlay } from './SketchLayer';
 import { useSketch } from './sketchStore';
@@ -84,6 +87,7 @@ function Transcript() {
           {t.meta && <span className="ad-meta">{t.meta}</span>}
         </div>
       ))}
+      <NoKeyPrompt compact />
       <div ref={end} />
     </div>
   );
@@ -91,6 +95,9 @@ function Transcript() {
 
 export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const s = useAgent();
+  const geminiKey = useStore((x) => x.settings.geminiKey);
+  // The Gemini voice is optional and measured: it only replaces the browser voice when it starts fast.
+  useEffect(() => { if (geminiKey && neuralVoiceWanted()) void applyVoicePreference(true); }, [geminiKey]);
   const drawing = useSketch((x) => x.drawing);
   const hasMarks = useSketch((x) => x.marks.length > 0);
   const [text, setText] = useState('');
