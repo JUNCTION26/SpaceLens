@@ -24,15 +24,22 @@ export function corners(r: ORect): P[] {
 
 /** SAT: minimum penetration depth (>0 means overlapping, <=0 separated). */
 export function overlapDepth(a: ORect, b: ORect): number {
-  const ca = corners(a), cb = corners(b);
+  // Broad phase: rectangles whose bounding circles do not meet are separated by at least that gap.
+  const dx = b.cx - a.cx, dy = b.cy - a.cy, d = Math.hypot(dx, dy), ra = Math.hypot(a.hw, a.hd), rb = Math.hypot(b.hw, b.hd);
+  if (d > ra + rb) return ra + rb - d;
   let min = Infinity;
-  for (const r of [a, b]) {
-    for (const ang of [r.rot, r.rot + Math.PI / 2]) {
-      const ax = { x: Math.cos(ang), y: Math.sin(ang) };
-      const pa = ca.map((p) => dot(p, ax)), pb = cb.map((p) => dot(p, ax));
-      const o = Math.min(Math.max(...pa), Math.max(...pb)) - Math.max(Math.min(...pa), Math.min(...pb));
-      if (o < min) min = o;
-    }
+  const ca = Math.cos(a.rot), sa = Math.sin(a.rot), cb = Math.cos(b.rot), sb = Math.sin(b.rot);
+  // Four axes: each rect's local x and y. Project both rects (centre +- half extents) on each.
+  const axes = [ca, sa, -sa, ca, cb, sb, -sb, cb];
+  for (let k = 0; k < 8; k += 2) {
+    const ux = axes[k], uy = axes[k + 1];
+    const pa = Math.abs(a.hw * (ca * ux + sa * uy)) + Math.abs(a.hd * (-sa * ux + ca * uy));
+    const pb = Math.abs(b.hw * (cb * ux + sb * uy)) + Math.abs(b.hd * (-sb * ux + cb * uy));
+    const c = Math.abs(dx * ux + dy * uy);
+    const o = pa + pb - c;
+    // Overlap length of the two projected intervals (capped by the shorter interval, like the corner test).
+    const len = Math.min(o, 2 * pa, 2 * pb);
+    if (len < min) min = len;
   }
   return min;
 }
