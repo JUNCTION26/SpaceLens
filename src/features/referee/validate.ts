@@ -31,13 +31,24 @@ function openingPoint(space: Space, o: Opening, inward: number): P {
   const w = wallFrame(space, o.wallIndex);
   return { x: w.a.x + w.t.x * o.offsetM + w.n.x * inward, y: w.a.y + w.t.y * o.offsetM + w.n.y * inward };
 }
+/** The room containing a point, else the room whose outline is nearest. */
 function spaceFor(model: SpaceModel, p: P): Space | undefined {
-  return model.spaces.find((s) => s.polygon.length >= 3 && pointInPolygon(p, s.polygon)) ?? model.spaces[0];
+  const rooms = model.spaces.filter((s) => s.polygon.length >= 3);
+  return rooms.find((s) => pointInPolygon(p, s.polygon)) ?? rooms.reduce<Space | undefined>((best, s) => (!best || distToBoundary(p, s.polygon) < distToBoundary(p, best.polygon) ? s : best), undefined) ?? model.spaces[0];
+}
+/** How deep an item reaches when its moving parts are open (sofa bed, fold-down bed, extending table). */
+function openDepth(f: FurnitureItem): number | undefined {
+  const os = f.custom?.openSize, sz = f.custom?.size;
+  const fromSpec = os && sz && sz.d > 0 ? os.d * (f.d / sz.d) : undefined;
+  const d = Math.max(f.unfoldedD ?? 0, fromSpec ?? 0);
+  return d > f.d + 0.05 ? d : undefined;
 }
 /** Seats may sit in the use zone of the desk or table they belong to. */
 const SEATS = new Set(['chair', 'desk-chair', 'office-chair', 'stool', 'bench']);
-export const isSeat = (f: FurnitureItem) => SEATS.has(f.category);
-export const isSeatHost = (f: FurnitureItem) => /desk|table|counter/.test(f.category) && !/coffee|side/.test(f.category);
+const HOST = (c: string) => /desk|table|counter/.test(c) && !/coffee|side/.test(c);
+// Generated objects say what they are in their own semantics.
+export const isSeat = (f: FurnitureItem) => SEATS.has(f.category) || (!!f.custom?.semantics && f.custom.semantics.role === 'seating' && f.custom.semantics.pairsWith.some(HOST));
+export const isSeatHost = (f: FurnitureItem) => HOST(f.category) || (!!f.custom?.semantics && f.custom.semantics.role === 'surface' && HOST(f.custom.semantics.category));
 /** Each seat belongs to the nearest desk or table (centre to centre). Returns seat id -> host id. */
 export function pairSeats(items: FurnitureItem[]): Map<string, string> {
   const hosts = items.filter(isSeatHost), out = new Map<string, string>();
@@ -53,8 +64,15 @@ export function pairSeats(items: FurnitureItem[]): Map<string, string> {
 
 const names = (fs: FurnitureItem[]) => fs.map((f) => f.name).join(', ');
 
+export interface ValidateOptions {
+  /** Check one room of a building: furniture must sit inside that room, only its doors and windows count. */
+  spaceId?: string;
+}
+
 /** Independent checker. Reads only the model and the furniture; never trusts a generator's claims. */
-export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], req?: Requirements | null): ValidationResult[] {
+export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], req?: Requirements | null, opts: ValidateOptions = {}): ValidationResult[] {
+  const only = opts.spaceId ? model.spaces.find((s) => s.id === opts.spaceId) : undefined;
+  if (only) model = { ...model, spaces: [only], openings: model.openings.filter((o) => o.spaceId === only.id) };
   const out: ValidationResult[] = [];
   const add = (r: ValidationResult) => { out.push(r); };
   const solid = furniture.filter((f) => f.category !== 'rug');
@@ -186,16 +204,17 @@ export function validateLayout(model: SpaceModel, furniture: FurnitureItem[], re
 
   // Unfolded sofa beds / extendable tables
   for (const f of solid) {
-    if (!f.unfoldedD || f.unfoldedD <= f.d) continue;
-    const r = localRect(f, -f.w / 2, f.w / 2, -f.d / 2, f.d / 2 + (f.unfoldedD - f.d));
+    const od = openDepth(f);
+    if (!od) continue;
+    const r = localRect(f, -f.w / 2, f.w / 2, -f.d / 2, f.d / 2 + (od - f.d));
     const s = spaceFor(model, f);
     const outBy = s && s.polygon.length >= 3 ? rectOutside(r, s.polygon) : 0;
     const hits = solid.filter((g) => g.id !== f.id && overlapDepth(r, footprint(g)) > TOL);
     const ok = outBy <= TOL && !hits.length;
     const why = [outBy > TOL ? `goes ${cm(outBy)} into a wall` : '', hits.length ? `hits ${names(hits)}` : ''].filter(Boolean).join(' and ');
     add({
-      id: `unfold:${f.id}`, rule: 'Unfolded fits', result: ok ? 'pass' : 'fail', measured: f.unfoldedD, subjectIds: [f.id, ...hits.map((g) => g.id)],
-      details: ok ? `${f.name} unfolds to ${cm(f.unfoldedD)} without hitting anything.` : `${f.name} unfolded (${cm(f.unfoldedD)}) ${why}.`,
+      id: `unfold:${f.id}`, rule: 'Unfolded fits', result: ok ? 'pass' : 'fail', measured: r2(od), subjectIds: [f.id, ...hits.map((g) => g.id)],
+      details: ok ? `${f.name} unfolds to ${cm(od)} without hitting anything.` : `${f.name} unfolded (${cm(od)}) ${why}.`,
     });
   }
 
