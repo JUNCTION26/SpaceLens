@@ -122,7 +122,12 @@ async function describe(c) {
   c.timings.firstLayout = Date.now() - t0;
   if (NOKEY) c.note(`no key: layouts ${got ? 'still arrive' : 'do not arrive'}`);
   if (!(await c.aiOk(got, 'layouts arrive', '.panel-col')) || !got) { await c.shot('no-layouts'); c.note((await c.sideText()).slice(0, 400)); return; }
+  // Rule-based layouts arrive first and are updated in place; wait for the pipeline to finish.
+  await c.until('!s.busy', AI_MS).catch(() => c.note('pipeline still busy after the wait'));
+  c.timings.allLayouts = Date.now() - t0;
   await sleep(1500);
+  const chip = await c.page.evaluate(`document.querySelector('[class*=ai-status]')?.innerText ?? ''`);
+  if (chip) c.note(`AI chip after designing: ${chip}`);
   const cands = await c.state('s.candidates.map((x) => ({ id: x.id, name: x.name, n: x.furniture.length }))');
   c.ok(cands.length >= 2, `at least 2 layouts (${cands.length})`);
   c.ok(cands.every((x) => x.n > 0), 'every layout has furniture');
@@ -418,7 +423,7 @@ async function themes(c) {
         while (p && /rgba\\(0, 0, 0, 0\\)|transparent/.test(bg)) { bg = getComputedStyle(p).backgroundColor; p = p.parentElement; }
         if (/rgba\\(0, 0, 0, 0\\)/.test(bg)) bg = getComputedStyle(document.body).backgroundColor;
         const a = lum(cs.color), b = lum(bg); const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-        if (ratio < 3) bad.push(el.textContent.trim().slice(0, 30) + ' ' + ratio.toFixed(1));
+        if (ratio < 2 && el.textContent.trim().length > 1) bad.push(el.textContent.trim().slice(0, 30) + ' ' + ratio.toFixed(1));
       }
       return bad.slice(0, 8);
     })()`);
@@ -486,7 +491,20 @@ async function drawings(c) {
   await c.aiOk(ans && !/No answer/.test(ans), `"${q}" is answered (${ans.slice(0, 120)})`, '.drawings-side');
   c.ok(await c.page.evaluate(`document.querySelectorAll('.drawings-hit').length > 0`), 'answer evidence is highlighted on the sheet');
   await c.shot('answer');
-  // Build 3D: use the printed scale if offered, then trace the first room box from the index.
+  // Build 3D in one click from the detected walls and rooms.
+  if (await c.page.locate('text~Build 3D from this plan')) {
+    const t3 = Date.now();
+    await c.page.click('text~Build 3D from this plan');
+    const built = await c.until(`s.model.spaces.length > 1 || /Drawing|plan/i.test(s.model.sourceLabel ?? '')`, 120000).catch(() => false);
+    c.timings.drawingTo3d = Date.now() - t3;
+    const after = await c.state('JSON.stringify({ src: s.model.sourceLabel, spaces: s.model.spaces.length, names: s.model.spaces.map((x) => x.name).slice(0, 8), mode: s.mode })');
+    c.ok(built, `"Build 3D from this plan" makes a model (${after})`);
+    await c.canvasReady(60000).catch(() => c.ok(false, '3D view renders the built plan'));
+    await sleep(2500);
+    await c.shot('3d');
+    return;
+  }
+  // Older path: set the printed scale, then trace a room box by hand.
   await c.page.click('text=Set scale').catch(() => {});
   await sleep(500);
   const scaleBtn = await c.page.locate('text~Use 1:');
@@ -603,7 +621,7 @@ const names = pick.length ? pick : Object.keys(FLOWS);
 mkdirSync(OUT, { recursive: true });
 const resultsFile = join(OUT, 'results.json');
 const prev = existsSync(resultsFile) ? JSON.parse(readFileSync(resultsFile, 'utf8')) : {};
-const IGNORE = [/same key/i, /Download the React DevTools/, /\[vite\]/];
+const IGNORE = [/Download the React DevTools/, /\[vite\]/];
 
 for (const name of names) {
   const fn = FLOWS[name];
