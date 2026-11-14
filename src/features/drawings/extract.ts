@@ -613,8 +613,18 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   for (const d of doors) {
     // the hinge line sits on the wall face on the swing side: fill the band behind it, away from the leaf
     const L = dist(d.hinge, d.tip) || 1;
-    const ox = (-(d.tip.x - d.hinge.x) / L) * (wallT / 2), oy = (-(d.tip.y - d.hinge.y) / L) * (wallT / 2);
-    grid.fillSegment({ x: d.hinge.x + ox, y: d.hinge.y + oy }, { x: d.jamb.x + ox, y: d.jamb.y + oy }, wallT, 2);
+    const bx = -(d.tip.x - d.hinge.x) / L, by = -(d.tip.y - d.hinge.y) / L;
+    // local wall thickness: step into the wall just past the jamb and walk across it
+    const J = dist(d.hinge, d.jamb) || 1;
+    const ux = (d.jamb.x - d.hinge.x) / J, uy = (d.jamb.y - d.hinge.y) / J;
+    const probe = { x: d.jamb.x + ux * cell * 3, y: d.jamb.y + uy * cell * 3 };
+    let k = 0, seen = false;
+    for (let s = 0; s < (wall.thick90 * 2.5) / cell; s++) {
+      const blocked = grid.at(grid.cx(probe.x + bx * s * cell), grid.cy(probe.y + by * s * cell)) === 1;
+      if (blocked) { seen = true; k = s + 1; } else if (seen) break;
+    }
+    const t = seen ? Math.max(cell * 2, k * cell) : wallT;
+    grid.fillSegment({ x: d.hinge.x + bx * t / 2, y: d.hinge.y + by * t / 2 }, { x: d.jamb.x + bx * t / 2, y: d.jamb.y + by * t / 2 }, t, 2);
   }
   const windows = findWindows(pp.paths, grid, wallT, wall.thick90, wall.styles, mPerPt ? 0.3 / mPerPt : wallT * 2, doors);
   for (const w of windows) grid.fillSegment(w.a, w.b, Math.max(w.depthPt, wallT * 0.5), 2);
