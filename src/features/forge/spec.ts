@@ -51,9 +51,12 @@ export const SPEC_JSON_SCHEMA = {
           mirror: { type: 'STRING', enum: ['x', 'z', 'xz'], nullable: true, description: 'Also add a copy mirrored across x=0 (a left/right pair) or z=0.' },
           inset: { type: 'NUMBER', nullable: true, description: 'arc kit: move the band this far in from the outer edge.' },
           group: { type: 'STRING', nullable: true, description: 'Plain parts that move together (a fold-down platform). Kits make their own.' },
+          text: { type: 'STRING', nullable: true, description: 'Words printed on the front face (poster title, name on a sign). Exactly as asked, same letters and case.' },
+          textColor: { type: 'STRING', nullable: true, description: 'Hex colour of the words.' },
+          textStyle: { type: 'STRING', enum: ['sans', 'serif', 'script', 'display'], nullable: true },
         },
         required: ['name', 'size', 'pos', 'material'],
-        propertyOrdering: ['name', 'kit', 'style', 'count', 'shape', 'size', 'pos', 'rot', 'radius', 'material', 'color', 'accent', 'profile', 'mirror', 'inset', 'group'],
+        propertyOrdering: ['name', 'kit', 'style', 'count', 'shape', 'size', 'pos', 'rot', 'radius', 'material', 'color', 'accent', 'profile', 'mirror', 'inset', 'group', 'text', 'textColor', 'textStyle'],
       },
     },
     motions: {
@@ -335,7 +338,24 @@ export function coercePart(raw: unknown, unit = 1, fallbackMaterial: MaterialId 
   }
   const group = str(o.group, 40);
   if (group) part.group = group;
+  const text = coerceText(o.text, o.textColor, o.textStyle);
+  if (text) part.text = text;
   return part;
+}
+
+const TEXT_STYLES = ['sans', 'serif', 'script', 'display'] as const;
+
+/** Words for a part's front face, from a string or { value, color, background, style }. */
+export function coerceText(v: unknown, color?: unknown, style?: unknown): ObjectPart['text'] | undefined {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  const value = typeof v === 'string' ? v : typeof o?.value === 'string' ? o.value : undefined;
+  if (!value || !value.trim()) return undefined;
+  const t: NonNullable<ObjectPart['text']> = { value: value.trim().slice(0, 80) };
+  const c = coerceColor(o?.color ?? color); if (c) t.color = c;
+  const bg = coerceColor(o?.background); if (bg) t.background = bg;
+  const st = o?.style ?? style;
+  if (typeof st === 'string' && (TEXT_STYLES as readonly string[]).includes(st)) t.style = st as NonNullable<ObjectPart['text']>['style'];
+  return t;
 }
 
 /** A usable 2D outline: 3..128 finite points with some area (lathe radii are made non-negative). */
@@ -387,6 +407,7 @@ export function coerceItem(o: Record<string, unknown>, unit = 1, fallbackMateria
   const group = str(o.group, 40); if (group) item.group = group;
   const step = vec3(o.step); if (step) item.step = step.map((v) => r4(v * unit)) as [number, number, number];
   if (Array.isArray(o.profile)) { const prof = coerceProfile(o.profile, shape === 'lathe'); if (prof) item.profile = unit === 1 ? prof : prof.map(([a, b]) => [r4(a * unit), r4(b * unit)] as [number, number]); }
+  const text = coerceText(o.text, o.textColor, o.textStyle); if (text) item.text = text;
   return item;
 }
 

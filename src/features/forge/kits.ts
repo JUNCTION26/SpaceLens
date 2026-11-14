@@ -10,10 +10,12 @@
 import * as THREE from 'three';
 import type { MaterialId, ObjectMotion, ObjectPart, PartShape } from '../../core/types';
 import { presetProfile } from './profiles';
+import { DECOR_KITS, type DecorKit } from './decorKits';
 
 export const KITS = [
   'legs', 'casters', 'pedestal', 'frame', 'carcass', 'drawers', 'doors', 'shelves', 'bookcase', 'books', 'cushions', 'bedding',
   'headboard', 'canopy', 'arc', 'plan', 'ladder', 'slide', 'slats', 'screen', 'keyboard', 'wallbed', 'plant',
+  'poster', 'sign', 'banner', 'wallshelf', 'clock', 'neon', 'statue',
 ] as const;
 export type KitId = (typeof KITS)[number];
 
@@ -39,6 +41,8 @@ export interface KitItem {
   group?: string;
   inset?: number;
   step?: V3;
+  /** Words printed on the front (posters, signs, banners, labels). */
+  text?: ObjectPart['text'];
 }
 
 export interface Expanded { parts: ObjectPart[]; motions: ObjectMotion[] }
@@ -64,6 +68,9 @@ export function coerceKit(v: unknown): KitId | undefined {
     cushion: 'cushions', cushionrow: 'cushions', pillows: 'cushions', mattress: 'bedding', bed: 'bedding', canopyframe: 'canopy',
     curve: 'arc', curved: 'arc', outline: 'plan', planshape: 'plan', rungs: 'ladder', spindles: 'slats', bars: 'slats', rail: 'slats',
     monitor: 'screen', display: 'screen', tv: 'screen', keys: 'keyboard', piano: 'keyboard', murphybed: 'wallbed', foldbed: 'wallbed', pot: 'plant',
+    picture: 'poster', print: 'poster', framedpicture: 'poster', artwork: 'poster', art: 'poster', namesign: 'sign', plaque: 'sign', nameplate: 'sign',
+    flag: 'banner', pennant: 'banner', bunting: 'banner', floatingshelf: 'wallshelf', wallshelves: 'wallshelf', wallclock: 'clock', neonsign: 'neon',
+    sculpture: 'statue', figure: 'statue', figurine: 'statue', bust: 'statue',
   };
   return alias[t];
 }
@@ -79,6 +86,7 @@ function P(name: string, shape: PartShape, size: V3, pos: V3, material: Material
   if (extra.color) p.color = extra.color;
   if (extra.profile) p.profile = extra.profile.map(([a, b]) => [r4(a), r4(b)] as Pt);
   if (extra.group) p.group = extra.group;
+  if (extra.text) p.text = extra.text;
   return p;
 }
 
@@ -721,7 +729,7 @@ export function expandItem(item: KitItem, index: number): Expanded {
     if ((item.shape === 'extrude' || item.shape === 'lathe') && !profile && item.shape === 'extrude') profile = presetProfile(item.style);
     for (let i = 0; i < n; i++) {
       const p = P(n > 1 ? `${item.name} ${i + 1}` : item.name, item.shape ?? 'box', item.size, [item.pos[0] + step[0] * i, item.pos[1] + step[1] * i, item.pos[2] + step[2] * i], item.material,
-        { rot: item.rot, radius: item.radius, color: item.color, profile, group: item.group });
+        { rot: item.rot, radius: item.radius, color: item.color, profile, group: item.group, text: item.text });
       if (!profile && item.shape === 'extrude' && !p.profile) p.shape = 'rounded';
       parts.push(p);
     }
@@ -754,6 +762,9 @@ export function expandItem(item: KitItem, index: number): Expanded {
       case 'keyboard': keyboard(ctx, lw, h, ld); break;
       case 'wallbed': wallbed(ctx, lw, h, ld); break;
       case 'plant': plant(ctx, lw, h, ld); break;
+      case 'poster': case 'sign': case 'banner': case 'wallshelf': case 'clock': case 'neon': case 'statue':
+        parts.push(...DECOR_KITS[kit as DecorKit]({ name: item.name, material: item.material, color: item.color, accent: item.accent, style: item.style, count: item.count, text: item.text }, lw, h, ld));
+        break;
     }
     if (turn) rotateAll(parts, motions, [0, turn, 0], [0, 0, 0]);
     if (item.rot && item.rot.some((v) => Math.abs(v) > 1e-6)) rotateAll(parts, motions, item.rot, [0, h / 2, 0]);

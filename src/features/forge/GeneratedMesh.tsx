@@ -165,6 +165,80 @@ function roundProfile(rb: number, rt: number, h: number, bevel: number): Array<[
   return pts;
 }
 
+// ---- Printed words ------------------------------------------------------------------------
+
+const FONTS: Record<string, string> = {
+  sans: '600 {px}px "Inter", "Segoe UI", Arial, sans-serif',
+  serif: '600 {px}px Georgia, "Times New Roman", serif',
+  script: 'italic 600 {px}px "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive',
+  display: '800 {px}px Impact, "Arial Black", "Segoe UI Black", sans-serif',
+};
+const textCache = new Map<string, THREE.CanvasTexture>();
+
+/** Lines for the words: one line, or two when a long phrase reads better split. */
+function textLines(value: string, aspect: number): string[] {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length < 2 || value.length / Math.max(0.5, aspect) < 4.5) return [value];
+  let best = [value], bestScore = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+    const score = Math.max(a.length, b.length);
+    if (score < bestScore) { bestScore = score; best = [a, b]; }
+  }
+  return best;
+}
+
+/** A crisp texture with the words fitted inside the face (transparent unless a background is given). */
+export function textTexture(text: NonNullable<ObjectPart['text']>, w: number, h: number): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const key = `${text.value}|${text.color}|${text.background}|${text.style}|${w.toFixed(3)}|${h.toFixed(3)}`;
+  const hit = textCache.get(key);
+  if (hit) return hit;
+  const long = 1024, aspect = w / Math.max(h, 1e-3);
+  const cw = aspect >= 1 ? long : Math.max(64, Math.round(long * aspect)), ch = aspect >= 1 ? Math.max(64, Math.round(long / aspect)) : long;
+  const cv = document.createElement('canvas');
+  cv.width = cw; cv.height = ch;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  if (text.background) { g.fillStyle = text.background; g.fillRect(0, 0, cw, ch); }
+  const font = FONTS[text.style ?? 'display'] ?? FONTS.display;
+  const lines = textLines(text.value, aspect);
+  // Largest size whose widest line fits 88% of the width and whose lines fit 80% of the height.
+  let px = Math.floor((ch * 0.8) / (lines.length * 1.08));
+  g.font = font.replace('{px}', String(px));
+  const widest = Math.max(...lines.map((l) => g.measureText(l).width), 1);
+  if (widest > cw * 0.88) px = Math.floor(px * (cw * 0.88) / widest);
+  g.font = font.replace('{px}', String(Math.max(8, px)));
+  g.fillStyle = text.color ?? '#1d1d1f';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const lh = px * 1.08, y0 = ch / 2 - (lh * (lines.length - 1)) / 2;
+  lines.forEach((l, i) => g.fillText(l, cw / 2, y0 + i * lh));
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  if (textCache.size > 200) { const first = textCache.keys().next().value as string; textCache.get(first)?.dispose(); textCache.delete(first); }
+  textCache.set(key, tex);
+  return tex;
+}
+
+function TextFace({ part }: { part: ObjectPart }) {
+  const text = part.text!;
+  const [w, h, d] = part.size;
+  const tex = useMemo(() => textTexture(text, w, h), [text, w, h]);
+  const glow = /neon|glow/i.test(part.name);
+  const mat = useMemo(() => tex && new THREE.MeshStandardMaterial({
+    map: tex, transparent: true, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2,
+    ...(glow ? { emissive: new THREE.Color('#ffffff'), emissiveMap: tex, emissiveIntensity: 1.6 } : {}),
+  }), [tex, glow]);
+  useEffect(() => () => mat?.dispose(), [mat]);
+  if (!mat) return null;
+  return (
+    <mesh position={[0, 0, d / 2 + 0.0008]} material={mat} renderOrder={2}>
+      <planeGeometry args={[w, h]} />
+    </mesh>
+  );
+}
+
 const isMetal = (p: ObjectPart) => MATERIAL_DEFS[p.material]?.kind === 'metal' || p.material === 'plastic';
 
 /** Seed in [0, 3) so identical parts do not show identical texture. */
@@ -353,6 +427,7 @@ function PartMesh({ part, g, start, ghost, selected }: { part: ObjectPart; g: Pa
       <group rotation={rot}>
         <mesh geometry={g.geo} material={mat} castShadow={shadow} receiveShadow />
         {g.piping && <mesh geometry={g.piping} material={mat} castShadow={false} receiveShadow />}
+        {part.text?.value && done && <TextFace part={part} />}
       </group>
     </group>
   );
