@@ -3,7 +3,7 @@ import { area, pointInPolygon } from '../../core/geometry';
 import { makeItem } from '../furniture/catalog';
 import { toSpaceModel } from './assemble';
 import { buildingRoutes, roomGraph } from './connectivity';
-import { buildingBill, defaultBrief, furnishBuilding, mergeFurniture, subModelFor } from './furnish';
+import { buildingBill, defaultBrief, furnishBuilding, mergeFurniture, roomPurpose, skipReason, subModelFor } from './furnish';
 import { lShell, planBuilding, rectShell, type BuildingPlan } from './partition';
 import { officeProgramme, programmeFromRules, villaProgramme } from './programme';
 import { rArea } from './rects';
@@ -179,3 +179,28 @@ describe('furnishing a floor', () => {
     expect(bill.byRoom.length).toBe(briefed.length);
   });
 });
+
+describe('room purposes from printed names', () => {
+  const sq = (side: number) => [{ x: 0, y: 0 }, { x: side, y: 0 }, { x: side, y: side }, { x: 0, y: side }];
+  const room = (name: string, side = 4, purpose?: string) => ({ id: name, name, purpose, polygon: sq(side), walls: [] });
+  it('reads Italian, German and French labels with room numbers', () => {
+    expect(roomPurpose(room('Stanza 5.02'))).toBe('bedroom');
+    expect(roomPurpose(room('Zimmer'))).toBe('bedroom');
+    expect(roomPurpose(room('Chambre 2'))).toBe('bedroom');
+    expect(roomPurpose(room('Cucina 5.09'))).toBe('kitchen');
+    expect(roomPurpose(room('Küche'))).toBe('kitchen');
+    expect(roomPurpose(room('Bagno 5.08'))).toBe('bathroom');
+    expect(roomPurpose(room('Bad'))).toBe('bathroom');
+    expect(roomPurpose(room('Corridoio 5.14'))).toBe('hallway');
+    expect(roomPurpose(room('Soggiorno'))).toBe('living');
+  });
+  it('briefs rooms by purpose and says why others stay empty', () => {
+    expect(defaultBrief(room('Stanza 5.02'))).toMatch(/bed/);
+    expect(defaultBrief(room('Cucina 5.09'))).toMatch(/dining table/);
+    expect(defaultBrief(room('Room 5.21', 1))).toBeNull();
+    expect(skipReason(room('Room 5.21', 1))).toBe('Too small');
+    expect(skipReason(room('Bagno 5.08', 2))).toBe('No bathroom fixtures yet');
+    expect(defaultBrief(room('Balcone 5.01', 2.3))).toMatch(/table/);
+  });
+});
+

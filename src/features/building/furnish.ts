@@ -6,16 +6,46 @@ import { aiReady } from '../../core/ai';
 import { area, centroid, pointInPolygon } from '../../core/geometry';
 import type { FurnitureItem, Requirements, Space, SpaceModel, Vec2 } from '../../core/types';
 import { compileIntent } from '../intent/compile';
-import { generateLayouts } from '../layout/solver';
-import { designRoom } from '../design/pipeline';
+import { purposeOf } from '../drawings/purpose';
+import { buildDesignItems } from '../design/pipeline';
+import { planProgram } from '../design/planner';
+import { solveRoomAsync } from './solveAsync';
 import { mergeFurniture, subModelFor } from './submodel';
 
 export { mergeFurniture, subModelFor, type SubModel } from './submodel';
 
+const KNOWN = new Set(['bedroom', 'living', 'kitchen', 'dining', 'workspace', 'office', 'meeting', 'reception', 'cafe', 'clinic', 'staff',
+  'hall', 'hallway', 'entrance', 'study', 'phone', 'counter', 'storage', 'utility', 'balcony', 'bathroom', 'wc', 'stair']);
+
+/**
+ * What a room is for: its stated purpose when it is one we furnish, else read from its printed
+ * name in any of the plan languages (Stanza, Zimmer, Chambre, Cucina, Küche, Bagno, Bad, Corridoio,
+ * Soggiorno...). Trailing room numbers such as "5.02" are ignored.
+ */
+export function roomPurpose(space: Pick<Space, 'name' | 'purpose'>): string {
+  const p = (space.purpose ?? '').toLowerCase();
+  if (KNOWN.has(p)) return p;
+  const name = space.name.replace(/[\s\d.,/-]+$/, '').trim();
+  return purposeOf(name)?.purpose ?? purposeOf(space.name)?.purpose ?? p;
+}
+
+/** Why a room gets no furniture, in a few plain words (null when it gets a brief). */
+export function skipReason(space: Space): string | null {
+  if (defaultBrief(space)) return null;
+  const p = roomPurpose(space);
+  if (p === 'bathroom' || p === 'wc') return 'No bathroom fixtures yet';
+  if (p === 'stair') return 'Stairs';
+  if (area(space.polygon) < 4) return 'Too small';
+  return 'Nothing to furnish';
+}
+
 /** A furnishing brief from a room's purpose and size; null for rooms left empty. */
 export function defaultBrief(space: Space): string | null {
   const a = area(space.polygon);
-  const p = (space.purpose ?? '').toLowerCase();
+  const p = roomPurpose(space);
+  // rooms too small for the brief's main piece stay empty rather than failing to fit
+  const min: Record<string, number> = { bedroom: 6, living: 8, kitchen: 4, dining: 5, office: 4, study: 4, meeting: 6, workspace: 8 };
+  if (a < (min[p] ?? 0)) return null;
   const n = (per: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(a / per)));
   switch (p) {
     case 'bedroom': return a >= 12 ? 'bedroom with a double bed, wardrobe and two lamps' : 'bedroom with a bed, wardrobe and a desk';
@@ -29,7 +59,8 @@ export function defaultBrief(space: Space): string | null {
     case 'cafe': return `cafe with tables for ${n(1.5, 4, 60)} people`;
     case 'clinic': return 'clinic treatment room with a treatment bed, desk and two chairs';
     case 'staff': return `dining table for ${n(2.5, 2, 8)} people`;
-    case 'hall': case 'entrance': return a >= 4 ? 'shoe cabinet with seat and a plant' : null;
+    case 'hall': case 'hallway': case 'entrance': return a >= 4 ? 'shoe cabinet with seat and a plant' : null;
+    case 'balcony': return a >= 3 ? 'small cafe table and two chairs' : null;
     case 'study': return 'office with a desk, an office chair and a bookshelf';
     case 'phone': return 'small desk and a desk chair';
     case 'counter': return 'counter and two bar stools';
@@ -60,15 +91,19 @@ export interface FurnishResult { furniture: FurnitureItem[]; rooms: RoomProgress
 export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<string, string> = {}, opts: FurnishOptions = {}): Promise<FurnishResult> {
   const compile = opts.compile ?? ((b: string, sub: SpaceModel) => compileIntent(b, sub));
   const online = aiReady();
+  const seed = opts.seed ?? 1;
+  // The solving runs in a worker, so the page keeps responding while a whole floor is furnished.
   const solve = opts.solve ?? (async (sub: SpaceModel, req: Requirements, brief?: string) => {
     if (online) {
-      // planner + solver + rules for this room alone; the critic is skipped to keep it quick
-      const res = await designRoom(sub, req, { variants: 1, critic: false, brief, signal: opts.signal });
-      const best = res.candidates[0]?.furniture;
-      if (best?.length) return best;
+      // the planner (a model call) decides the intent here; the exact solve happens in the worker
+      const items = buildDesignItems(sub, req);
+      if (items.length) {
+        const program = await planProgram(sub, items, req, { brief, signal: opts.signal });
+        const best = await solveRoomAsync({ kind: 'program', sub, req, seed, items, program });
+        if (best?.length) return best;
+      }
     }
-    const res = await generateLayouts(sub, req, { variants: 1, seed: opts.seed ?? 1, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
-    return res.candidates[0]?.furniture ?? null;
+    return solveRoomAsync({ kind: 'layout', sub, req, seed, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
   });
   const progress: RoomProgress[] = model.spaces.map((s) => ({ spaceId: s.id, name: s.name, status: 'waiting' }));
   const emit = (i: number, patch: Partial<RoomProgress>) => { progress[i] = { ...progress[i], ...patch }; opts.onRoom?.({ ...progress[i] }); };
@@ -76,7 +111,7 @@ export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<str
   const jobs = model.spaces.map((s, i) => async () => {
     if (opts.signal?.aborted) return;
     const brief = briefByRoom[s.id] ?? defaultBrief(s);
-    if (!brief) { emit(i, { status: 'skipped', message: 'Nothing to furnish' }); return; }
+    if (!brief) { emit(i, { status: 'skipped', message: skipReason(s) ?? 'Nothing to furnish' }); return; }
     const sub = subModelFor(model, s.id);
     if (!sub) { emit(i, { status: 'failed', message: 'Room not found' }); return; }
     emit(i, { status: 'running', message: brief });
