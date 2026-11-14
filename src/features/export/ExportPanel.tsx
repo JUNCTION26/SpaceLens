@@ -54,7 +54,6 @@ export function ExportPanel() {
   const [shared, setShared] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const base = `${slug(model.name)}-v${model.version}`;
-  const ver = <span className="chip">From version {model.version}</span>;
 
   const openPrint = (title: string, body: string, css: string) => {
     const w = window.open('', '_blank');
@@ -138,7 +137,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
   return (
     <div className="export">
       <div className="card export-card">
-        <div className="export-head"><b>Floor plan</b>{ver}</div>
+        <div className="export-head"><b>Floor plan</b></div>
         <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
         <div className="row export-toggles">
           {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
@@ -156,7 +155,6 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
           </button>
         ))}
       </div>
-      {shared && <p className="export-copied" role="status">Link copied. Paste it anywhere to share.</p>}
       <div className="row">
         <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()}>Import JSON</button>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden
@@ -164,7 +162,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       </div>
 
       <div className="card export-card">
-        <div className="export-head"><b>Renovation quantities</b><span className="chip">Estimate</span>{ver}</div>
+        <div className="export-head"><b>Renovation quantities</b><span className="chip">Estimate</span></div>
         <table className="export-table">
           <tbody>
             {qRows.map(([k, v, cost]) => (

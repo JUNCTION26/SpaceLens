@@ -143,7 +143,7 @@ function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
   };
   const sk = meas?.sourceKind ?? sourceKind; const st = meas?.status ?? status;
   return (
-    <Section id="source" title="Where this came from">
+    <Section id="source" title="Source">
       <div className="provenance-chips">
         <span className="chip">{SOURCE_WORDS[sk]}</span>
         <span className={`chip ${STATUS_CHIP[st]}`}>{st}</span>
@@ -153,7 +153,7 @@ function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
         <li key={e.id}>
           <span className="provenance-ico" aria-hidden>{EV_ICON[e.kind] ?? '•'}</span>
           <div>
-            <div>{e.label}{e.page ? `, page ${e.page}` : ''} <span className="muted">{new Date(e.createdAt).toLocaleDateString()}</span></div>
+            <div>{e.label}{e.page ? `, page ${e.page}` : ''}</div>
             {e.imageUrl && <EvidenceThumb ev={e} />}
             {e.note && <div className="muted">{e.note}</div>}
           </div>
@@ -189,8 +189,8 @@ function Uncertainty() {
         </div>
       ))}
       {bestCount > 0 && (
-        <div className="row"><span>Measure the {best.w.name} next ({bestCount} layouts depend on it)</span>
-          <button className="btn btn-sm btn-primary" onClick={() => select({ kind: 'wall', id: best.w.id })}>Select it</button></div>
+        <div className="row"><span>Measure {best.w.name} next · {bestCount} layouts</span>
+          <button className="btn btn-sm btn-primary" onClick={() => select({ kind: 'wall', id: best.w.id })}>Select</button></div>
       )}
     </Section>
   );
@@ -340,9 +340,7 @@ function Selected() {
   model.spaces.forEach((s) => s.walls.forEach((w) => { counts[w.status]++; }));
   return (<>
     <div className="provenance-empty">
-      <div className="provenance-empty-ico" aria-hidden>👆</div>
-      <b>Click a wall, door or item</b>
-      <div className="muted">Its size and source show here.</div>
+      <b>Select a wall, door or item</b>
     </div>
     <h3>{model.name}</h3>
     <div className="grid2">

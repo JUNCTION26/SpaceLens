@@ -119,7 +119,7 @@ export function IntentPanel() {
       <button className="btn btn-primary" disabled={compiling || !text.trim()} onClick={() => compile()}>
         {compiling ? 'Reading...' : busy ? 'Designing...' : 'Design it'}
       </button>
-      {meta && <CompilerBadge meta={meta} />}
+      {meta?.error && <CompilerBadge meta={meta} />}
 
       {req && (
         <div className="intent-chips" aria-label="Program">
@@ -160,7 +160,7 @@ export function IntentPanel() {
               <div className="intent-ask">{t.ask}</div>
               <div>{t.reply}</div>
               {t.diff.length > 0 ? <div className="intent-diff">{t.diff.map((d) => <span key={d} className="chip">{d}</span>)}</div> : <div className="muted">Nothing changed.</div>}
-              <CompilerBadge meta={t.meta} />
+              {t.meta.error && <CompilerBadge meta={t.meta} />}
             </div>
           ))}
           <div className="row intent-follow">
@@ -176,11 +176,6 @@ export function IntentPanel() {
         <details className="intent-details">
         <summary>Edit details</summary>
         <div className="intent-form card">
-          <div className="row intent-head">
-            <strong>Program</strong>
-            <span className={`chip ${req.compiledBy === 'gemini' ? 'chip-ok' : ''}`}>{req.compiledBy === 'gemini' ? 'Gemini' : 'Rules'}</span>
-          </div>
-
           {req.questions.length > 0 && (
             <ul className="intent-questions">{req.questions.map((q) => <li key={q}>{q}</li>)}</ul>
           )}
@@ -231,17 +226,7 @@ export function IntentPanel() {
             ))}
           </>)}
 
-          <div className="intent-sub">Clear route to</div>
-          <div className="row">
-            {(['window', 'door'] as const).map((k) => (
-              <button key={k} className={`chip ${req.routeTargets.some((t) => t.kind === k) ? 'chip-ok' : ''}`}
-                aria-pressed={req.routeTargets.some((t) => t.kind === k)} onClick={() => toggleTarget(k)}>{k === 'window' ? 'Window' : 'Door'}</button>
-            ))}
-          </div>
-
           {req.notes.length > 0 && <ul className="intent-notes muted">{req.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
-
-          <button className="btn btn-primary" disabled={!!busy || !req.items.length} onClick={() => generate(req)}>Generate layouts</button>
 
           {triedGen && candidates.length === 0 && infeasibility && (
             <div className="intent-infeasible">

@@ -14,11 +14,6 @@ async function timed<T>(parts: GeminiPart[], opts: Parameters<typeof gemini>[1])
   return { data, info: { model: getState().settings.geminiModel, ms: Math.round(performance.now() - t0), tokens: usage.inputTokens + usage.outputTokens - before } };
 }
 
-function Info({ info }: { info: CallInfo | null }) {
-  if (!info) return null;
-  return <p className="muted small">{info.model} · {(info.ms / 1000).toFixed(1)} s · {info.tokens} tokens</p>;
-}
-
 function PhotoInput({ onFile, label }: { onFile: (f: File) => void; label: string }) {
   return (
     <label className="btn">
@@ -44,7 +39,6 @@ const ITEM_SCHEMA = {
 function FurnitureFromPhoto() {
   const [known, setKnown] = useState('');
   const [est, setEst] = useState<ItemEstimate | null>(null);
-  const [info, setInfo] = useState<CallInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -53,7 +47,7 @@ function FurnitureFromPhoto() {
     try {
       const img = await fileToInlineData(file);
       const r = await timed<ItemEstimate>([img, { text: `Identify the main furniture item and estimate its size in cm. If an A4 sheet (21 x 29.7 cm) is visible, use it as scale. ${known ? `Known size from the user: ${known}.` : ''} Confidence is 0 to 1. Keep reasoning to one or two sentences.` }], { json: true, schema: ITEM_SCHEMA });
-      setEst(r.data); setInfo(r.info);
+      setEst(r.data);
     } catch (e) { setErr(String((e as Error).message)); }
     setBusy(false);
   };
@@ -75,14 +69,14 @@ function FurnitureFromPhoto() {
 
   return (
     <section className="card">
-      <h3>Add my furniture from a photo</h3>
+      <h3>Furniture from photo</h3>
       <p className="muted small">Put an A4 sheet next to it for scale, or type a size you know.</p>
       <input placeholder="Known size, e.g. 200 cm wide" value={known} onChange={(e) => setKnown(e.target.value)} />
       <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {est && (
         <div className="card">
-          <p className="small"><strong>AI estimate, check with a tape</strong> · {Math.round(est.confidence * 100)}% sure</p>
+          <p className="small"><strong>Estimate, check with a tape</strong> · {Math.round(est.confidence * 100)}% sure</p>
           <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')}
@@ -90,7 +84,6 @@ function FurnitureFromPhoto() {
           <button className="btn primary" onClick={add}>Add as owned</button>
         </div>
       )}
-      <Info info={info} />
     </section>
   );
 }
@@ -113,7 +106,6 @@ function blankRequirements(style: string): Requirements {
 
 function StyleMatch() {
   const [res, setRes] = useState<StyleResult | null>(null);
-  const [info, setInfo] = useState<CallInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -123,7 +115,7 @@ function StyleMatch() {
       const img = await fileToInlineData(file);
       const r = await timed<StyleResult>([img, { text: 'Describe the interior style in a few words, a palette of 4 to 6 hex colours (#rrggbb), main materials, and up to 5 catalog items that fit, each with a short reason.' }], { json: true, schema: STYLE_SCHEMA });
       r.data.palette = r.data.palette.filter((h) => /^#[0-9a-f]{6}$/i.test(h));
-      setRes(r.data); setInfo(r.info);
+      setRes(r.data);
     } catch (e) { setErr(String((e as Error).message)); }
     setBusy(false);
   };
@@ -138,7 +130,7 @@ function StyleMatch() {
 
   return (
     <section className="card">
-      <h3>Match a style from a photo</h3>
+      <h3>Style from photo</h3>
       <PhotoInput label={busy ? 'Looking...' : 'Choose inspiration photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {res && (
@@ -150,7 +142,6 @@ function StyleMatch() {
           <button className="btn primary" onClick={use}>Use this style</button>
         </div>
       )}
-      <Info info={info} />
     </section>
   );
 }
@@ -177,7 +168,6 @@ function modelSummary(): string {
 
 function RoomCheck() {
   const [issues, setIssues] = useState<Issue[] | null>(null);
-  const [info, setInfo] = useState<CallInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -186,21 +176,19 @@ function RoomCheck() {
     try {
       const img = await fileToInlineData(file);
       const r = await timed<{ issues: Issue[] }>([img, { text: `Compare this room photo with the model below. List clear differences only: missing or extra doors and windows, openings in the wrong place, walls that look wrong, big furniture missing. Kind is a short label.\n\nModel:\n${modelSummary()}` }], { json: true, schema: CHECK_SCHEMA });
-      setIssues(r.data.issues); setInfo(r.info);
+      setIssues(r.data.issues);
     } catch (e) { setErr(String((e as Error).message)); }
     setBusy(false);
   };
 
   return (
     <section className="card">
-      <h3>Check my room photo against the model</h3>
-      <p className="muted small">Suggestions only. Nothing changes until you edit it.</p>
+      <h3>Compare with photo</h3>
       <PhotoInput label={busy ? 'Comparing...' : 'Choose room photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {issues && (issues.length === 0 ? <p className="small">No clear differences found.</p> : (
         <ul className="small">{issues.map((x, i) => <li key={i}><strong>{x.kind}</strong>: {x.detail} <span className="muted">{x.suggestion}</span></li>)}</ul>
       ))}
-      <Info info={info} />
     </section>
   );
 }
@@ -211,7 +199,7 @@ export function VisionPanel() {
     return (
       <div className="panel">
         <h3>Inspire needs a Gemini key</h3>
-        <p className="muted">These photo tools use Gemini to read your pictures: add furniture from a photo, match a style, and check your room against the model. Get a free key and paste it in Settings.</p>
+        <p className="muted">Add a Gemini key in Settings to use these.</p>
       </div>
     );
   }

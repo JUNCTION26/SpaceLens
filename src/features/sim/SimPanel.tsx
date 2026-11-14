@@ -133,7 +133,7 @@ export function SimPanel() {
             </div>
           );
         })()}
-        {turn && <p className={turn.ok ? 'sim-ok' : 'sim-bad'}>{turn.ok ? `1.5 m turning circle fits at ${turn.at!.x.toFixed(1)}, ${turn.at!.y.toFixed(1)}` : 'No reachable spot for a 1.5 m turning circle'}</p>}
+        {turn && <p className={turn.ok ? 'sim-ok' : 'sim-bad'}>{turn.ok ? '1.5 m turning circle fits' : 'No reachable spot for a 1.5 m turning circle'}</p>}
         <details>
           <summary className="muted">Each route</summary>
           <ul className="list sim-list">
@@ -147,12 +147,11 @@ export function SimPanel() {
           </ul>
           <button className="btn btn-ghost btn-sm" onClick={checkRoutes}>Check again</button>
         </details>
-        <p className="muted sim-note">Assumes: {p.note}. Rugs ignored, 5 cm grid.</p>
+        <p className="muted sim-note">Rugs ignored, 5 cm grid.</p>
       </section>
 
       <section className="card">
-        <strong>Will it fit through the door?</strong>
-        <span className="muted sim-note">1. Pick an item</span>
+        <strong title={`Assumes: ${PASSAGE_ASSUMPTIONS.join('. ')}.`}>Will it fit through the door?</strong>
         <div className="sim-items" role="listbox" aria-label="Item">
           {items.map((i) => {
             const k = 28 / Math.max(i.w, i.d, 0.1);
@@ -165,13 +164,13 @@ export function SimPanel() {
             );
           })}
         </div>
-        <label className="field">2. Pick a door
+        <label className="field">Door
           <select value={door} onChange={(e) => setDoorId(e.target.value)}>
             {doors.map((d, i) => <option key={d.id} value={d.id}>Door {i + 1} ({d.widthM.toFixed(2)} m)</option>)}
           </select>
         </label>
         <div className="row">
-          <button className="btn btn-primary btn-sm" disabled={busy || !door} onClick={runPassage}>{busy ? <><span className="sim-spin" aria-hidden="true" /> Testing...</> : '3. Test'}</button>
+          <button className="btn btn-primary btn-sm" disabled={busy || !door} onClick={runPassage}>{busy ? <><span className="sim-spin" aria-hidden="true" /> Testing...</> : 'Test'}</button>
           <button className="btn btn-ghost btn-sm" disabled={!passage?.ok} onClick={play}>Replay</button>
         </div>
         {passage && (
@@ -180,7 +179,6 @@ export function SimPanel() {
             <span>{passage.details}</span>
           </div>
         )}
-        <p className="muted sim-note">Assumes: {PASSAGE_ASSUMPTIONS.join('. ')}.</p>
       </section>
 
       <details className="card sim-more">
@@ -193,7 +191,7 @@ export function SimPanel() {
       </section>
 
       <section className="card">
-        <strong>Crowd</strong>
+        <strong title={`Assumes: ${CROWD_ASSUMPTIONS}.`}>Crowd</strong>
         <label className="field">Agents: {agents}
           <input type="range" min={5} max={60} value={agents} onChange={(e) => setAgents(Number(e.target.value))} />
         </label>
@@ -207,7 +205,6 @@ export function SimPanel() {
             <div className="stat"><span className="muted">Through gaps under 0.45 m</span> {crowd.cur.tightPct.toFixed(0)}%{crowd.prev && <span className="muted"> (was {crowd.prev.tightPct.toFixed(0)}%)</span>}</div>
           </div>
         )}
-        <p className="muted sim-note">Assumes: {CROWD_ASSUMPTIONS}.</p>
       </section>
       </details>
     </div>

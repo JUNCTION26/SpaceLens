@@ -88,7 +88,7 @@ interface Summary { areaM2: number; measured: number; estimated: number; errCm: 
 function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => void; onAgain: () => void }) {
   return (
     <div className="card capture-summary">
-      <Stepper step={4} hint="Room created. Check the numbers, then start designing." />
+      <Stepper step={4} hint="Check the numbers." />
       <div className="capture-stats">
         <div><b>{s.areaM2.toFixed(1)} m²</b><span>Floor area</span></div>
         <div><b>{s.measured}</b><span>Walls measured</span></div>
@@ -154,7 +154,7 @@ export function CapturePanel() {
       const openings = (r.openings ?? []).filter((o) => inBox(o) && (o.kind === 'door' || o.kind === 'window')).map((o) => ({ kind: o.kind as 'door' | 'window', x: o.x, y: o.y }));
       const k = calKey + 1;
       setCalKey(k); setAi({ key: k, room, ref, openings });
-      setAiNote(`${settings.geminiModel}, ${(ms / 1000).toFixed(1)} s: ${room.length} corners${ref ? ', A4 sheet' : ''}, ${openings.length} doors or windows.`);
+      setAiNote(`${room.length} corners${ref ? ', A4 sheet' : ''}, ${openings.length} openings`);
       setStage('cal');
     } catch (e) {
       toast(`Auto-detect failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error');
@@ -184,12 +184,12 @@ export function CapturePanel() {
         ))}
       </div>
 
-      {hasRooms && <label className="row capture-check"><input type="checkbox" checked={addRoom} onChange={(e) => setAddRoom(e.target.checked)} /> Add as another room next to the current ones</label>}
+      {hasRooms && <label className="row capture-check"><input type="checkbox" checked={addRoom} onChange={(e) => setAddRoom(e.target.checked)} /> Add as another room</label>}
 
-      {sub === 'draw' && <><p className="muted">Most reliable. Type what you measured with a tape.</p><DrawRoom ceilingCm={ceilingCm} setCeilingCm={setCeilingCm} onCreate={(d) => create(d, 'Measured by hand')} /></>}
+      {sub === 'draw' && <><DrawRoom ceilingCm={ceilingCm} setCeilingCm={setCeilingCm} onCreate={(d) => create(d, 'Measured by hand')} /></>}
 
       {sub !== 'draw' && (stage === 'photo' || !shot) && (
-        <Stepper step={0} hint="Add a photo that shows the floor and an A4 sheet lying flat on it."
+        <Stepper step={0} hint="Photo of the floor with an A4 sheet on it."
           onNext={() => setStage('cal')} nextOk={!!shot}>
           {sub === 'scan' && <ScanMode shots={shots} setShots={(f) => setShots((s) => { const n = f(s); if (pick < 0 && n.length) setPick(0); return n; })} />}
           {sub === 'photos' && (
@@ -212,7 +212,7 @@ export function CapturePanel() {
             aiSlot={aiBox}
             onBack={() => setStage('photo')}
             onDone={(d, info) => create(d, sub === 'scan' ? 'Phone scan' : 'Photos', info.errCm)} />
-          <label className="field capture-field"><span>Ceiling (cm, not measured from photo)</span><input type="number" value={ceilingCm} onChange={(e) => setCeilingCm(+e.target.value)} /></label>
+          <label className="field capture-field"><span>Ceiling (cm)</span><input type="number" value={ceilingCm} onChange={(e) => setCeilingCm(+e.target.value)} /></label>
         </>
       )}
     </div>

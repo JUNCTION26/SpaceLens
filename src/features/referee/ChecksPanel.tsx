@@ -92,8 +92,6 @@ export const ChecksPanel = memo(function ChecksPanel() {
         <div>
           <strong>{sum.fail ? `${sum.fail} to fix` : 'All clear'}</strong>
           <div className="row referee-counts" aria-live="polite">
-            <Count n={sum.pass} cls={CHIP.pass} label="pass" />
-            <Count n={sum.fail} cls={CHIP.fail} label="fail" />
             {sum.unknown > 0 && <Count n={sum.unknown} cls={CHIP.unknown} label="unknown" />}
           </div>
         </div>

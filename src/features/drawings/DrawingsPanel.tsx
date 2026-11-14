@@ -301,10 +301,7 @@ export function DrawingsPanel() {
   }
 
   const st = doc ? indexStats(doc) : null;
-  const tokens = usage.inputTokens + usage.outputTokens;
-  const freePct = stats.asked ? Math.round((stats.free / stats.asked) * 100) : 0;
   const pageFocus = (focus ?? []).filter((r) => r.page === page);
-  const modelTokens = answers.reduce((n, a) => n + (a.tokens ?? 0), 0);
   const named = [...new Set(roomList.filter((x) => x.area).map((x) => x.r.str))].slice(0, 2);
   const suggestions = [
     ...named.map((n) => `Area of ${n}?`),
@@ -345,7 +342,7 @@ export function DrawingsPanel() {
       {!doc ? (
         <div className="drawings-empty card">
           <h3>Ask a drawing</h3>
-          <p className="muted">Open a floor plan or technical drawing. Text is indexed once, so most questions are answered free, with the exact spot shown on the sheet.</p>
+          <p className="muted">Open a plan to ask about it.</p>
           {benchCard}
         </div>
       ) : (
@@ -402,7 +399,7 @@ export function DrawingsPanel() {
                 {suggestions.map((s) => <button key={s} className="chip" onClick={() => void ask(s)}>{s}</button>)}
               </div>
               <p className="muted drawings-cost">
-                Free {stats.free} vs model {stats.asked - stats.free} ({freePct}% free) · {modelTokens.toLocaleString()} tokens here · {usage.calls} calls, {tokens.toLocaleString()} total
+                {stats.free} of {stats.asked} answered free
               </p>
               <div className="list">
                 {answers.map((a) => (
@@ -411,7 +408,7 @@ export function DrawingsPanel() {
                     <div className="drawings-at">{a.answer}</div>
                     <div className="row">
                       <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
-                      <span className="chip">{a.method === 'index' ? 'Index, free' : a.method === 'gemini' ? (a.cached ? 'Gemini, cached' : `Gemini, ${a.tokens ?? 0} tokens`) : 'No answer'}</span>
+                      <span className="chip">{a.method === 'index' ? 'Free' : a.method === 'gemini' ? 'Gemini' : 'No answer'}</span>
                     </div>
                     {a.check && (
                       <div className={`drawings-check ${a.check.ok ? 'ok' : 'bad'}`}>
@@ -426,7 +423,6 @@ export function DrawingsPanel() {
               </div>
             </section>
 
-            {benchCard}
             <section className="card">
               <div className="row drawings-stats">
                 <div className="stat"><b>{st!.text}</b><span className="muted">text items</span></div>
@@ -477,7 +473,6 @@ export function DrawingsPanel() {
               {tool !== 'trace' ? null : (
                 <>
                   <input className="field" value={roomName} onChange={(e) => setRoomName(e.target.value)} aria-label="Room name" />
-                  {!mpp && <p className="muted">Set the scale first to get lengths.</p>}
                   <div className="list">
                     {walls.map((w, i) => (
                       <div key={i} className="row drawings-wrow">

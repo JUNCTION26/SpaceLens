@@ -148,7 +148,6 @@ export function LibraryPanel() {
         ))}
         {list.length === 0 && <p className="muted">No matches.</p>}
       </div>
-      <p className="muted furniture-note">Prices are estimates.</p>
 
       {own.open ? (
         <section className="card furniture-own">
@@ -172,7 +171,7 @@ export function LibraryPanel() {
 
       <section className="furniture-bill">
         <h3>Bill of furniture</h3>
-        {model.furniture.length === 0 ? <p className="muted">Nothing placed yet.</p> : groups.map(([g, items]) => (
+        {groups.map(([g, items]) => (
           <div key={g} className="furniture-group">
             <div className="row furniture-ghead"><span>{label(g)}</span><span className="muted">{fmtSek(items.reduce((n, f) => n + (f.owned ? 0 : f.priceSek), 0))}</span></div>
             <ul className="list">
@@ -193,7 +192,7 @@ export function LibraryPanel() {
             <span className={`furniture-bar-fill ${tone}`} style={{ width: `${Math.min(100, (total / budget) * 100)}%` }} />
           </div>
           <div className={`chip ${total <= budget ? 'chip-ok' : 'chip-bad'}`}>
-            {total <= budget ? `${fmtSek(budget - total)} under budget` : `${fmtSek(total - budget)} over budget`} ({fmtSek(budget)})
+            {total <= budget ? `${fmtSek(budget - total)} under budget` : `${fmtSek(total - budget)} over budget (${fmtSek(budget)})`}
           </div>
         </>)}
         {model.furniture.length > 0 && <button className="btn btn-sm" onClick={copyCsv}>Copy CSV</button>}

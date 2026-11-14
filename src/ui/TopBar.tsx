@@ -49,11 +49,10 @@ export function TopBar() {
       </div>
       <nav className="modes" aria-label="Mode">
         {MODES.map(([m, l]) => (
-          <button key={m} className={m === mode ? 'on' : ''} aria-current={m === mode ? 'page' : undefined} onClick={() => setMode(m)}><kbd className="mode-key" aria-hidden="true">{MODES.findIndex((x) => x[0] === m) + 1}</kbd>{l}</button>
+          <button key={m} className={m === mode ? 'on' : ''} aria-current={m === mode ? 'page' : undefined} onClick={() => setMode(m)}>{l}</button>
         ))}
       </nav>
       <div className="tools">
-        <span className="save-state" role="status" title="Your work is saved in this browser">{busy ? 'Saving' : 'Saved'}</span>
         <button className="kbd-btn" onClick={() => window.dispatchEvent(new Event('spacelens:command'))} title="Search commands (Ctrl+K)" aria-label="Search commands"><span className="kbd-label">Search</span><kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd></button>
         <button className="ghost-btn hide-mobile" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Guided demo</button>
         {busy && <span className="busy" role="status"><i />{busy}</span>}
