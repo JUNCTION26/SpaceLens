@@ -289,7 +289,7 @@ export function BuildingPanel() {
                 <li key={p.spaceId}>
                   <span className="bld-grow">{p.name}</span>
                   <span className={`chip${p.status === 'done' ? ' chip-ok' : p.status === 'failed' ? ' chip-bad' : ''}`} title={p.message}>
-                    {p.status === 'done' ? `${p.items} items` : p.status === 'running' ? 'Working…' : p.status === 'skipped' ? 'Skipped' : p.status === 'failed' ? 'No fit' : ''}
+                    {p.status === 'done' ? plural(p.items ?? 0, 'item') : p.status === 'running' ? 'Working…' : p.status === 'skipped' ? (p.message ?? 'Skipped') : p.status === 'failed' ? 'No fit' : ''}
                   </span>
                 </li>
               ))}
@@ -301,7 +301,7 @@ export function BuildingPanel() {
               <table className="bld-table bld-bill">
                 <thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
                 <tbody>{bill.lines.map((l) => (
-                  <tr key={l.catalogId + l.name}><td>{l.name}</td><td>{l.qty}</td><td>{fmtSek(l.totalSek)}</td></tr>
+                  <tr key={`${l.catalogId}|${l.name}`}><td>{l.name}</td><td>{l.qty}</td><td>{fmtSek(l.totalSek)}</td></tr>
                 ))}</tbody>
               </table>
             </details>
@@ -311,7 +311,7 @@ export function BuildingPanel() {
           <table className="bld-table bld-schedule">
             <thead><tr><th>Wall</th><th>Thickness</th><th>Length</th><th>Openings</th></tr></thead>
             <tbody>{schedule.map((r) => (
-              <tr key={r.kind + r.thicknessCm}>
+              <tr key={`${r.kind}:${r.thicknessCm}`}>
                 <td>{r.kind}</td><td>{r.thicknessCm} cm</td><td>{r.lengthM.toFixed(1)} m</td>
                 <td className="muted">{[r.doors ? plural(r.doors, 'door') : '', r.windows ? plural(r.windows, 'window') : ''].filter(Boolean).join(', ')}</td>
               </tr>
