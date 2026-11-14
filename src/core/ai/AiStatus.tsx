@@ -2,19 +2,23 @@ import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { useUi } from '../../ui/uiStore';
 import { onAiActivity, onProbeUpdate, aiRoute } from './index';
+import { apiBase } from './transport';
 import { shortModel } from './models';
 import { problemFor, type AiAction, type AiReason } from './errors';
 import './ai.css';
 
 const openSettings = () => useUi.getState().setSettingsOpen(true);
 const fmt = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+/** Gemini is reachable with a personal key, or through the SpaceLens server. */
+const useAiReady = () => useStore((s) => Boolean(s.settings.geminiKey)) || Boolean(apiBase());
 
 /**
- * Small status chip for the shell: the model in use and the last answer time. With no key it reads
- * "Offline rules". Click opens Settings.
+ * Small status chip for the shell: the model in use and the last answer time. With no key and no
+ * server it reads "Offline rules". Click opens Settings.
  */
 export function AiStatus() {
-  const hasKey = useStore((s) => Boolean(s.settings.geminiKey));
+  const hasKey = useAiReady();
+  const hasOwnKey = useStore((s) => Boolean(s.settings.geminiKey));
   const [last, setLast] = useState<{ model: string; ms: number } | null>(null);
   const [fail, setFail] = useState<AiReason | null>(null);
   const [, tick] = useState(0);
@@ -31,7 +35,8 @@ export function AiStatus() {
   if (!hasKey) {
     return <button className="ai-chip" onClick={openSettings} title="Works offline with rules. Add a Gemini key for custom objects and smarter design."><span className="dot" />Offline rules</button>;
   }
-  const model = last?.model ?? aiRoute('fast')[0];
+  // Through the server the route is not measured, so the chip names a model only once one has answered.
+  const model = last?.model ?? (hasOwnKey ? aiRoute('fast')[0] : undefined);
   const text = fail ? problemFor(fail).message : model ? `${shortModel(model)}${last ? ` · ${fmt(last.ms)}` : ''}` : 'Gemini';
   return (
     <button className={`ai-chip ${fail ? 'bad' : 'ok'}`} onClick={openSettings} title="Gemini settings" aria-label={`Gemini status: ${text}. Open settings`}>
@@ -42,7 +47,7 @@ export function AiStatus() {
 
 /** The one friendly line every AI feature shows when there is no key. */
 export function NoKeyPrompt({ compact = false }: { compact?: boolean }) {
-  const hasKey = useStore((s) => Boolean(s.settings.geminiKey));
+  const hasKey = useAiReady();
   if (hasKey) return null;
   return (
     <div className="ai-note" role="note">

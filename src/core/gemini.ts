@@ -1,13 +1,15 @@
 import { getState } from './store';
+import { apiBase } from './ai/transport';
 
 export interface GeminiPart { text?: string; inlineData?: { mimeType: string; data: string } }
 
-export const hasGemini = () => Boolean(getState().settings.geminiKey);
+/** Gemini is available with a personal key, or through the SpaceLens server when VITE_API_BASE is set. */
+export const hasGemini = () => Boolean(getState().settings.geminiKey) || Boolean(apiBase());
 
 /**
  * One Gemini call through the shared router: the fastest healthy model, fall-through when a model
- * is busy or out of quota, and a plain message on failure. The key stays in this browser and goes only
- * to Google. Returns parsed JSON when `json` or `schema` is set. Throws an Error whose message is
+ * is busy or out of quota, and a plain message on failure. A personal key stays in this browser and goes
+ * only to Google; without one, calls go through the SpaceLens server, which holds its own key. Returns parsed JSON when `json` or `schema` is set. Throws an Error whose message is
  * safe to show (never raw API text), with `.reason` set, so callers can fall back to local logic.
  */
 export async function gemini<T = string>(parts: GeminiPart[], opts: { json?: boolean; schema?: object; system?: string; timeoutMs?: number; task?: 'fast' | 'smart' | 'vision' } = {}): Promise<T> {

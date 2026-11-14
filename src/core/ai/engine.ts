@@ -2,8 +2,7 @@ import type { GeminiPart } from '../gemini';
 import { acceptsThinking, clampLevel, isLevelRejection, markNoImages, markNoThinking, markThinkingFloor, nextLevel, type ThinkingLevel } from './models';
 import { reasonFromStatus, type AiReason } from './errors';
 import { SseParser } from './sse';
-
-const API = 'https://generativelanguage.googleapis.com/v1beta/models';
+import { CODE_STATUS, STOP_ALL_CODES, streamRequest, type Transport } from './transport';
 
 export interface ModelRequest {
   system?: string;
@@ -19,7 +18,8 @@ export interface ModelRequest {
 }
 
 export interface StreamOptions {
-  key: string;
+  /** Straight to Google with a key, or through the SpaceLens server. */
+  transport: Transport;
   signal?: AbortSignal;
   /** Abort if no text has arrived after this long. */
   firstTokenTimeoutMs?: number;
@@ -43,6 +43,8 @@ export interface StreamOutcome {
 export class AiError extends Error {
   /** Plain category for the UI (the message is for logs only). */
   readonly reason: AiReason;
+  /** Every model would fail the same way (e.g. the server's rate limit): stop trying others. */
+  stopAll = false;
   constructor(message: string, readonly kind: 'http' | 'timeout' | 'abort' | 'blocked' | 'parse', readonly status = 0, reason?: AiReason) {
     super(message);
     this.name = 'AiError';
@@ -85,16 +87,13 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
   const totalTimer = opts.totalTimeoutMs ? setTimeout(() => stop('timeout'), opts.totalTimeoutMs) : undefined;
 
   try {
-    const res = await fetch(`${API}/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.key },
-      body: JSON.stringify(buildBody(req, withThinking)),
-    });
+    const { url, init } = streamRequest(opts.transport, model, buildBody(req, withThinking), ctrl.signal);
+    const res = await fetch(url, init);
     if (!res.ok || !res.body) {
       const body = await res.text().catch(() => '');
       const msg = body.match(/"message":\s*"([^"]*)"/)?.[1] ?? body.slice(0, 160);
-      throw new AiError(`${model} ${res.status}: ${msg}`, 'http', res.status);
+      const code = body.match(/"code":\s*"([a-z_]+)"/)?.[1];
+      throw httpError(model, res.status, msg, code);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -106,7 +105,12 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
     const handle = (data: string) => {
       let payload: Record<string, any>;
       try { payload = JSON.parse(data); } catch { return; }
-      if (payload.error) throw new AiError(`${model}: ${payload.error.message ?? 'stream error'}`, 'http', payload.error.code ?? 0);
+      if (payload.error) {
+        const code = payload.error.code;
+        // Google sends a numeric code; the server sends one of its own string codes.
+        if (typeof code === 'string') throw httpError(model, CODE_STATUS[code] ?? 502, payload.error.message ?? 'stream error', code);
+        throw new AiError(`${model}: ${payload.error.message ?? 'stream error'}`, 'http', code ?? 0);
+      }
       if (payload.promptFeedback?.blockReason) throw new AiError(`${model}: blocked (${payload.promptFeedback.blockReason})`, 'blocked');
       const piece = chunkText(payload);
       finishReason = payload.candidates?.[0]?.finishReason ?? finishReason;
@@ -139,6 +143,17 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
     clearTimeout(totalTimer);
     opts.signal?.removeEventListener('abort', onOuterAbort);
   }
+}
+
+/** An HTTP failure as an AiError. `code` is set only for answers from the SpaceLens server. */
+function httpError(model: string, status: number, message: string, code?: string): AiError {
+  // A model the server does not offer behaves like one Google does not know: skip it for a long while.
+  const st = code === 'model_not_allowed' ? 404 : status;
+  const reason: AiReason | undefined = code === 'rate_limited' || code === 'budget_exhausted' ? 'quota'
+    : code === 'upstream_auth' || code?.startsWith('origin_') ? 'other' : undefined;
+  const err = new AiError(`${model} ${st}: ${message}`, 'http', st, reason);
+  err.stopAll = Boolean(code && STOP_ALL_CODES.has(code));
+  return err;
 }
 
 /**

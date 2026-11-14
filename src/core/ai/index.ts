@@ -1,11 +1,12 @@
-import { hasGemini, usage, type GeminiPart } from '../gemini';
+import { usage, type GeminiPart } from '../gemini';
 import { getState } from '../store';
 import { AiError, type StreamOutcome } from './engine';
 import { type AiTask, type ThinkingLevel } from './models';
 import {
-  hashKey, isProbing, maybeReprobe, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
+  hashKey, isProbing, loadServerModels, maybeReprobe, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
   type ModelStatus,
 } from './router';
+import { pickTransport, transportId, type Transport } from './transport';
 import { cacheGet, cacheSet, emitActivity, recordTask, recordUsage } from './telemetry';
 
 export type { AiTask, ThinkingLevel } from './models';
@@ -18,6 +19,7 @@ export { AiError } from './engine';
 export { classify, problemFor, OFFLINE_NOTE, type AiReason, type AiProblem, type AiAction } from './errors';
 export { TASKS, getOverrides, setOverride } from './models';
 export { onProbeUpdate };
+export { apiBase, pickTransport, type Transport } from './transport';
 
 export interface AiCall {
   task: AiTask;
@@ -44,9 +46,11 @@ export interface AiCall {
 
 export interface AiResult<T> { data: T; model: string; ms: number; inputTokens: number; outputTokens: number; cached: boolean }
 
-export const aiReady = () => hasGemini();
+/** How calls go right now: a key in Settings (or the dev env) goes direct, else the server, else none. */
+export const currentTransport = (): Transport | null => pickTransport(getState().settings.geminiKey);
 
-const keyOf = () => getState().settings.geminiKey;
+/** True when Gemini can be called: with a personal key, or through the SpaceLens server. */
+export const aiReady = () => currentTransport() !== null;
 let callSeq = 1;
 
 /**
@@ -68,22 +72,26 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
     }
   }
 
-  const key = keyOf();
-  if (!key) throw new AiError('No Gemini key set', 'http', 0, 'no_key');
+  const t = currentTransport();
+  if (!t) throw new AiError('No Gemini key set', 'http', 0, 'no_key');
   emitActivity({ id, task: call.task, phase: 'start', ms: 0 });
 
-  // First call with this key: probe in the background and route as soon as one model answers.
-  if (!probeFresh(key)) {
-    if (!isProbing(key)) void runProbe(key);
-    await waitForRoute(key, call.task, 3000);
+  if (t.kind === 'server') {
+    // The server shares one key among everyone: no speed probe, just its model list (loaded once).
+    await loadServerModels(t);
+  } else {
+    // First call with this key: probe in the background and route as soon as one model answers.
+    if (!probeFresh(t)) {
+      if (!isProbing(t)) void runProbe(t);
+      await waitForRoute(t, call.task, 3000);
+    }
+    maybeReprobe(t, 'age');
   }
-
-  maybeReprobe(key, 'age');
-  const order = routeFor(key, call.task);
+  const order = routeFor(t, call.task);
   let data: T | undefined;
   let out: StreamOutcome;
   try {
-    out = await runRouted(key, order, {
+    out = await runRouted(t, order, {
       system: call.system,
       parts: call.parts,
       schema: call.schema,
@@ -106,7 +114,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
 
   const ms = since();
   recordUsage(out.model, { calls: 1, inputTokens: out.inputTokens, outputTokens: out.outputTokens, ms });
-  if (ms > 2 * (call.budgetMs ?? TIMING[call.task].hedgeMs)) maybeReprobe(key, 'slow');
+  if (t.kind === 'direct' && ms > 2 * (call.budgetMs ?? TIMING[call.task].hedgeMs)) maybeReprobe(t, 'slow');
   recordTask(call.task, ms, out.inputTokens, out.outputTokens);
   usage.calls += 1;
   usage.inputTokens += out.inputTokens;
@@ -129,25 +137,28 @@ function parseOutput<T>(out: StreamOutcome, json: boolean): T {
 
 /**
  * Measures every candidate model with a tiny streaming request (8 s cap each, in parallel).
- * Results are kept for 30 minutes per key; pass force to re-measure.
+ * Results are kept for 30 minutes per key or server; pass force to re-measure.
  */
 export async function probeModels(opts: { force?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
-  const key = keyOf();
-  if (!key) return [];
-  return runProbe(key, opts);
+  const t = currentTransport();
+  if (!t) return [];
+  return runProbe(t, opts);
 }
 
 /** The ordered models a task would try right now (first = the one it will use). */
 export function aiRoute(task: AiTask): string[] {
-  const key = keyOf();
-  return key ? routeFor(key, task) : [];
+  const t = currentTransport();
+  return t ? routeFor(t, task) : [];
 }
 
-/** Last probe results for the current key, possibly partial while a probe is running. */
+/** Last probe results for the current key or server, possibly partial while a probe is running. */
 export function aiProbeResults(): ModelStatus[] {
-  const key = keyOf();
-  return key ? Object.values(probeResults(key)) : [];
+  const t = currentTransport();
+  return t ? Object.values(probeResults(t)) : [];
 }
 
-/** Fingerprint of the current key (for debugging which key a probe belongs to). */
-export const aiKeyFingerprint = () => hashKey(keyOf() ?? '');
+/** Fingerprint of the current key or server (for debugging which one a probe belongs to). */
+export const aiKeyFingerprint = () => {
+  const t = currentTransport();
+  return hashKey(t ? transportId(t) : '');
+};

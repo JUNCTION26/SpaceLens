@@ -99,6 +99,7 @@ function fakeFetch(map: Record<string, Behaviour>, calls: string[]) {
 }
 
 const timing = { hedgeMs: 60, firstTokenTimeoutMs: 400, totalTimeoutMs: 2000 };
+const direct = { kind: 'direct', key: 'k' } as const;
 
 describe('runRouted', () => {
   let calls: string[];
@@ -108,7 +109,7 @@ describe('runRouted', () => {
   it('falls through errors to the next model', async () => {
     vi.stubGlobal('fetch', fakeFetch({ a: { status: 429, body: '{"error":{"message":"quota"}}' }, b: { chunks: ['hel', 'lo'] } }, calls));
     const partials: string[] = [];
-    const out = await runRouted('k', ['a', 'b'], { parts: [{ text: 'x' }] }, timing, undefined, { onText: (t) => partials.push(t) });
+    const out = await runRouted(direct, ['a', 'b'], { parts: [{ text: 'x' }] }, timing, undefined, { onText: (t) => partials.push(t) });
     expect(out.model).toBe('b');
     expect(out.text).toBe('hello');
     expect(partials).toEqual(['hel', 'hello']);
@@ -117,14 +118,14 @@ describe('runRouted', () => {
 
   it('hedges a slow model and takes whichever streams first', async () => {
     vi.stubGlobal('fetch', fakeFetch({ slow: { delayMs: 300, chunks: ['s'] }, quick: { delayMs: 5, chunks: ['q'] } }, calls));
-    const out = await runRouted('k', ['slow', 'quick'], { parts: [{ text: 'x' }] }, timing, undefined);
+    const out = await runRouted(direct, ['slow', 'quick'], { parts: [{ text: 'x' }] }, timing, undefined);
     expect(out.model).toBe('quick');
     expect(calls).toEqual(['slow', 'quick']);
   });
 
   it('does not hedge when the first model answers quickly', async () => {
     vi.stubGlobal('fetch', fakeFetch({ a: { delayMs: 5 }, b: {} }, calls));
-    const out = await runRouted('k', ['a', 'b'], { parts: [{ text: 'x' }] }, { ...timing, hedgeMs: 400, firstTokenTimeoutMs: 1500 }, undefined);
+    const out = await runRouted(direct, ['a', 'b'], { parts: [{ text: 'x' }] }, { ...timing, hedgeMs: 400, firstTokenTimeoutMs: 1500 }, undefined);
     expect(out.model).toBe('a');
     await new Promise((r) => setTimeout(r, 500));
     expect(calls).toEqual(['a']);
@@ -132,13 +133,13 @@ describe('runRouted', () => {
 
   it('times out a silent model and moves on', async () => {
     vi.stubGlobal('fetch', fakeFetch({ dead: { delayMs: 5000 }, live: {} }, calls));
-    const out = await runRouted('k', ['dead', 'live'], { parts: [{ text: 'x' }] }, { ...timing, hedgeMs: 10_000, firstTokenTimeoutMs: 80 }, undefined);
+    const out = await runRouted(direct, ['dead', 'live'], { parts: [{ text: 'x' }] }, { ...timing, hedgeMs: 10_000, firstTokenTimeoutMs: 80 }, undefined);
     expect(out.model).toBe('live');
   });
 
   it('learns that a model rejects thinkingConfig', async () => {
     vi.stubGlobal('fetch', fakeFetch({ 'no-think-model': { requireNoThinking: true } }, calls));
-    const out = await runRouted('k', ['no-think-model'], { parts: [{ text: 'x' }], thinking: 'minimal' }, timing, undefined);
+    const out = await runRouted(direct, ['no-think-model'], { parts: [{ text: 'x' }], thinking: 'minimal' }, timing, undefined);
     expect(out.text).toBe('{"ok":true}');
     expect(calls).toEqual(['no-think-model', 'no-think-model']);
     expect(acceptsThinking('no-think-model')).toBe(false);
@@ -146,7 +147,7 @@ describe('runRouted', () => {
 
   it('falls through when a response fails validation', async () => {
     vi.stubGlobal('fetch', fakeFetch({ a: { chunks: ['{"bro'] }, b: {} }, calls));
-    const out = await runRouted('k', ['a', 'b'], { parts: [{ text: 'x' }] }, timing, undefined, {
+    const out = await runRouted(direct, ['a', 'b'], { parts: [{ text: 'x' }] }, timing, undefined, {
       accept: (o) => { JSON.parse(o.text); },
     });
     expect(out.model).toBe('b');
@@ -154,10 +155,10 @@ describe('runRouted', () => {
 
   it('rejects when every model fails, and on abort', async () => {
     vi.stubGlobal('fetch', fakeFetch({}, calls));
-    await expect(runRouted('k', ['x', 'y'], { parts: [{ text: 'x' }] }, timing, undefined)).rejects.toThrow(/All Gemini models failed/);
+    await expect(runRouted(direct, ['x', 'y'], { parts: [{ text: 'x' }] }, timing, undefined)).rejects.toThrow(/All Gemini models failed/);
     vi.stubGlobal('fetch', fakeFetch({ s: { delayMs: 500 } }, calls));
     const ctrl = new AbortController();
-    const p = runRouted('k', ['s'], { parts: [{ text: 'x' }] }, timing, ctrl.signal);
+    const p = runRouted(direct, ['s'], { parts: [{ text: 'x' }] }, timing, ctrl.signal);
     setTimeout(() => ctrl.abort(), 20);
     await expect(p).rejects.toThrow(/Aborted/);
   });

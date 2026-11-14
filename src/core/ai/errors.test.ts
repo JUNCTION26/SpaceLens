@@ -58,7 +58,7 @@ describe('thinking levels', () => {
       const sse = 'data: {"candidates":[{"content":{"parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1}}\n\n';
       return new Response(sse, { status: 200 });
     }));
-    const out = await callModel('gemini-t-floor', { parts: [{ text: 'hi' }], thinking: 'minimal' }, { key: 'k' });
+    const out = await callModel('gemini-t-floor', { parts: [{ text: 'hi' }], thinking: 'minimal' }, { transport: { kind: 'direct', key: 'k' } });
     expect(out.text).toBe('OK');
     expect(seen).toEqual(['minimal', 'low']);
     expect(clampLevel('gemini-t-floor', 'minimal')).toBe('low');

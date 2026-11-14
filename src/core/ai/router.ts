@@ -1,6 +1,7 @@
 import { AiError, callModel, type ModelRequest, type StreamOutcome } from './engine';
-import { allCandidates, candidatesFor, getOverrides, pickNewModels, setExtraModels, type AiTask } from './models';
+import { acceptsImages, candidatesFor, getOverrides, pickNewModels, setExtraModels, type AiTask } from './models';
 import { dominantReason, type AiReason } from './errors';
+import { modelsRequest, transportId, type Transport } from './transport';
 
 export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string; reason?: AiReason }
 
@@ -79,9 +80,12 @@ let probe: ProbeStore | null = null;
 let probing: { keyHash: string; promise: Promise<ModelStatus[]> } | null = null;
 const probeListeners = new Set<() => void>();
 
-/** Current probe results for this key (possibly partial while a probe runs), or {} if stale. */
-export function probeResults(key: string): Record<string, ModelStatus> {
-  const kh = hashKey(key);
+/** Probe results are stored per transport under a fingerprint, never the key itself. */
+const idOf = (t: Transport) => hashKey(transportId(t));
+
+/** Current probe results for this transport (possibly partial while a probe runs), or {} if stale. */
+export function probeResults(t: Transport): Record<string, ModelStatus> {
+  const kh = idOf(t);
   if (!probe || probe.keyHash !== kh) {
     try {
       const stored = JSON.parse(storage()?.getItem(LS_PROBE) ?? 'null') as ProbeStore | null;
@@ -95,23 +99,23 @@ export function probeResults(key: string): Record<string, ModelStatus> {
 
 /** Re-measure in the background: every 10 minutes, and after a slow call. Old results stay in use meanwhile. */
 export const REPROBE_MS = 10 * 60_000;
-export function maybeReprobe(key: string, reason: 'age' | 'slow') {
-  if (isProbing(key)) return;
-  const kh = hashKey(key);
+export function maybeReprobe(t: Transport, reason: 'age' | 'slow') {
+  if (isProbing(t)) return;
+  const kh = idOf(t);
   const age = probe && probe.keyHash === kh ? Date.now() - probe.at : Infinity;
-  if (reason === 'age' ? age > REPROBE_MS : age > 60_000) void runProbe(key, { force: true, keep: true });
+  if (reason === 'age' ? age > REPROBE_MS : age > 60_000) void runProbe(t, { force: true, keep: true });
 }
 
-export const probeFresh = (key: string) => Object.keys(probeResults(key)).length > 0 && !(probing?.keyHash === hashKey(key));
-export const isProbing = (key: string) => probing?.keyHash === hashKey(key);
+export const probeFresh = (t: Transport) => Object.keys(probeResults(t)).length > 0 && !(probing?.keyHash === idOf(t));
+export const isProbing = (t: Transport) => probing?.keyHash === idOf(t);
 export function onProbeUpdate(cb: () => void) { probeListeners.add(cb); return () => { probeListeners.delete(cb); }; }
 
 const PROBE_REQ: ModelRequest = { parts: [{ text: 'Reply with the single word OK.' }], thinking: 'minimal', maxOutputTokens: 16, temperature: 0 };
 
 /** Probe one model with a tiny streaming request under a hard cap. */
-export async function probeOne(key: string, model: string, capMs = PROBE_CAP_MS): Promise<ModelStatus> {
+export async function probeOne(t: Transport, model: string, capMs = PROBE_CAP_MS): Promise<ModelStatus> {
   try {
-    const out = await callModel(model, PROBE_REQ, { key, totalTimeoutMs: capMs });
+    const out = await callModel(model, PROBE_REQ, { transport: t, totalTimeoutMs: capMs });
     return { model, ok: true, firstTokenMs: round(out.firstTokenMs ?? out.totalMs), totalMs: round(out.totalMs) };
   } catch (e) {
     const err = e as AiError;
@@ -123,14 +127,14 @@ export async function probeOne(key: string, model: string, capMs = PROBE_CAP_MS)
  * Probes every candidate model in parallel and stores the results (30 min, per key).
  * Results land incrementally, so callers can route as soon as one fast model has answered.
  */
-export function runProbe(key: string, opts: { force?: boolean; keep?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
-  const kh = hashKey(key);
+export function runProbe(t: Transport, opts: { force?: boolean; keep?: boolean; onUpdate?: (s: ModelStatus[]) => void } = {}): Promise<ModelStatus[]> {
+  const kh = idOf(t);
   if (probing?.keyHash === kh) return probing.promise;
-  if (!opts.force && probeFresh(key)) return Promise.resolve(allCandidates().map((m) => probe!.results[m]).filter(Boolean));
+  if (!opts.force && probeFresh(t)) return Promise.resolve(allVia(t).map((m) => probe!.results[m]).filter(Boolean));
   probe = { keyHash: kh, at: Date.now(), results: opts.keep && probe?.keyHash === kh ? { ...probe.results } : {} };
   const current = probe;
-  const promise = discoverModels(key).then(() => allCandidates()).then((models) => Promise.all(models.map(async (m) => {
-    const s = await probeOne(key, m);
+  const promise = discoverModels(t).then(() => allVia(t)).then((models) => Promise.all(models.map(async (m) => {
+    const s = await probeOne(t, m);
     if (probe !== current) return s;
     current.results[m] = s;
     if (s.ok) markHealthy(m); else markUnhealthy(m, s.error ?? 'probe failed');
@@ -151,8 +155,8 @@ export function runProbe(key: string, opts: { force?: boolean; keep?: boolean; o
 }
 
 /** Waits until the task has a probed-ok model, the probe ends, or `maxMs` passes. */
-export function waitForRoute(key: string, task: AiTask, maxMs: number): Promise<void> {
-  const ready = () => !isProbing(key) || candidatesFor(task).some((m) => probeResults(key)[m]?.ok);
+export function waitForRoute(t: Transport, task: AiTask, maxMs: number): Promise<void> {
+  const ready = () => !isProbing(t) || candidatesVia(t, task).some((m) => probeResults(t)[m]?.ok);
   if (ready()) return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => { clearTimeout(t); off(); resolve(); };
@@ -161,20 +165,61 @@ export function waitForRoute(key: string, task: AiTask, maxMs: number): Promise<
   });
 }
 
-export function routeFor(key: string, task: AiTask): string[] {
-  const order = rankModels(task, candidatesFor(task), probeResults(key), (m) => isHealthy(m));
+export function routeFor(t: Transport, task: AiTask): string[] {
+  const order = rankModels(task, candidatesVia(t, task), probeResults(t), (m) => isHealthy(m));
   // The person's own choice for this task goes first; the rest stay as fall-through.
   const pick = getOverrides()[task];
   return pick ? [pick, ...order.filter((m) => m !== pick)] : order;
 }
 
-/** Finds models this key offers that no list names yet, so new releases work without a code change. */
-export async function discoverModels(key: string, capMs = 4000): Promise<string[]> {
+// ---------------------------------------------------------------- models per transport
+
+/** Models each server offers, in its order of preference. */
+const serverModels = new Map<string, string[]>();
+const serverLoads = new Map<string, Promise<void>>();
+
+/**
+ * The task's candidates for this transport. Through the server only the models it offers are
+ * used, plus any it offers that the lists here do not name yet.
+ */
+export function candidatesVia(t: Transport, task: AiTask): string[] {
+  const list = candidatesFor(task);
+  const offered = t.kind === 'server' ? serverModels.get(t.base) : undefined;
+  if (!offered) return list;
+  const extra = offered.filter((m) => !list.includes(m) && (task !== 'vision' || acceptsImages(m)));
+  return [...list.filter((m) => offered.includes(m)), ...extra];
+}
+
+const allVia = (t: Transport) => [...new Set([...candidatesVia(t, 'fast'), ...candidatesVia(t, 'smart')])];
+
+/** Loads the server's model list once; after a failed load, a later call tries again a minute on. */
+export function loadServerModels(t: Transport, capMs = 4000): Promise<void> {
+  if (t.kind !== 'server') return Promise.resolve();
+  const known = serverLoads.get(t.base);
+  if (known) return known;
+  const load = discoverModels(t, capMs).then(() => {
+    if (!serverModels.has(t.base)) setTimeout(() => serverLoads.delete(t.base), 60_000);
+  });
+  serverLoads.set(t.base, load);
+  return load;
+}
+
+/**
+ * Direct: finds models this key offers that no list names yet, so new releases work without a
+ * code change. Server: reads the models the server allows.
+ */
+export async function discoverModels(t: Transport, capMs = 4000): Promise<string[]> {
   try {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
-      headers: { 'x-goog-api-key': key }, signal: AbortSignal.timeout(capMs),
-    });
+    const { url, init } = modelsRequest(t, AbortSignal.timeout(capMs));
+    const res = await fetch(url, init);
     if (!res.ok) return [];
+    if (t.kind === 'server') {
+      const list = ((await res.json()) as { models?: unknown }).models;
+      if (!Array.isArray(list)) return [];
+      const models = list.filter((m): m is string => typeof m === 'string');
+      serverModels.set(t.base, models);
+      return models;
+    }
     const j = await res.json() as { models?: { name: string; supportedGenerationMethods?: string[] }[] };
     const found = pickNewModels(j.models ?? []);
     setExtraModels(found);
@@ -211,7 +256,7 @@ export interface RouteHooks {
  * Runs `req` over `order`, falling through on errors and timeouts. Several models may run at
  * once while hedging; the first to stream text wins and the others are aborted.
  */
-export function runRouted(key: string, order: string[], req: ModelRequest, timing: RouteTiming, signal: AbortSignal | undefined, hooks: RouteHooks = {}): Promise<StreamOutcome> {
+export function runRouted(t: Transport, order: string[], req: ModelRequest, timing: RouteTiming, signal: AbortSignal | undefined, hooks: RouteHooks = {}): Promise<StreamOutcome> {
   return new Promise((resolve, reject) => {
     if (!order.length) return reject(new AiError('No Gemini model available', 'http'));
     interface Attempt { model: string; ctrl: AbortController }
@@ -254,7 +299,7 @@ export function runRouted(key: string, order: string[], req: ModelRequest, timin
       hooks.onStart?.(model);
       scheduleHedge();
       callModel(model, req, {
-        key,
+        transport: t,
         signal: att.ctrl.signal,
         firstTokenTimeoutMs: timing.firstTokenTimeoutMs,
         totalTimeoutMs: timing.totalTimeoutMs,
@@ -284,6 +329,8 @@ export function runRouted(key: string, order: string[], req: ModelRequest, timin
         if (err.kind === 'blocked') return finish(() => reject(err));
         // A rejected key fails every model the same way: stop at once.
         if (err.reason === 'invalid_key') return finish(() => reject(new AiError('Key not accepted', 'http', err.status, 'invalid_key')));
+        // The server refused for everyone (rate limit, daily allowance): other models would fail the same way.
+        if (err.stopAll) return finish(() => reject(err));
         if (!committed) launch();
       });
     };
