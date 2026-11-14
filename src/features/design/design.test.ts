@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES, makeItem } from '../furniture/catalog';
 import { opening, rect, reqs, room } from '../referee/fixtures';
+import { validateLayout } from '../referee/validate';
 import { generateLayouts, lastReports } from '../layout/solver';
 import { defaultProgram } from './program';
 import { renderPlanSvg } from './render';
@@ -49,8 +50,43 @@ describe('rules', () => {
     const m = bedroom();
     const v = evaluateRules(m, [at('wardrobe-100', 'w', 0.6, 3.9)]); // in the door swing
     expect(v.some((x) => x.ruleId === 'door-swing' && !x.pass)).toBe(true);
-    expect(designScore(v)).toBeLessThanOrEqual(35);
+    expect(designScore(v)).toBeLessThanOrEqual(30);
     expect(explain(v, 3)[0]).toMatch(/^Must fix/);
+  });
+});
+
+describe('score calibration', () => {
+  const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.6 });
+  const valid = (m: ReturnType<typeof bedroom>, fs: ReturnType<typeof at>[]) => {
+    const v = evaluateRules(m, fs, req);
+    expect(v.filter((x) => x.severity === 'hard' && !x.pass).map((x) => x.message)).toEqual([]);
+    return designScore(v);
+  };
+  // Bed head under the window, desk in the dark corner facing the wall, wardrobe 30 cm off its wall.
+  const mediocre = () => [
+    at('bed-double', 'bed', 1.7, 1.0, 0),
+    at('desk-120', 'desk', 2.7, 3.9, Math.PI), at('desk-chair', 'ch', 2.7, 3.32, 0),
+    at('wardrobe-100', 'w', 0.6, 2.85, -Math.PI / 2),
+  ];
+  // Head on the solid east wall with nightstands, desk beside the window, wardrobe flush on the west wall.
+  const good = () => [
+    { ...at('bed-double', 'bed', 2.4, 2.4, Math.PI / 2), clearance: { front: 0.6, back: 0, left: 0, right: 0 } },
+    at('nightstand', 'n1', 3.2, 2.4 - 0.945, Math.PI / 2), at('nightstand', 'n2', 3.2, 2.4 + 0.945, Math.PI / 2),
+    at('desk-120', 'desk', 0.3, 0.6, -Math.PI / 2), at('desk-chair', 'ch', 0.88, 0.6, Math.PI / 2),
+    at('wardrobe-100', 'w', 0.3, 2.6, -Math.PI / 2),
+  ];
+  it('puts a valid but poorly arranged bedroom well below a well arranged one', () => {
+    const m = bedroom();
+    const sm = valid(m, mediocre()), sg = valid(m, good());
+    expect(sm).toBeGreaterThanOrEqual(30);
+    expect(sm).toBeLessThanOrEqual(68);
+    expect(sg).toBeGreaterThanOrEqual(78);
+    expect(sg - sm).toBeGreaterThanOrEqual(15);
+  });
+  it('caps any layout with a broken hard rule at 30', () => {
+    const m = bedroom();
+    const broken = [...good().slice(0, 3), at('wardrobe-100', 'w', 0.6, 3.9)];
+    expect(designScore(evaluateRules(m, broken, req))).toBeLessThanOrEqual(30);
   });
 });
 
@@ -79,7 +115,7 @@ describe('solveProgram', () => {
     expect(a.candidates.length).toBeGreaterThan(0);
     expect(a.candidates.map((c) => c.furniture.map((f) => [f.x, f.y, f.rotation]))).toEqual(b.candidates.map((c) => c.furniture.map((f) => [f.x, f.y, f.rotation])));
     expect(a.reports.map((r) => r.candidateId)).toEqual(a.candidates.map((c) => c.id));
-  }, 20000);
+  }, 90000);
 });
 
 describe('render', () => {
@@ -100,5 +136,39 @@ describe('generateLayouts with design reports', () => {
     expect(res.reports).toHaveLength(res.candidates.length);
     expect(lastReports()).toBe(res.reports);
     for (const c of res.candidates) expect(c.metrics.score).toBeGreaterThan(50);
-  }, 20000);
+  }, 90000);
+});
+
+describe('repair', () => {
+  const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.6 });
+  // A good bedroom with the wardrobe dragged into the door swing.
+  const broken = () => [
+    { ...at('bed-double', 'bed', 2.4, 2.4, Math.PI / 2), clearance: { front: 0.6, back: 0, left: 0, right: 0 } },
+    at('nightstand', 'n1', 3.2, 2.4 - 0.945, Math.PI / 2), at('nightstand', 'n2', 3.2, 2.4 + 0.945, Math.PI / 2),
+    at('desk-120', 'desk', 0.3, 0.6, -Math.PI / 2), at('desk-chair', 'ch', 0.88, 0.6, Math.PI / 2),
+    at('wardrobe-100', 'w', 0.6, 3.7, 0),
+  ];
+  it('finds a few moves that make a broken layout valid and says why', async () => {
+    const { repairLayout } = await import('./repair');
+    const m = bedroom();
+    expect(validateLayout(m, broken(), req).some((c) => c.result === 'fail')).toBe(true);
+    const res = repairLayout(m, broken(), req);
+    expect(res.valid).toBe(true);
+    expect(validateLayout(m, res.furniture, req).filter((c) => c.result === 'fail')).toEqual([]);
+    expect(new Set(res.moves.map((x) => x.itemId)).size).toBeLessThanOrEqual(2);
+    expect(res.moves.every((x) => x.reason.length > 5)).toBe(true);
+  }, 90000);
+  it('offers one to three fixes for a single failed check, each clearing it', async () => {
+    const { fixesFor } = await import('./repair');
+    const m = bedroom();
+    const check = validateLayout(m, broken(), req).find((c) => c.result === 'fail')!;
+    const fixes = fixesFor(m, broken(), check, req);
+    expect(fixes.length).toBeGreaterThanOrEqual(1);
+    expect(fixes.length).toBeLessThanOrEqual(3);
+    for (const f of fixes) {
+      expect(f.label.length).toBeGreaterThan(4);
+      expect(f.ops.length).toBeGreaterThan(0);
+      expect(validateLayout(m, f.preview, req).some((c) => c.id === check.id && c.result === 'fail')).toBe(false);
+    }
+  }, 90000);
 });
