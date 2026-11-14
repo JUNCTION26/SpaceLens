@@ -284,7 +284,7 @@ export function partGeometry(p: ObjectPart, seed: [number, number] = [0, 0]): Pa
         if (Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6) prof = prof.slice(0, -1);
       }
       if (prof.length < 48) prof = smoothOutline(prof, true, 2);
-      const bevel = Math.min(0.006, s[2] * 0.25, s[0] * 0.1, s[1] * 0.1);
+      const bevel = Math.min(p.radius != null && p.radius > 0 ? Math.min(p.radius, 0.04) : 0.006, s[2] * 0.25, s[0] * 0.1, s[1] * 0.1);
       const xs = prof.map((q) => q[0]), ys = prof.map((q) => q[1]);
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       const W = s[0] - 2 * bevel, Hh = s[1] - 2 * bevel;
@@ -438,6 +438,19 @@ export function GeneratedMesh({ spec, selected = false, ghost = false, assemblin
 
 // ---- Headless visual check -----------------------------------------------------------------
 
+/** Renders a few frames once everything above it has loaded, then flags the page ready for a screenshot. */
+function Settle() {
+  const invalidate = useThree((s) => s.invalidate);
+  const frames = useRef(0);
+  useFrame(() => {
+    frames.current++;
+    if (frames.current < 4) invalidate();
+    else (window as unknown as { __FORGE_READY?: number }).__FORGE_READY = Date.now();
+  });
+  useEffect(() => { invalidate(); }, [invalidate]);
+  return null;
+}
+
 /**
  * A standalone stage for looking at one spec (or a grid of them): studio lighting, soft contact
  * shadow, camera framed on the object. Used by scripts/forge-shot for screenshots.
@@ -453,7 +466,7 @@ export function ForgeShot({ specs, open = 0, cols, assembling = false }: { specs
   const target: V3 = [0, n === 1 ? maxH * 0.42 : 0.3, 0];
   const BASE = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
   return (
-    <Canvas shadows dpr={1} camera={{ position: [dist * 0.62, maxH * 0.55 + dist * 0.42, dist * 0.82], fov: 38, near: 0.02, far: 100 }}
+    <Canvas shadows dpr={1} frameloop="demand" camera={{ position: [dist * 0.62, maxH * 0.55 + dist * 0.42, dist * 0.82], fov: 38, near: 0.02, far: 100 }}
       gl={{ antialias: true, preserveDrawingBuffer: true }}
       onCreated={({ gl, camera }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.shadowMap.type = THREE.PCFSoftShadowMap; camera.lookAt(...target); }}
       style={{ width: '100%', height: '100%', background: '#ece9e4' }}>
@@ -463,6 +476,7 @@ export function ForgeShot({ specs, open = 0, cols, assembling = false }: { specs
         shadow-camera-left={-span} shadow-camera-right={span} shadow-camera-top={span} shadow-camera-bottom={-span} />
       <Suspense fallback={null}>
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.8} />
+        <Settle />
       </Suspense>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[60, 60]} />

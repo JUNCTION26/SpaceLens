@@ -5,14 +5,14 @@
 //        node scripts/forge-shot.mjs --specs <dir | a.json,b.json> [--out dir]   any saved ObjectSpec JSON
 //        (objects with moving parts also get a <name>-open.png)
 //        node scripts/forge-shot.mjs --sheet <dir> [--cols 3] [--per 6]   contact sheets of the PNGs in dir
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const k = args.indexOf(n); return k >= 0 ? args[k + 1] : d; };
-const valued = new Set(['--out', '--port', '--size', '--wait', '--specs', '--sheet', '--cols', '--per']);
+const valued = new Set(['--out', '--port', '--size', '--wait', '--specs', '--sheet', '--cols', '--per', '--restart']);
 const which = args.find((a, i) => !a.startsWith('--') && !valued.has(args[i - 1])) ?? 'all';
 const out = resolve(flag('--out', 'forge-shots'));
 const port = flag('--port', '5180');
@@ -24,39 +24,76 @@ const browser = process.env.EDGE ?? 'C:\\Program Files (x86)\\Microsoft\\Edge\\A
 mkdirSync(out, { recursive: true });
 
 const list = which === 'all' ? Array.from({ length: 11 }, (_, i) => String(i)) : which === 'grid' ? ['all'] : which.split(',');
-const profile = mkdtempSync(join(tmpdir(), 'forge-shot-'));
-const dbg = 9300 + Math.floor(Math.random() * 500);
-const proc = spawn(browser, ['--headless=new', `--remote-debugging-port=${dbg}`, `--user-data-dir=${profile}`, '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--hide-scrollbars', '--window-size=1200,900', 'about:blank'], { stdio: 'ignore' });
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function target() {
-  for (let i = 0; i < 50; i++) {
+// Headless Edge on SwiftShader loses WebGL after roughly eight page loads in one browser, so a
+// fresh browser (new profile, new port) is started every RESTART_EVERY renders.
+const RESTART_EVERY = Number(flag('--restart', '4'));
+
+let proc, ws, send, renders = 0;
+async function launch() {
+  const profile = mkdtempSync(join(tmpdir(), 'forge-shot-'));
+  const dbg = 9300 + Math.floor(Math.random() * 500);
+  proc = spawn(browser, ['--headless=new', `--remote-debugging-port=${dbg}`, `--user-data-dir=${profile}`, '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--hide-scrollbars', '--window-size=1200,900', 'about:blank'], { stdio: 'ignore' });
+  let url;
+  for (let i = 0; i < 150 && !url; i++) {
     try {
       const r = await fetch(`http://127.0.0.1:${dbg}/json/list`);
-      const pages = (await r.json()).filter((t) => t.type === 'page');
-      if (pages.length) return pages[0].webSocketDebuggerUrl;
+      url = (await r.json()).find((t) => t.type === 'page')?.webSocketDebuggerUrl;
     } catch { /* not up yet */ }
-    await sleep(200);
+    if (!url) await sleep(200);
   }
-  throw new Error('browser did not start');
+  if (!url) throw new Error('browser did not start');
+  ws = new WebSocket(url);
+  await new Promise((r) => ws.addEventListener('open', r, { once: true }));
+  let id = 0;
+  const pending = new Map();
+  ws.addEventListener('message', (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
+    if (m.method === 'Runtime.consoleAPICalled' && (m.params.type === 'error' || m.params.type === 'warning')) {
+      console.log(`  [${m.params.type}]`, m.params.args.map((a) => a.value ?? a.description ?? '').join(' ').slice(0, 400));
+    }
+    if (m.method === 'Runtime.exceptionThrown') console.log('  [exception]', m.params.exceptionDetails?.exception?.description?.slice(0, 600) ?? m.params.exceptionDetails?.text);
+  });
+  send = (method, params = {}) => new Promise((r) => { const k = ++id; pending.set(k, r); ws.send(JSON.stringify({ id: k, method, params })); });
+  await send('Runtime.enable');
+  await send('Page.enable');
+  await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
 }
-
-const ws = new WebSocket(await target());
-await new Promise((r) => ws.addEventListener('open', r, { once: true }));
-let id = 0;
-const pending = new Map();
-ws.addEventListener('message', (ev) => {
-  const m = JSON.parse(ev.data);
-  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
-  if (m.method === 'Runtime.consoleAPICalled' && (m.params.type === 'error' || m.params.type === 'warning')) {
-    console.log(`  [${m.params.type}]`, m.params.args.map((a) => a.value ?? a.description ?? '').join(' ').slice(0, 400));
+async function close() {
+  try { ws?.close(); } catch { /* gone */ }
+  // Kill the whole process tree: Edge leaves GPU and renderer children behind otherwise.
+  if (proc?.pid) { if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' }); else proc.kill(); }
+  await sleep(500);
+}
+/** Load a page (optionally with a spec injected) in a browser that has rendered few pages, and screenshot it. */
+async function shoot(url, png, spec, retry = false) {
+  const t0 = Date.now();
+  if (renders > 0 && renders % RESTART_EVERY === 0) { await close(); await launch(); }
+  renders++;
+  let injected;
+  if (spec) injected = (await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__FORGE_SPEC = ${JSON.stringify(spec)};` })).result.identifier;
+  await send('Page.navigate', { url: `${url}${url.includes('?') ? '&' : '?'}n=${renders}` });
+  // The stage sets window.__FORGE_READY after its environment map has loaded and a few frames have
+  // rendered; under heavy CPU load that can take a while, so poll instead of sleeping a fixed time.
+  const t1 = Date.now();
+  let ready = false;
+  while (!ready && Date.now() - t1 < Math.max(wait, 60000)) {
+    await sleep(250);
+    const r = await send('Runtime.evaluate', { expression: '!!window.__FORGE_READY', returnByValue: true });
+    ready = !!r.result?.result?.value;
   }
-  if (m.method === 'Runtime.exceptionThrown') console.log('  [exception]', m.params.exceptionDetails?.exception?.description?.slice(0, 600) ?? m.params.exceptionDetails?.text);
-});
-const send = (method, params = {}) => new Promise((r) => { const k = ++id; pending.set(k, r); ws.send(JSON.stringify({ id: k, method, params })); });
-await send('Runtime.enable');
-await send('Page.enable');
-await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
+  if (!ready) console.log(`  [warn] not ready after ${Date.now() - t1} ms: ${url}`);
+  await sleep(400);
+  const shot = await send('Page.captureScreenshot', { format: 'png' });
+  if (injected) await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: injected });
+  const buf = Buffer.from(shot.result.data, 'base64');
+  // An empty stage compresses to a few kilobytes: start a fresh browser and try once more.
+  if (buf.length < 12000 && !retry) { console.log(`  [retry] blank render: ${png}`); renders = RESTART_EVERY; return shoot(url, png, spec, true); }
+  writeFileSync(png, buf);
+  console.log(`saved ${png} (${Date.now() - t0} ms)`);
+}
+await launch();
 
 const sheetDir = flag('--sheet', '');
 if (sheetDir) {
@@ -80,20 +117,12 @@ if (sheetDir) {
 }
 
 if (specsArg) {
-  const files = specsArg.split(',').flatMap((f) => (statSync(f).isDirectory() ? readdirSync(f).filter((n) => n.endsWith('.json') && n !== 'results.json').map((n) => join(f, n)) : [f]));
-  let injected;
+  const files = specsArg.split(',').flatMap((f) => (statSync(f).isDirectory() ? readdirSync(f).filter((n) => n.endsWith('.json') && !/^(results|verdicts)\.json$/.test(n)).sort().map((n) => join(f, n)) : [f]));
   for (const f of files) {
     const spec = JSON.parse(readFileSync(f, 'utf8'));
     if (!Array.isArray(spec.parts)) continue;
-    if (injected) await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: injected });
-    injected = (await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__FORGE_SPEC = ${JSON.stringify(spec)};` })).result.identifier;
     for (const o of spec.motions?.length ? [0, 1] : [0]) {
-      await send('Page.navigate', { url: `http://localhost:${port}/scripts/forge-shot.html?inject=1${o ? '&open=1' : ''}` });
-      await sleep(wait);
-      const shot = await send('Page.captureScreenshot', { format: 'png' });
-      const png = resolve(out, `${basename(f, '.json')}${o ? '-open' : ''}.png`);
-      writeFileSync(png, Buffer.from(shot.result.data, 'base64'));
-      console.log(`saved ${png}`);
+      await shoot(`http://localhost:${port}/scripts/forge-shot.html?inject=1${o ? '&open=1' : ''}`, resolve(out, `${basename(f, '.json')}${o ? '-open' : ''}.png`), spec);
     }
   }
   list.length = 0;
@@ -103,12 +132,6 @@ for (const i of list) {
   const [w, d, h] = size ? size.split(',') : [];
   const url = `http://localhost:${port}/scripts/forge-shot.html?i=${i}${open ? '&open=1' : ''}${size ? `&w=${w}&d=${d}&h=${h}` : ''}`;
   console.log(url);
-  await send('Page.navigate', { url });
-  await sleep(wait);
-  const shot = await send('Page.captureScreenshot', { format: 'png' });
-  const png = resolve(out, `forge-${i}${open ? '-open' : ''}.png`);
-  writeFileSync(png, Buffer.from(shot.result.data, 'base64'));
-  console.log(`saved ${png}`);
+  await shoot(url, resolve(out, `forge-${i}${open ? '-open' : ''}.png`));
 }
-ws.close();
-proc.kill();
+await close();
