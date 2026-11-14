@@ -10,7 +10,7 @@
 
 **Live demo:** https://junction26.github.io/SpaceLens/ (runs in the browser, no account, works without a key)
 
-![SpaceLens: a floor plan and the 3D model it produces](docs/img/hero.png)
+![SpaceLens: a layout with its reasons, the editable plan and the 3D model](docs/img/hero.jpg)
 
 Built at Junction 2026 (Espoo) for the Stoa "Make Blueprints Talk" challenge.
 
@@ -28,10 +28,10 @@ An agent you can talk to sits over all of it: it answers about the room, sketche
 
 | | |
 | --- | --- |
-| ![Drawings: ask a question, see the evidence](docs/img/drawings.png) **Drawings.** Questions about a blueprint, answered from the page text with the evidence highlighted. | ![Building: a floor from a room programme](docs/img/building.png) **Building.** Outer shell and room programme become walls, doors and windows. |
-| ![Layouts compared with their reasons](docs/img/layouts.png) **Layouts.** Candidates with rule verdicts and the decisions behind them. | ![Create object](docs/img/create.png) **Create object.** A described piece, fitted to your dimensions and validated. |
-| ![Shop](docs/img/shop.png) **Shop.** Real listings checked against budget, free floor and the door. | ![Walk and test](docs/img/walk.png) **Walk and test.** First-person walk, routes, door passage, sightlines. |
-| ![Safety](docs/img/safety.png) **Safety.** Exits, travel distance, wheelchair access and an evacuation estimate. | ![Export](docs/img/export.png) **Export.** Plans, schedules, a 3D model and a share link. |
+| ![Drawings: ask a question, see the evidence](docs/img/drawings.jpg) **Drawings.** Open a sample plan or your own PDF, then ask about it. Answers highlight their evidence on the page. | ![Building: a floor from a room programme](docs/img/building.jpg) **Building.** Outer shell and room programme become walls, doors and windows. |
+| ![Layouts compared with their reasons](docs/img/layouts.jpg) **Layouts.** Candidates with rule verdicts and the decisions behind them. | ![Create object](docs/img/create.jpg) **Create object.** A described piece, fitted to your dimensions and validated. |
+| ![Shop](docs/img/shop.jpg) **Shop.** Real listings checked against budget, free floor and the door. | ![Walk and test](docs/img/walk.jpg) **Walk and test.** First-person walk, routes, door passage, sightlines. |
+| ![Safety](docs/img/safety.jpg) **Safety.** Exits, travel distance, wheelchair access and an evacuation estimate. | ![Export](docs/img/export.jpg) **Export.** Plans, schedules, a 3D model and a share link. |
 
 ## Features
 
