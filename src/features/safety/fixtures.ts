@@ -56,10 +56,10 @@ export function twoRoomFlat(): SpaceModel {
 export function cafe(): SpaceModel {
   const f: FurnitureItem[] = [];
   let n = 0;
-  for (const x of [2.5, 4.2, 5.9, 7.6, 9.3]) for (const y of [1.0, 3.0, 5.0]) {
+  for (const x of [2.3, 3.9, 5.5, 7.1, 8.7]) for (const y of [1.0, 3.0, 5.0]) {
     n++;
     f.push(item(`t${n}`, 'cafe-table', x, y, 0.6, 0.6, { name: `Table ${n}` }));
-    f.push(item(`c${n}a`, 'chair', x, y - 0.6, 0.45, 0.5, { name: `Chair ${n}a` }), item(`c${n}b`, 'chair', x, y + 0.6, 0.45, 0.5, { name: `Chair ${n}b`, rotation: Math.PI }));
+    f.push(item(`c${n}a`, 'chair', x - 0.55, y, 0.45, 0.5, { name: `Chair ${n}a`, rotation: -Math.PI / 2 }), item(`c${n}b`, 'chair', x + 0.55, y, 0.45, 0.5, { name: `Chair ${n}b`, rotation: Math.PI / 2 }));
   }
   return model([space('c', 'Cafe', rect(0, 0, 10, 6))], [door('exit', 'c', 3, 3, 0.9, 'out')], f);
 }
