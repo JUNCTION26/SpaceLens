@@ -17,9 +17,11 @@ const ALL_NAV: NavItem[] = [
   { key: 'create', label: 'Create object', icon: 'cube', mode: 'design', group: 'Design', hint: 'Make a custom piece from a description.' },
   { key: 'shop', label: 'Shop', icon: 'search', mode: 'design', group: 'Design', hint: 'Find real products that fit.' },
   { key: 'inspire', label: 'Inspire', icon: 'palette', mode: 'design', group: 'Design', hint: 'Take a style from a photo.' },
+  { key: 'budget', label: 'Budget', icon: 'check', mode: 'design', group: 'Design', hint: 'Keep the shopping list inside the budget.' },
   { key: 'walk', label: 'Walk & test', icon: 'walk', mode: 'experience', group: 'Experience', hint: 'Walk through and test every route.' },
   { key: 'safety', label: 'Safety', icon: 'shield', mode: 'experience', group: 'Experience', hint: 'Check exits, reach and hazards.' },
   { key: 'export', label: 'Export', icon: 'download', mode: 'deliver', group: 'Deliver', hint: 'Plans, images and a shopping list.' },
+  { key: 'render', label: 'Render', icon: 'image', mode: 'deliver', group: 'Deliver', hint: 'Make a picture of the finished room.' },
 ];
 /** Every workspace section, in sidebar order. Optional sections appear once their panel exists. */
 export const NAV: NavItem[] = ALL_NAV.filter((n) => !(n.key in OPTIONAL_PANELS) || OPTIONAL_PANELS[n.key]);

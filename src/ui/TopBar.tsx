@@ -3,6 +3,7 @@ import { useStore } from '../core/store';
 import { useUi } from './uiStore';
 import { Logo } from './Home';
 import { Icon } from './icons';
+import { AiStatus } from '../core/ai/AiStatus';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -44,6 +45,7 @@ export function TopBar({ center }: { center?: ReactNode }) {
         <button className="kbd-btn" onClick={() => window.dispatchEvent(new Event('spacelens:command'))} title="Search commands" aria-label="Search commands">
           <Icon name="search" size={14} /><span className="kbd-label">Search</span><kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
         </button>
+        <AiStatus />
         <span className="tool-sep" aria-hidden="true" />
         <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings"><Icon name="settings" /></button>
       </div>
