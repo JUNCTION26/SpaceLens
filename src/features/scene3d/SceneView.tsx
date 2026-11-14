@@ -21,7 +21,7 @@ const EYES = [
   { id: 'wheelchair', label: 'Wheelchair', h: 1.2 },
 ];
 
-interface CamReq { toP: THREE.Vector3; toT: THREE.Vector3; n: number }
+interface CamReq { toP?: THREE.Vector3; toT?: THREE.Vector3; home?: boolean; n: number }
 
 const BASE = import.meta.env.BASE_URL;
 const loader = typeof document !== 'undefined' ? new THREE.TextureLoader() : null;
@@ -62,8 +62,11 @@ function useRoom() {
     const b = pts.length ? bounds(pts) : { minX: 0, minY: 0, maxX: 4, maxY: 4 } as ReturnType<typeof bounds>;
     const bb = b as unknown as { minX: number; minY: number; maxX: number; maxY: number };
     const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;
-    const size = Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY, 2);
-    return { model, cx, cy, size };
+    const w = Math.max(bb.maxX - bb.minX, 1), d = Math.max(bb.maxY - bb.minY, 1);
+    const size = Math.max(w, d, 2);
+    // Changes only when the room itself changes, so moving furniture never resets the camera.
+    const key = [cx, cy, w, d].map((v) => v.toFixed(2)).join(':');
+    return { model, cx, cy, w, d, size, key };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model.version, model]);
 }
@@ -362,6 +365,24 @@ function Figure({ at }: { at: Vec2 }) {
 
 /* ---------- Cameras ---------- */
 
+/** Camera pose that fits the whole room in the current pane, whatever its shape (narrow in Split, wide in 3D). */
+function homeView(room: ReturnType<typeof useRoom>, cam: THREE.Camera, kind: 'dollhouse' | 'top') {
+  const pc = cam as THREE.PerspectiveCamera;
+  const vHalf = THREE.MathUtils.degToRad(pc.fov || 50) / 2;
+  const hHalf = Math.atan(Math.tan(vHalf) * (pc.aspect || 1));
+  const { cx, cy, w, d } = room;
+  const ceil = room.model.ceilingM || 2.5;
+  if (kind === 'top') {
+    const h = Math.max(d / 2 / Math.tan(vHalf), w / 2 / Math.tan(hHalf)) * 1.15 + ceil;
+    return { p: new THREE.Vector3(cx, h, cy + 0.001), t: new THREE.Vector3(cx, 0, cy) };
+  }
+  // Bounding sphere of the room box; the target sits a little low so the floor reads well.
+  const r = 0.5 * Math.hypot(w, d, ceil);
+  const dist = r / Math.sin(Math.min(vHalf, hHalf));
+  const t = new THREE.Vector3(cx, ceil * 0.35, cy);
+  return { p: t.clone().addScaledVector(new THREE.Vector3(0.75, 1.05, 1.0).normalize(), dist), t };
+}
+
 function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; req: CamReq | null }) {
   const { camera, invalidate } = useThree();
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; enabled: boolean } | null;
@@ -369,27 +390,36 @@ function CameraRig({ mode, eye, room, walk, req }: { mode: CamMode; eye: number;
   const space = room.model.spaces[0];
   const items = useShownFurniture();
 
+  const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height));
+  const framed = useRef<{ key: string; aspect: number; mode: CamMode } | null>(null);
+
   useEffect(() => {
-    const { cx, cy, size } = room;
+    // Re-frame when the mode or the room changes, or the pane is resized a lot (switching 3D and Split).
+    const f = framed.current;
+    const sameRoom = f && f.key === room.key && f.mode === mode;
+    if (sameRoom && (mode === 'walk' || Math.abs(Math.log(f.aspect / aspect)) < 0.2)) return;
+    framed.current = { key: room.key, aspect, mode };
     let toP: THREE.Vector3, toT: THREE.Vector3;
-    if (mode === 'dollhouse') { toP = new THREE.Vector3(cx + size * 0.75, size * 1.05, cy + size * 1.0); toT = new THREE.Vector3(cx, 0.6, cy); }
-    else if (mode === 'top') { toP = new THREE.Vector3(cx, size * 1.9 + 3, cy + 0.001); toT = new THREE.Vector3(cx, 0, cy); }
+    if (mode !== 'walk') ({ p: toP, t: toT } = homeView(room, camera, mode));
     else {
       const w = walk.current;
-      if (!space || !pointInPolygon(w.pos, space.polygon)) w.pos = space ? centroid(space.polygon) : { x: cx, y: cy };
+      if (!space || !pointInPolygon(w.pos, space.polygon)) w.pos = space ? centroid(space.polygon) : { x: room.cx, y: room.cy };
       toP = new THREE.Vector3(w.pos.x, eye, w.pos.y);
       toT = toP.clone().add(new THREE.Vector3(-Math.sin(w.yaw), 0, -Math.cos(w.yaw)));
     }
-    const fromT = controls ? controls.target.clone() : new THREE.Vector3(cx, 0, cy);
+    const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
     anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP, toT };
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, eye, room.model.version]);
+  }, [mode, room.key, aspect, eye]);
 
   useEffect(() => {
     if (!req || mode === 'walk') return;
+    const home = req.home ? homeView(room, camera, mode) : null;
+    const toP = home?.p ?? req.toP, toT = home?.t ?? req.toT;
+    if (!toP || !toT) return;
     const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
-    anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP: req.toP.clone(), toT: req.toT.clone() };
+    anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP: toP.clone(), toT: toT.clone() };
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req?.n]);
@@ -537,9 +567,7 @@ export function SceneView() {
   const ask = (toP: THREE.Vector3, toT: THREE.Vector3) => setReq({ toP, toT, n: ++reqN.current });
   const fit = () => {
     if (mode === 'walk') { setMode('dollhouse'); return; }
-    const { cx, cy, size } = room;
-    if (mode === 'top') ask(new THREE.Vector3(cx, size * 1.9 + 3, cy + 0.001), new THREE.Vector3(cx, 0, cy));
-    else ask(new THREE.Vector3(cx + size * 0.75, size * 1.05, cy + size * 1.0), new THREE.Vector3(cx, 0.6, cy));
+    setReq({ home: true, n: ++reqN.current });
   };
   const focusItem = (it: FurnitureItem) => {
     const r = Math.max(it.w, it.d, it.h, 0.6) * 2.2 + 0.6;
@@ -629,7 +657,7 @@ export function SceneView() {
       <Canvas shadows dpr={[1, 2]} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
         gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         {xrMode !== 'immersive-ar' && <color attach="background" args={[backdrop]} />}
-        <fog attach="fog" args={[backdrop, room.size * 2.5, room.size * 7]} />
+        <fog attach="fog" args={[backdrop, room.size * 4, room.size * 10]} />
         <hemisphereLight args={['#f4f1ea', '#5b5348', 0.18]} />
         <Sun hour={hour} room={room} />
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
