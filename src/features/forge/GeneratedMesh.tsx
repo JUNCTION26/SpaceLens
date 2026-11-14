@@ -449,7 +449,7 @@ export function ForgeShot({ specs, open = 0, cols, assembling = false }: { specs
   const placed = specs.map((s, i) => ({ s, x: ((i % c) - (c - 1) / 2) * cell, z: (Math.floor(i / c) - (rows - 1) / 2) * cell }));
   const maxH = Math.max(...specs.map((s) => s.size.h), 0.5);
   const span = Math.max(c, rows) * cell;
-  const dist = n === 1 ? Math.max(specs[0].size.w, specs[0].size.d * 1.2, specs[0].size.h, specs[0].openSize?.d ?? 0) * 1.9 + 0.6 : span * 1.05;
+  const dist = n === 1 ? Math.max(specs[0].size.w, specs[0].size.d * 1.2, specs[0].size.h * 1.2, (open ? specs[0].openSize?.d : 0) ?? 0) * 1.6 + 0.5 : span * 1.05;
   const target: V3 = [0, n === 1 ? maxH * 0.42 : 0.3, 0];
   const BASE = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/';
   return (
