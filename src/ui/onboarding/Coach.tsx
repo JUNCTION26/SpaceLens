@@ -3,17 +3,14 @@ import { useStore } from '../../core/store';
 
 const KEY = 'spacelens.coach.done.v1';
 
-/** Find a button whose text matches inside a container. */
-function byText(sel: string, re: RegExp): Element | null {
-  return Array.from(document.querySelectorAll(sel)).find((e) => re.test(e.textContent ?? '')) ?? null;
-}
+const nav = (k: string) => () => document.querySelector(`[data-nav="${k}"]`);
 
 const STEPS: Array<{ title: string; text: string; find: () => Element | null }> = [
   { title: 'Edit the room', text: 'Drag corners or click a size to edit.', find: () => document.querySelector('.plan2d-toolbar') ?? document.querySelector('.pane-2d') },
-  { title: 'Describe what you want', text: 'Say how you use the room.', find: () => byText('.tabs .tab', /request/i) },
-  { title: 'Pick a layout', text: 'Compare layouts that fit and choose one.', find: () => byText('.tabs .tab', /layouts/i) },
-  { title: 'Walk through it', text: 'Step inside in 3D.', find: () => byText('.modes button', /experience|walk|simulate/i) },
-  { title: 'Export', text: 'Save plans, images and a shopping list.', find: () => byText('.modes button', /deliver|export/i) },
+  { title: 'Describe it', text: 'Say how you use the room.', find: nav('describe') },
+  { title: 'Pick a layout', text: 'Compare layouts that fit.', find: nav('layouts') },
+  { title: 'Walk through', text: 'Step inside in 3D.', find: nav('walk') },
+  { title: 'Export', text: 'Plans, images and a shopping list.', find: nav('export') },
 ];
 
 function seen(): boolean { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } }
@@ -66,9 +63,10 @@ export function Coach() {
   const s = STEPS[step];
   const last = step === STEPS.length - 1;
   const w = Math.min(280, window.innerWidth - 32);
+  const side = box.width < 260 && box.right + w + 24 < window.innerWidth;
   const below = box.bottom + 160 < window.innerHeight;
-  const top = below ? box.bottom + 10 : Math.max(16, box.top - 150);
-  const left = Math.max(16, Math.min(box.left, window.innerWidth - w - 16));
+  const top = side ? Math.max(16, Math.min(box.top, window.innerHeight - 170)) : below ? box.bottom + 10 : Math.max(16, box.top - 150);
+  const left = side ? box.right + 12 : Math.max(16, Math.min(box.left, window.innerWidth - w - 16));
   return (
     <>
       <div className="coach-ring" aria-hidden="true" style={{ top: box.top - 4, left: box.left - 4, width: box.width + 8, height: box.height + 8 }} />
@@ -77,7 +75,7 @@ export function Coach() {
         <strong>{s.title}</strong>
         <p>{s.text}</p>
         <div className="coach-actions">
-          <button className="btn btn-ghost btn-sm" onClick={finish}>Skip tour</button>
+          <button className="btn btn-ghost btn-sm" onClick={finish}>Skip</button>
           <button ref={nextRef} className="btn btn-primary btn-sm" onClick={() => (last ? finish() : setStep(step + 1))}>{last ? 'Done' : 'Next'}</button>
         </div>
       </div>

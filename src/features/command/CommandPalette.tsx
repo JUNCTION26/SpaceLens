@@ -161,28 +161,29 @@ export function CommandPalette() {
                   style={{ ...S.item, ...(i === idx ? S.active : null) }}
                 >
                   <span style={S.label}>{c.label}</span>
-                  {c.hint && <span style={S.hint}>{c.hint}</span>}
+                  {c.hint && <kbd style={S.kbd}>{c.hint}</kbd>}
                 </div>
               </div>
             );
           })}
         </div>
-        <div style={S.footer}><span>↑↓ move</span><span>Enter run</span><span>Esc close</span></div>
+        <div style={S.footer}><span><kbd style={S.kbd}>↑</kbd><kbd style={S.kbd}>↓</kbd> move</span><span><kbd style={S.kbd}>Enter</kbd> run</span><span><kbd style={S.kbd}>Esc</kbd> close</span></div>
       </div>
     </div>
   );
 }
 
+const HAIR = '1px solid var(--border, rgba(127,127,127,0.2))';
 const S: Record<string, React.CSSProperties> = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(8,10,14,0.45)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '12vh 16px 16px' },
-  panel: { width: '100%', maxWidth: 600, maxHeight: '70vh', display: 'flex', flexDirection: 'column', background: 'var(--panel, #1a1d23)', color: 'var(--text, #e8eaed)', border: '1px solid var(--border, rgba(255,255,255,0.1))', borderRadius: 14, boxShadow: '0 24px 64px rgba(0,0,0,0.45)', overflow: 'hidden' },
-  input: { font: 'inherit', fontSize: 17, padding: '16px 18px', border: 'none', borderBottom: '1px solid var(--border, rgba(255,255,255,0.1))', background: 'transparent', color: 'inherit', outline: 'none' },
-  list: { overflowY: 'auto', padding: 6, flex: 1 },
-  group: { fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.55, padding: '10px 12px 4px' },
-  item: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', minHeight: 40, borderRadius: 8, cursor: 'pointer' },
-  active: { background: 'var(--accent-soft, rgba(110,160,255,0.18))' },
+  backdrop: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.32)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '14vh 16px 16px' },
+  panel: { width: '100%', maxWidth: 560, maxHeight: '64vh', display: 'flex', flexDirection: 'column', background: 'var(--panel, #fff)', color: 'var(--text, inherit)', border: HAIR, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden', fontSize: 13 },
+  input: { font: 'inherit', fontSize: 14, padding: '12px 14px', border: 'none', borderBottom: HAIR, background: 'transparent', color: 'inherit', outline: 'none' },
+  list: { overflowY: 'auto', padding: 4, flex: 1 },
+  group: { fontSize: 11, fontWeight: 500, color: 'var(--muted, #888)', padding: '8px 10px 4px' },
+  item: { display: 'flex', alignItems: 'center', gap: 10, padding: '0 10px', height: 32, borderRadius: 6, cursor: 'pointer' },
+  active: { background: 'var(--hover, rgba(127,127,127,0.12))' },
   label: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  hint: { fontSize: 12, opacity: 0.55 },
-  empty: { padding: 20, textAlign: 'center', opacity: 0.6 },
-  footer: { display: 'flex', gap: 16, fontSize: 11, opacity: 0.5, padding: '8px 14px', borderTop: '1px solid var(--border, rgba(255,255,255,0.1))' },
+  kbd: { font: '11px/1 ui-monospace, monospace', padding: '3px 5px', border: HAIR, borderRadius: 4, color: 'var(--muted, #888)', marginRight: 3 },
+  empty: { padding: 16, textAlign: 'center', color: 'var(--muted, #888)' },
+  footer: { display: 'flex', gap: 14, fontSize: 11, color: 'var(--muted, #888)', padding: '7px 12px', borderTop: HAIR },
 };

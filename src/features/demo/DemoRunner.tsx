@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../core/store';
+import { useUi } from '../../ui/uiStore';
+import { Icon } from '../../ui/icons';
 import { sampleRoom } from '../../core/sample';
 import { compileIntent } from '../intent/compile';
 import { generateLayouts } from '../layout/solver';
@@ -14,12 +16,14 @@ interface Ctx { say: Say; wait: (ms: number) => Promise<void> }
 interface Step { title: string; run: (c: Ctx) => Promise<void> }
 
 const S = () => useStore.getState();
+/** Switch panel through the UI store so the sidebar follows. */
+const tab = (mode: 'design' | 'experience' | 'deliver', key: string) => { S().setMode(mode); useUi.getState().setTab(mode, key); };
 
 const STEPS: Step[] = [
   { title: 'Load a room', run: async ({ say, wait }) => {
     S().dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() });
     S().setCandidates([]);
-    S().setMode('design');
+    tab('design', 'drawings');
     say('Load a room', 'A 3.4 x 4.2 m sample room. One door, one window, one desk.');
     await wait(5000);
   } },
@@ -31,6 +35,7 @@ const STEPS: Step[] = [
     await wait(4500);
   } },
   { title: 'Describe the goal', run: async ({ say, wait }) => {
+    tab('design', 'request');
     say('Describe the goal', `"${PROMPT}"`);
     const req = await compileIntent(PROMPT, S().model);
     S().setRequirements(req);
@@ -39,6 +44,7 @@ const STEPS: Step[] = [
     say('Generate layouts', 'Solving against the real geometry...');
     const { candidates, infeasibility } = await generateLayouts(S().model, req);
     S().setCandidates(candidates, infeasibility);
+    tab('design', 'layouts');
     if (!candidates.length) throw new Error(infeasibility?.reasons[0] ?? 'no layouts found');
     for (const c of candidates) {
       S().previewCandidate(c.id);
@@ -54,7 +60,7 @@ const STEPS: Step[] = [
     await wait(4000);
   } },
   { title: 'Walk it', run: async ({ say, wait }) => {
-    S().setMode('experience');
+    tab('experience', 'simulate');
     const m = S().model;
     const adult = runRoutes(m, m.furniture, 'adult');
     const chair = runRoutes(m, m.furniture, 'wheelchair');
@@ -88,7 +94,7 @@ const STEPS: Step[] = [
     await wait(3000);
   } },
   { title: 'Deliver', run: async ({ say, wait }) => {
-    S().setMode('deliver');
+    tab('deliver', 'export');
     say('Deliver', 'Plan, list and checks, ready to hand over.');
     await wait(6000);
   } },
@@ -142,22 +148,23 @@ export function DemoRunner() {
   const exit = () => { runId.current++; setOn(false); };
   const togglePause = () => { pausedRef.current = !pausedRef.current; setPaused(pausedRef.current); };
 
+  const btn: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, height: 26, padding: '0 8px', borderRadius: 6, border: '1px solid var(--border, rgba(127,127,127,0.25))', background: 'transparent', color: 'inherit', font: 'inherit', fontSize: 12, cursor: 'pointer' };
   return (
     <div role="status" aria-live="polite" style={{
-      position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 1000,
-      width: 'min(560px, calc(100vw - 32px))', padding: '14px 16px', borderRadius: 12,
-      background: 'rgba(16,18,24,0.92)', color: '#fff', boxShadow: '0 8px 30px rgba(0,0,0,0.35)', font: '14px/1.4 system-ui, sans-serif',
+      position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 1000,
+      width: 'min(520px, calc(100vw - 32px))', padding: '10px 12px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center',
+      background: 'var(--panel, #fff)', color: 'var(--text, inherit)', border: '1px solid var(--border, rgba(127,127,127,0.2))', boxShadow: '0 8px 24px rgba(0,0,0,0.14)', fontSize: 13, lineHeight: 1.4,
     }}>
-      <div style={{ fontSize: 12, opacity: 0.65 }}>{idx + 1} / {STEPS.length}</div>
-      <div style={{ fontSize: 17, fontWeight: 600, margin: '2px 0 4px' }}>{cap.title}</div>
-      <div style={{ opacity: 0.9, minHeight: 20 }}>{cap.text}</div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
-        {[['pause', paused ? 'Resume' : 'Pause', togglePause], ['next', 'Next', () => { skipRef.current = true; }], ['exit', 'Exit', exit]].map(([k, label, fn]) => (
-          <button key={k as string} onClick={fn as () => void} style={{
-            padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.25)', background: 'transparent', color: '#fff', cursor: 'pointer',
-          }}>{label as string}</button>
-        ))}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <strong style={{ fontWeight: 600 }}>{cap.title}</strong>
+          <span style={{ fontSize: 11, color: 'var(--muted, #888)', fontVariantNumeric: 'tabular-nums' }}>{idx + 1}/{STEPS.length}</span>
+        </div>
+        <div style={{ color: 'var(--muted, #888)', minHeight: 18 }}>{cap.text}</div>
       </div>
+      <button style={btn} onClick={togglePause} aria-label={paused ? 'Resume' : 'Pause'}><Icon name={paused ? 'play' : 'pause'} size={14} /></button>
+      <button style={btn} onClick={() => { skipRef.current = true; }}>Next</button>
+      <button style={btn} onClick={exit} aria-label="Exit demo"><Icon name="x" size={14} /></button>
     </div>
   );
 }

@@ -3,13 +3,14 @@ import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { useUi, type CaptureKind } from './uiStore';
 import { Settings } from './Settings';
+import { Icon } from './icons';
 import './home.css';
 
-const OPTIONS: Array<{ kind: CaptureKind; title: string; text: string; icon: string }> = [
-  { kind: 'scan', title: 'Scan with phone', text: 'Walk the room with your camera.', icon: 'M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2M7 12h10' },
-  { kind: 'photos', title: 'Use photos', text: 'Add a few photos of the room.', icon: 'M4 7h3l2-3h6l2 3h3v12H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
-  { kind: 'import', title: 'Import a floor plan', text: 'PDF or image of a plan or drawing.', icon: 'M6 3h9l5 5v13H6zM14 3v6h6M9 14h8M9 18h5' },
-  { kind: 'draw', title: 'Draw with measurements', text: 'Type the wall lengths you measured.', icon: 'M4 20 20 4M4 20h6M4 20v-6M14 4h6v6' },
+const OPTIONS: Array<{ kind: CaptureKind; title: string; icon: string }> = [
+  { kind: 'scan', title: 'Scan with phone', icon: 'camera' },
+  { kind: 'photos', title: 'Use photos', icon: 'image' },
+  { kind: 'import', title: 'Import a floor plan', icon: 'file' },
+  { kind: 'draw', title: 'Draw with measurements', icon: 'ruler' },
 ];
 
 /** Isometric hero drawn from the real sample room polygon and ceiling height. */
@@ -91,29 +92,21 @@ export function Home() {
       </header>
       <section className="home-hero">
         <div className="home-copy">
-          <h1>Measure a room, redesign it, walk through it.</h1>
-          <p className="muted">Turn a scan, photo or floor plan into a measured room. Try layouts that fit, then step inside.</p>
-          <h2 className="home-create">Create a space</h2>
-          <div className="home-options">
-            {OPTIONS.map((o, i) => (
-              <button key={o.kind} className="card home-option" style={{ animationDelay: `${i * 50}ms` }} onClick={() => openCapture(o.kind)}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d={o.icon} /></svg>
-                <span><strong>{o.title}</strong><span className="muted">{o.text}</span></span>
+          <h1>SpaceLens</h1>
+          <p className="home-pitch">Measure a room, try layouts that fit, then walk through it.</p>
+          <div className="home-start">
+            <div className="home-start-head">Start a space</div>
+            {OPTIONS.map((o) => (
+              <button key={o.kind} className="home-row" onClick={() => openCapture(o.kind)}>
+                <Icon name={o.icon} size={16} /><span>{o.title}</span><Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}
           </div>
-          <div className="home-secondary">
-            <button className="btn" onClick={() => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); }}>
-              Try the sample room <span className="chip">Sample</span>
-            </button>
-            <button className="btn btn-ghost home-demo" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Watch a guided demo</button>
+          <div className="home-links">
+            <button className="home-link" onClick={() => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); }}>Open sample room</button>
+            <button className="home-link" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Watch demo</button>
+            {recent && <button className="home-link" onClick={() => setMode('design')}>Continue {recent}</button>}
           </div>
-          {recent && (
-            <div className="home-recent">
-              <span className="muted">Recent</span>
-              <button className="card home-recent-item" onClick={() => setMode('design')}>{recent}<span className="muted">Open</span></button>
-            </div>
-          )}
         </div>
         <div className="home-art"><Hero /></div>
       </section>
