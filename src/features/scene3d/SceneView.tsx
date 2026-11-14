@@ -501,7 +501,8 @@ function CameraRig({ mode, eye, room, walk, req, onRoom, onTourEnd }: {
     if (k.has('s') || k.has('arrowdown')) f -= 1;
     if (k.has('d') || k.has('arrowright')) s += 1;
     if (k.has('a') || k.has('arrowleft')) s -= 1;
-    const step = Math.min(dt, 0.05);
+    // capped so a stalled frame never jumps through a wall; generous enough for slow devices
+    const step = Math.min(dt, 0.1);
     const speed = 1.4 * step;
     if (f || s) {
       w.goal = null; w.path = null;
@@ -714,8 +715,8 @@ export function SceneView() {
   devRef.current = { walk, walkTo, startTour, setMode };
   useEffect(() => {
     const h = () => devRef.current.startTour(false);
-    window.addEventListener('spacelens:tour', h);
-    return () => window.removeEventListener('spacelens:tour', h);
+    window.addEventListener('spacelens:auto-tour', h);
+    return () => window.removeEventListener('spacelens:auto-tour', h);
   }, []);
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -883,7 +884,7 @@ export function SceneView() {
           {!touring && <Joystick walk={walk} />}
           <div className="scene3d-hint muted">
             {multi && roomName && <div className="scene3d-here" aria-live="polite"><span className="sr-only">You are in </span>{roomName}</div>}
-            {recording ? <span className="scene3d-rec">Recording</span> : touring ? 'Touring every room. Press a move key to stop.' : 'Tap floor or WASD to move, drag to look'}
+            {recording ? <span className="scene3d-rec">Recording</span> : touring ? 'Touring' : 'Tap or WASD to move, drag to look'}
           </div>
         </>
       )}

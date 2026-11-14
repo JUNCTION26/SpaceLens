@@ -160,10 +160,10 @@ export function BuildingPanel() {
     void propose(next);
   };
 
-  const walkThrough = (tour = false) => {
+  const walkThrough = () => {
     const st = useStore.getState();
     if (st.view === '2d') st.setView('split');
-    setTimeout(() => window.dispatchEvent(new Event(tour ? 'spacelens:tour' : 'spacelens:walk')), 300);
+    setTimeout(() => window.dispatchEvent(new Event('spacelens:walk')), 300);
   };
 
   const schedule = useMemo(() => (usedPlan ? wallSchedule(model) : []), [usedPlan, model]);
@@ -281,16 +281,15 @@ export function BuildingPanel() {
           <h3>4. Your plan</h3>
           <div className="row bld-actions">
             <button className="btn btn-primary" onClick={furnish} disabled={furnishing}><Icon name="sofa" /> {furnishing ? 'Furnishing…' : 'Furnish every room'}</button>
-            <button className="btn" onClick={() => walkThrough()}><Icon name="walk" /> Walk through</button>
-            <button className="btn btn-ghost" onClick={() => walkThrough(true)} title="Walk the camera through every room"><Icon name="play" /> Tour</button>
+            <button className="btn" onClick={walkThrough}><Icon name="walk" /> Walk through</button>
           </div>
-          {progress.length > 0 && (
+          {progress.some((p) => furnishing || p.status === 'failed' || p.status === 'skipped') && (
             <ul className="list bld-progress">
-              {progress.map((p) => (
+              {progress.filter((p) => furnishing || p.status === 'failed' || p.status === 'skipped').map((p) => (
                 <li key={p.spaceId}>
                   <span className="bld-grow">{p.name}</span>
                   <span className={`chip${p.status === 'done' ? ' chip-ok' : p.status === 'failed' ? ' chip-bad' : ''}`} title={p.message}>
-                    {p.status === 'done' ? `${p.items} items` : p.status === 'running' ? 'Working…' : p.status === 'skipped' ? 'Skipped' : p.status === 'failed' ? 'No fit' : 'Waiting'}
+                    {p.status === 'done' ? `${p.items} items` : p.status === 'running' ? 'Working…' : p.status === 'skipped' ? 'Skipped' : p.status === 'failed' ? 'No fit' : ''}
                   </span>
                 </li>
               ))}
@@ -300,9 +299,9 @@ export function BuildingPanel() {
             <details className="bld-sub">
               <summary><b>{plural(bill.items, 'item')}</b> · {fmtSek(bill.totalSek)}</summary>
               <table className="bld-table bld-bill">
-                <thead><tr><th>Item</th><th>Qty</th><th>Rooms</th><th>Total</th></tr></thead>
+                <thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
                 <tbody>{bill.lines.map((l) => (
-                  <tr key={l.catalogId + l.name}><td>{l.name}</td><td>{l.qty}</td><td className="muted">{l.rooms.join(', ')}</td><td>{fmtSek(l.totalSek)}</td></tr>
+                  <tr key={l.catalogId + l.name}><td>{l.name}</td><td>{l.qty}</td><td>{fmtSek(l.totalSek)}</td></tr>
                 ))}</tbody>
               </table>
             </details>
@@ -310,11 +309,11 @@ export function BuildingPanel() {
 
           <h4 className="section-label">Walls</h4>
           <table className="bld-table bld-schedule">
-            <thead><tr><th>Wall</th><th>Thick</th><th>Length</th><th>Openings</th></tr></thead>
+            <thead><tr><th>Wall</th><th>Thickness</th><th>Length</th><th>Openings</th></tr></thead>
             <tbody>{schedule.map((r) => (
               <tr key={r.kind + r.thicknessCm}>
                 <td>{r.kind}</td><td>{r.thicknessCm} cm</td><td>{r.lengthM.toFixed(1)} m</td>
-                <td className="muted">{[r.doors ? plural(r.doors, 'door') : '', r.windows ? plural(r.windows, 'window') : ''].filter(Boolean).join(', ') || 'None'}</td>
+                <td className="muted">{[r.doors ? plural(r.doors, 'door') : '', r.windows ? plural(r.windows, 'window') : ''].filter(Boolean).join(', ')}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -324,9 +323,9 @@ export function BuildingPanel() {
             {usedPlan.rooms.map((r) => (
               <li key={r.id}>
                 <span className="bld-grow">{r.name}</span>
-                <span className="muted">{r.areaM2.toFixed(1)} m²</span>
+                <span className="muted">{r.areaM2.toFixed(0)} m²</span>
                 {r.programmeId && prog.rooms.some((x) => x.id === r.programmeId) && (
-                  <button className="btn btn-ghost btn-sm" disabled={planning} onClick={() => enlarge(r.programmeId!, r.name)} aria-label={`Plan again with a larger ${r.name}`} title="Plan again with this room larger"><Icon name="plus" /></button>
+                  <button className="btn btn-ghost btn-sm" disabled={planning} onClick={() => enlarge(r.programmeId!, r.name)} aria-label={`Plan again with a larger ${r.name}`} title="Plan again with this room larger"><Icon name="maximize" /></button>
                 )}
               </li>
             ))}
