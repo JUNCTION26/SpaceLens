@@ -170,8 +170,11 @@ export function buildFromPaths(pp: PagePaths, items: TextItem[], page: number, o
     const poly = room.polygon;
     const pm = poly.map(toM);
     const area = Math.abs(polyArea(pm));
-    const p = purposeOf(room.label);
-    const name = room.label ? (room.no ? `${room.label} ${room.no}` : room.label) : room.no ? `Room ${room.no}` : `Space ${idx + 1}`;
+    let p = purposeOf(room.label);
+    // Unlabelled rooms with sanitary fixtures drawn inside (curved symbols such as a WC or basin) are bathrooms.
+    const fixtures = room.label ? 0 : fixtureCount(pp, poly, 0.65 / m);
+    if (!p && fixtures >= 2) p = { purpose: 'bathroom', english: 'Bathroom' };
+    const name = room.label ? (room.no ? `${room.label} ${room.no}` : room.label) : p ? `${p.english} ${room.no ?? idx + 1}` : room.no ? `Room ${room.no}` : `Space ${idx + 1}`;
     const errorPct = room.printedArea ? ((area - room.printedArea) / room.printedArea) * 100 : undefined;
     const status: 'verified' | 'estimated' = errorPct != null && Math.abs(errorPct) <= 2 ? 'verified' : 'estimated';
     const areaNote = room.printedArea != null
@@ -304,6 +307,21 @@ export function drawingToBuilding(doc: DrawingDoc, page: number, opts: BuildOpti
     };
   }
   return buildFromPaths(pp, doc.items, page, { name: doc.name, imageUrl: opts.imageUrl ?? pg?.dataUrl, ...opts });
+}
+
+/** Small curved symbols inside a room outline (sanitary fixtures), excluding door swings. */
+function fixtureCount(pp: PagePaths, poly: P[], maxSizePt: number): number {
+  let n = 0;
+  for (const p of pp.paths) {
+    if (p.curves < 2) continue;
+    const pts = p.subs.flat();
+    if (!pts.length) continue;
+    const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
+    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+    if (w > maxSizePt || h > maxSizePt) continue;
+    if (pointInRing({ x: (Math.max(...xs) + Math.min(...xs)) / 2, y: (Math.max(...ys) + Math.min(...ys)) / 2 }, poly)) n++;
+  }
+  return n;
 }
 
 function emptyBuilt(name: string, now: number): SpaceModel {
