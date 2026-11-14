@@ -140,3 +140,52 @@
 .plan2d-menu { background: var(--raised); box-shadow: var(--shadow); border-radius: var(--radius); }
 .plan2d-menu button:hover, .plan2d-menu button:focus-visible { background: var(--hover); }
 .plan2d-drawing .plan2d-svg { cursor: crosshair; }
+
+/* Problems: a quiet dot or underline, coloured by severity. The item outline stays calm. */
+.plan2d-item.is-bad .plan2d-item-body { stroke: var(--plan-ink); }
+.plan2d-mark { cursor: pointer; }
+.plan2d-mark-hit { fill: transparent; stroke: transparent; }
+.plan2d-mark-dot { stroke: var(--plan-floor); transition: r var(--dur) var(--ease); }
+.plan2d-mark.is-error .plan2d-mark-dot { fill: var(--bad); }
+.plan2d-mark.is-warn .plan2d-mark-dot { fill: var(--warn); }
+.plan2d-mark.is-error .plan2d-mark-line { stroke: var(--bad); }
+.plan2d-mark.is-warn .plan2d-mark-line { stroke: var(--warn); }
+.plan2d-mark-dot { animation: plan2d-mark-in 260ms var(--ease) both; transform-box: fill-box; transform-origin: center; }
+.plan2d-mark:hover .plan2d-mark-dot { transform: scale(1.35); }
+@keyframes plan2d-mark-in { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* Selection and focus rings */
+.plan2d-ring { fill: none; stroke: var(--accent); stroke-opacity: .45; }
+.plan2d-item.is-focus .plan2d-ring { stroke-opacity: .8; animation: plan2d-ring 1.4s var(--ease) infinite; }
+@keyframes plan2d-ring { 50% { stroke-opacity: .3; } }
+
+/* Dragging: live validity, origin ghost, wall snap tick */
+.plan2d-item-body { cursor: grab; }
+.plan2d-item.is-locked .plan2d-item-body { cursor: pointer; }
+.plan2d-dragging, .plan2d-dragging * { cursor: grabbing !important; }
+.plan2d-item.is-drag .plan2d-item-body { transition: fill 120ms linear, stroke 120ms linear; }
+.plan2d-item.is-drag-ok .plan2d-item-body { stroke: var(--ok); fill: color-mix(in srgb, var(--ok) 12%, var(--plan-floor)); }
+.plan2d-item.is-drag-bad .plan2d-item-body { stroke: var(--bad); fill: color-mix(in srgb, var(--bad) 14%, var(--plan-floor)); }
+.plan2d-origin { fill: none; stroke: var(--plan-dim); stroke-opacity: .6; }
+.plan2d-tick { stroke: var(--accent); animation: plan2d-tick 380ms var(--ease) both; }
+@keyframes plan2d-tick { 0% { opacity: 0; stroke-width: 0; } 40% { opacity: 1; } 100% { opacity: .85; } }
+.plan2d-rot { cursor: grab; transition: r var(--dur) var(--ease); }
+.plan2d-rot:hover { fill: var(--accent); }
+
+/* Fix preview ghosts */
+.plan2d-fixghost rect { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent); }
+.plan2d-fixghost line { stroke: var(--accent); }
+.plan2d-fixghost.is-remove rect { fill: color-mix(in srgb, var(--bad) 10%, transparent); stroke: var(--bad); }
+.plan2d-fixghost.is-remove line { stroke: var(--bad); opacity: .7; }
+.plan2d-fixarrow { stroke: var(--accent); opacity: .8; }
+.plan2d-fixdot { fill: var(--accent); }
+.plan2d-fixghosts { animation: plan2d-fade 140ms var(--ease) both; }
+@keyframes plan2d-fade { from { opacity: 0; } }
+
+.plan2d-edit-hint.is-error { color: var(--bad); }
+.plan2d-edit .field[aria-invalid] { border-color: var(--bad); }
+
+@media (prefers-reduced-motion: reduce) {
+  .plan2d-mark-dot, .plan2d-tick, .plan2d-fixghosts, .plan2d-item.is-focus .plan2d-ring { animation: none; }
+  .plan2d-item.is-drag .plan2d-item-body { transition: none; }
+}

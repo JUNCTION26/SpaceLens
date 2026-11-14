@@ -10,17 +10,62 @@ import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '..
 import { useSketch } from '../agent/sketchStore';
 import { SketchLayer } from '../agent/SketchLayer';
 import { Icon } from '../../ui/icons';
+import { notify } from '../../ui/notify';
+import { counts, useProblems } from '../problems/store';
+import { ProblemCard } from '../problems/ProblemCard';
+import { SEVERITY_ORDER, type GhostPose, type Problem, type ProblemSeverity } from '../problems/types';
 import './plan2d.css';
+
+const prefersReduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TAU = Math.PI * 2;
+const shortest = (from: number, to: number) => { let d = (to - from) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+
+/**
+ * Items glide to new poses when a layout is applied, a fix runs or an edit is undone.
+ * `lastShown` holds what was on screen, so a drop (already where it was dragged) does not jump.
+ */
+function useGlide(target: FurnitureItem[], frozen: boolean, lastShown: React.MutableRefObject<FurnitureItem[]>): FurnitureItem[] {
+  const [frame, setFrame] = useState(target);
+  const raf = useRef(0);
+  useEffect(() => {
+    cancelAnimationFrame(raf.current);
+    const from = new Map(lastShown.current.map((f) => [f.id, f]));
+    let far = 0;
+    for (const f of target) {
+      const o = from.get(f.id); if (!o) continue;
+      far = Math.max(far, Math.hypot(f.x - o.x, f.y - o.y), Math.abs(shortest(o.rotation, f.rotation)) * 0.3);
+    }
+    if (frozen || far < 0.004 || prefersReduced()) { setFrame(target); return; }
+    const dur = Math.min(440, 140 + far * 500), t0 = performance.now();
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      setFrame(k >= 1 ? target : target.map((f) => {
+        const o = from.get(f.id); if (!o) return f;
+        return { ...f, x: o.x + (f.x - o.x) * e, y: o.y + (f.y - o.y) * e, rotation: o.rotation + shortest(o.rotation, f.rotation) * e };
+      }));
+      if (k < 1) raf.current = requestAnimationFrame(step);
+    };
+    raf.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, frozen]);
+  return frozen ? target : frame;
+}
+
+type Card = { key: string; anchor: Vec2; pinned: boolean };
+const worstOf = (ps: Problem[]): ProblemSeverity | null => ps.reduce<ProblemSeverity | null>((w, p) => (!w || SEVERITY_ORDER[p.severity] < SEVERITY_ORDER[w] ? p.severity : w), null);
 
 type VB = { x: number; y: number; w: number; h: number };
 type Drag =
   | { kind: 'pan'; start: Vec2; vb: VB; sx: number; sy: number }
   | { kind: 'vertex'; spaceId: string; index: number; pos: Vec2; moved: boolean }
-  | { kind: 'item'; id: string; ids: string[]; origins: Record<string, Vec2>; off: Vec2; pos: Vec2; rot?: number; moved: boolean; guides: Guide[]; wall: { cm: number; at: Vec2 } | null }
+  | { kind: 'item'; id: string; ids: string[]; origins: Record<string, Vec2>; off: Vec2; pos: Vec2; rot?: number; moved: boolean; guides: Guide[]; wall: { cm: number; at: Vec2 } | null; snap: Snap | null; start: Vec2 }
   | { kind: 'marquee'; a: Vec2; b: Vec2 }
   | { kind: 'rotate'; id: string; rot: number };
 
 type Guide = { a: Vec2; b: Vec2 };
+/** Where an item clicked onto a wall: a short tick drawn along the wall. */
+type Snap = { a: Vec2; b: Vec2; key: string };
 const SNAP = 0.05;
 const WALL_SNAP = 0.15;
 
@@ -70,15 +115,22 @@ export function PlanView() {
   const analysis = useStore((s) => s.analysis);
   const activeCandidateId = useStore((s) => s.activeCandidateId);
   const { dispatch, select, toggleLayer, applyCandidate, toast } = useStore.getState();
-  const shown = useShownFurniture();
+  const storeShown = useShownFurniture();
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [vb, setVb] = useState<VB>(() => fitBox(model.spaces));
   const [drag, setDrag] = useState<Drag | null>(null);
+  const lastShown = useRef<FurnitureItem[]>(storeShown);
+  const shown = useGlide(storeShown, drag?.kind === 'item' || drag?.kind === 'rotate', lastShown);
+  const problemList = useProblems((s) => s.problems);
+  const fixPreview = useProblems((s) => s.preview);
+  const focusId = useProblems((s) => s.focusId);
+  const [card, setCard] = useState<Card | null>(null);
+  const cardTimer = useRef<ReturnType<typeof setTimeout>>();
   const dragRef = useRef<Drag | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ d: number; vb: VB; c: Vec2 } | null>(null);
-  const [editWall, setEditWall] = useState<{ spaceId: string; i: number; pos: Vec2; value: string } | null>(null);
+  const [editWall, setEditWall] = useState<{ spaceId: string; i: number; pos: Vec2; value: string; error?: boolean } | null>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [multi, setMultiState] = useState<string[]>([]);
   const multiRef = useRef<string[]>([]);
@@ -139,23 +191,62 @@ export function PlanView() {
     });
   }, [shown, drag]);
 
-  const { problems, overlapsWith } = useMemo(() => {
-    const bad = new Set<string>();
+  lastShown.current = furniture;
+
+  // Live overlap and outside tests, used while dragging (the full checks run in the background).
+  const { outside, overlapsWith } = useMemo(() => {
+    const out = new Set<string>();
     const withMap = new Map<string, string[]>();
+    if (drag?.kind !== 'item' && drag?.kind !== 'rotate') return { outside: out, overlapsWith: withMap };
     const push = (a: FurnitureItem, b: FurnitureItem) => { const l = withMap.get(a.id) ?? []; l.push(b.name); withMap.set(a.id, l); };
     const cs = furniture.map((f) => itemCorners(f));
     const soft = (f: FurnitureItem) => f.category === 'rug' || !!catalogEntry(f.catalogId)?.overlaps;
     for (let i = 0; i < furniture.length; i++) {
       for (let j = i + 1; j < furniture.length; j++) {
-        if (convexOverlap(cs[i], cs[j]) > 0.01) {
-          bad.add(furniture[i].id); bad.add(furniture[j].id);
-          if (!soft(furniture[i]) && !soft(furniture[j])) { push(furniture[i], furniture[j]); push(furniture[j], furniture[i]); }
-        }
+        if (soft(furniture[i]) || soft(furniture[j])) continue;
+        if (convexOverlap(cs[i], cs[j]) > 0.01) { push(furniture[i], furniture[j]); push(furniture[j], furniture[i]); }
       }
-      if (spaces.length && !spaces.some((s) => polygonInside(cs[i], s.polygon))) bad.add(furniture[i].id);
+      if (spaces.length && !spaces.some((s) => polygonInside(cs[i], s.polygon))) out.add(furniture[i].id);
     }
-    return { problems: bad, overlapsWith: withMap };
-  }, [furniture, spaces]);
+    return { outside: out, overlapsWith: withMap };
+  }, [furniture, spaces, drag?.kind]);
+  const dragIds = drag?.kind === 'item' ? drag.ids : drag?.kind === 'rotate' ? [drag.id] : [];
+  const dragBad = dragIds.some((id) => outside.has(id) || overlapsWith.has(id));
+
+  // Background problems by item and by door or window, for markers and the hover card.
+  const { byItem, byOpening, loose } = useMemo(() => {
+    const byItem = new Map<string, Problem[]>(), byOpening = new Map<string, Problem[]>(), loose: Problem[] = [];
+    const add = (m: Map<string, Problem[]>, k: string, p: Problem) => { const l = m.get(k) ?? []; l.push(p); m.set(k, l); };
+    for (const p of problemList) {
+      for (const id of p.itemIds) add(byItem, id, p);
+      for (const id of p.openingIds) add(byOpening, id, p);
+      if (!p.itemIds.length && !p.openingIds.length && p.at && counts(p)) loose.push(p);
+    }
+    return { byItem, byOpening, loose };
+  }, [problemList]);
+  const cardProblems = (key: string): Problem[] => {
+    if (key.startsWith('f:')) return byItem.get(key.slice(2)) ?? [];
+    if (key.startsWith('o:')) return byOpening.get(key.slice(2)) ?? [];
+    if (key.startsWith('p:')) return problemList.filter((p) => p.id === key.slice(2));
+    return [];
+  };
+  const focusIds = useMemo(() => new Set(problemList.find((p) => p.id === focusId)?.itemIds ?? []), [problemList, focusId]);
+
+  const cancelClose = () => clearTimeout(cardTimer.current);
+  const closeSoon = (ms = 260) => { clearTimeout(cardTimer.current); cardTimer.current = setTimeout(() => { setCard((c) => (c?.pinned ? c : null)); useProblems.getState().setPreview(null); }, ms); };
+  const closeCard = () => { clearTimeout(cardTimer.current); setCard(null); useProblems.getState().setPreview(null); };
+  /** Card for an item, a door or window, or a loose problem, pinned for taps and marker clicks. */
+  const openCard = (key: string, pinned: boolean) => {
+    cancelClose();
+    let anchor: Vec2 | null = null;
+    if (key.startsWith('f:')) { const f = furniture.find((x) => x.id === key.slice(2)); if (f) { const b = aabb(itemCorners(f)); anchor = { x: b.maxX, y: b.minY }; } }
+    else if (key.startsWith('o:')) { const o = model.openings.find((x) => x.id === key.slice(2)); const sp = o && model.spaces.find((s) => s.id === o.spaceId); if (o && sp) anchor = openingSegment(sp, o).c; }
+    else if (key.startsWith('p:')) anchor = problemList.find((p) => p.id === key.slice(2))?.at ?? null;
+    if (!anchor || !cardProblems(key).length) return;
+    setCard((c) => (c && c.key === key ? { ...c, pinned: c.pinned || pinned } : { key, anchor: anchor!, pinned }));
+  };
+  // Close the card once its problems are all fixed.
+  useEffect(() => { if (card && !cardProblems(card.key).length) closeCard(); }); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Editing a previewed candidate applies it first. */
   const ensureEditable = () => {
@@ -193,7 +284,9 @@ export function PlanView() {
     return multiRef.current.includes(sel.id) ? multiRef.current : [sel.id];
   };
   const lockedWarn = (items: FurnitureItem[]) => {
-    if (items.length) useStore.getState().toast(items.length > 1 ? 'All selected items are locked' : `${items[0].name} is locked`, 'warn');
+    if (!items.length) return;
+    const unlock = () => { for (const f of items) useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { locked: false } }); };
+    notify(items.length > 1 ? 'All selected items are locked.' : `${items[0].name} is locked.`, { tone: 'warn', actions: [{ label: 'Unlock', primary: true, run: unlock }] });
   };
   const editGroup = (ids: string[], patch: (f: FurnitureItem) => Partial<FurnitureItem> | null) => {
     const items = useShownList().filter((f) => ids.includes(f.id));
@@ -246,7 +339,7 @@ export function PlanView() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const st = useStore.getState(); const sel = st.selection; const A = actions.current;
-      if (e.key === 'Escape') { setLayersOpen(false); st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
+      if (e.key === 'Escape') { setCard(null); useProblems.getState().setPreview(null); setLayersOpen(false); st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -302,15 +395,20 @@ export function PlanView() {
     const guides: Guide[] = [];
     const single = ids.length === 1;
     // Back edge to wall.
+    let snapped: Snap | null = null;
     if (single && !free) {
-      let best: { gap: number; pt: Vec2; n: Vec2 } | null = null;
+      let best: { gap: number; pt: Vec2; n: Vec2; key: string } | null = null;
       for (const sp of spaces) for (let i = 0; i < sp.polygon.length; i++) {
         const [a, b] = wallSegment(sp, i);
         const { point, t } = closestPointOnSegment(raw, a, b); if (t <= 0.02 || t >= 0.98) continue;
         const gap = Math.abs(dist(raw, point) - f.d / 2);
-        if (gap < WALL_SNAP && (!best || gap < best.gap)) best = { gap, pt: point, n: wallInwardNormal(sp, i) };
+        if (gap < WALL_SNAP && (!best || gap < best.gap)) best = { gap, pt: point, n: wallInwardNormal(sp, i), key: `${sp.id}:${i}` };
       }
-      if (best) { pos = add(best.pt, mul(best.n, f.d / 2)); rot = normAng(Math.atan2(-best.n.x, best.n.y)); }
+      if (best) {
+        pos = add(best.pt, mul(best.n, f.d / 2)); rot = normAng(Math.atan2(-best.n.x, best.n.y));
+        const tg = perp(best.n), half = Math.min(f.w / 2, 40 * px);
+        snapped = { a: add(best.pt, mul(tg, -half)), b: add(best.pt, mul(tg, half)), key: best.key };
+      }
     }
     // Alignment with other items' edges and centres.
     const moving = { ...f, x: pos.x, y: pos.y, rotation: rot ?? f.rotation };
@@ -336,7 +434,7 @@ export function PlanView() {
       const [a, b] = wallSegment(sp, i);
       for (const c of cs) { const { point } = closestPointOnSegment(c, a, b); const dd = dist(c, point); if (dd < bestD) { bestD = dd; wall = { cm: Math.round(dd * 100), at: lerp(c, point, 0.5) }; } }
     }
-    return { pos, rot, guides, wall };
+    return { pos, rot, guides, wall, snap: snapped };
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -351,6 +449,8 @@ export function PlanView() {
     const target = (e.target as Element).closest('[data-hit]') as HTMLElement | null;
     const hit = target?.getAttribute('data-hit') ?? '';
     const p = toPlan(e.clientX, e.clientY);
+    if (hit.startsWith('mk:')) { openCard(hit.slice(3), true); return; }
+    if (card && !hit.startsWith('f:')) closeCard();
     if (hit.startsWith('v:')) {
       const [sid, idx] = splitId(hit.slice(2));
       select({ kind: 'vertex', id: hit.slice(2) });
@@ -376,7 +476,7 @@ export function PlanView() {
       if (!f.locked) {
         const origins: Record<string, Vec2> = {};
         for (const gid of ids) { const g = furniture.find((x) => x.id === gid); if (g) origins[gid] = { x: g.x, y: g.y }; }
-        setD({ kind: 'item', id, ids, origins, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false, guides: [], wall: null });
+        setD({ kind: 'item', id, ids, origins, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false, guides: [], wall: null, snap: null, start: { x: e.clientX, y: e.clientY } });
       }
     } else if (hit.startsWith('o:')) {
       select({ kind: 'opening', id: hit.slice(2) });
@@ -407,8 +507,17 @@ export function PlanView() {
     }
     const d = dragRef.current;
     if (!d) {
+      if (e.pointerType !== 'mouse') return;
       const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
-      if (hit.startsWith('f:') && e.pointerType === 'mouse') {
+      // Hover to check: an item, door or marker with problems opens the fix card.
+      const key = hit.startsWith('mk:') ? hit.slice(3) : hit.startsWith('f:') ? hit : hit.startsWith('o:') ? hit : '';
+      if (key && cardProblems(key).length) {
+        if (hover) setHover(null);
+        if (card?.key !== key) { if (!card?.pinned) openCard(key, false); } else cancelClose();
+        return;
+      }
+      if (card && !card.pinned) closeSoon();
+      if (hit.startsWith('f:')) {
         const r = svgRef.current!.getBoundingClientRect();
         setHover({ id: hit.slice(2), sx: e.clientX - r.left, sy: e.clientY - r.top });
       } else if (hover) setHover(null);
@@ -430,8 +539,12 @@ export function PlanView() {
     } else if (d.kind === 'item') {
       const raw = { x: p.x + d.off.x, y: p.y + d.off.y };
       const f = shown.find((x) => x.id === d.id)!;
+      // A few pixels of slack so a tap or click does not count as a move.
+      if (!d.moved && Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) < 3) return;
+      if (!d.moved) closeCard();
       const r = snapItem(f, raw, d.ids, e.altKey);
-      setD({ ...d, pos: r.pos, rot: r.rot, guides: r.guides, wall: r.wall, moved: true });
+      if (r.snap && r.snap.key !== d.snap?.key && e.pointerType !== 'mouse') { try { navigator.vibrate?.(6); } catch { /* not supported */ } }
+      setD({ ...d, pos: r.pos, rot: r.rot, guides: r.guides, wall: r.wall, snap: r.snap, moved: true });
     } else if (d.kind === 'rotate') {
       const f = furniture.find((x) => x.id === d.id)!;
       // Handle sits on the front side (+y local); angle from centre to pointer.
@@ -456,8 +569,11 @@ export function PlanView() {
         useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id, patch });
       }
       const others = overlapsWith.get(d.id);
-      if (others?.length) toast(`Overlaps ${others[0]}`, 'warn');
+      const name = furniture.find((x) => x.id === d.id)?.name ?? 'It';
+      if (others?.length) notify(`${name} overlaps ${others[0]}.`, { tone: 'warn', actions: [{ label: 'Show fixes', primary: true, run: () => openCard(`f:${d.id}`, true) }, { label: 'Undo', run: () => useStore.getState().undo() }] });
     }
+    // A tap (no move) on an item with problems opens its fix card; hover does this for a mouse.
+    if (d.kind === 'item' && !d.moved && e.pointerType !== 'mouse' && cardProblems(`f:${d.id}`).length) openCard(`f:${d.id}`, true);
     if (d.kind === 'marquee') {
       const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), y0 = Math.min(d.a.y, d.b.y), y1 = Math.max(d.a.y, d.b.y);
       const hits = furniture.filter((f) => f.x >= x0 && f.x <= x1 && f.y >= y0 && f.y <= y1).map((f) => f.id);
@@ -478,12 +594,18 @@ export function PlanView() {
     dispatch({ type: 'INSERT_VERTEX', spaceId: sid, afterIndex: i, at: { x: snap(point.x), y: snap(point.y) } });
   };
 
-  const addOpening = (kind: 'door' | 'window') => {
+  const addOpening = (kind: 'door' | 'window', widthOverride?: number) => {
     const sel = useStore.getState().selection;
-    if (sel?.kind !== 'wall') { toast('Select a wall first', 'warn'); return; }
+    if (sel?.kind !== 'wall') { notify(`Click a wall on the plan, then add the ${kind}.`, { tone: 'info' }); return; }
     const [sid, i] = splitId(sel.id); const sp = model.spaces.find((s) => s.id === sid); if (!sp) return;
-    const L = wallLength(sp, i); const width = kind === 'door' ? 0.9 : 1.2;
-    if (L < width + 0.1) { toast('Wall is too short', 'warn'); return; }
+    const L = wallLength(sp, i); const width = widthOverride ?? (kind === 'door' ? 0.9 : 1.2);
+    if (L < width + 0.1) {
+      const fit = Math.floor((L - 0.1) * 20) / 20;
+      notify(`This wall is ${Math.round(L * 100)} cm, too short for a ${Math.round(width * 100)} cm ${kind}.`, {
+        tone: 'warn', actions: fit >= 0.4 ? [{ label: `Add a ${Math.round(fit * 100)} cm ${kind}`, primary: true, run: () => addOpening(kind, fit) }] : [],
+      });
+      return;
+    }
     const o: Opening = {
       id: uid(kind), kind, spaceId: sid, wallIndex: i, offsetM: L / 2, widthM: width,
       heightM: kind === 'door' ? 2.1 : 1.2, sillM: kind === 'door' ? 0 : 0.9,
@@ -496,7 +618,7 @@ export function PlanView() {
   const commitLength = () => {
     if (!editWall) return;
     const v = parseLength(editWall.value);
-    if (v == null) { toast('Type a length like 320 or 3.2 m', 'warn'); return; }
+    if (v == null) { setEditWall({ ...editWall, error: true }); return; }
     dispatch({ type: 'SET_WALL_LENGTH', spaceId: editWall.spaceId, wallIndex: editWall.i, lengthM: v, sourceKind: 'user-measured' });
     setEditWall(null);
   };
@@ -531,11 +653,11 @@ export function PlanView() {
       }}>
       <svg
         ref={svgRef}
-        className={`plan2d-svg${drag?.kind === 'pan' ? ' plan2d-panning' : ''}`}
+        className={`plan2d-svg${drag?.kind === 'pan' ? ' plan2d-panning' : ''}${drag?.kind === 'rotate' || (drag?.kind === 'item' && drag.moved) ? ' plan2d-dragging' : ''}`}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={() => { setHover(null); if (card && !card.pinned) closeSoon(); }}
         onContextMenu={(e) => {
           const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
           e.preventDefault();
@@ -651,10 +773,68 @@ export function PlanView() {
         }))}
 
         {/* Furniture */}
-        {furniture.map((f) => (
-          <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))} bad={problems.has(f.id)}
-            hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
+        {/* Where dragged items started, faint, so you can see how far they moved */}
+        {drag?.kind === 'item' && drag.moved && drag.ids.map((id) => {
+          const f = furniture.find((x) => x.id === id); const o = drag.origins[id]; if (!f || !o) return null;
+          const deg = ((f.id === drag.id ? storeShown.find((x) => x.id === id)?.rotation ?? f.rotation : f.rotation) * 180) / Math.PI;
+          return <rect key={`o${id}`} transform={`translate(${o.x} ${o.y}) rotate(${deg})`} x={-f.w / 2} y={-f.d / 2} width={f.w} height={f.d}
+            className="plan2d-origin" strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} pointerEvents="none" />;
+        })}
+
+        {furniture.map((f) => {
+          const dragging = dragIds.includes(f.id) && (drag?.kind === 'rotate' || (drag?.kind === 'item' && drag.moved));
+          return (
+            <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))}
+              drag={dragging ? (dragBad ? 'bad' : 'ok') : null} focus={focusIds.has(f.id) || card?.key === `f:${f.id}`}
+              hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
+          );
+        })}
+
+        {/* Problem markers: a small dot on items, a line under doors and windows, colour by severity */}
+        {!drag && furniture.map((f) => {
+          const sev = worstOf((byItem.get(f.id) ?? []).filter(counts)); if (!sev) return null;
+          const b = aabb(itemCorners(f));
+          return (
+            <g key={`m${f.id}`} className={`plan2d-mark is-${sev}`} data-hit={`mk:f:${f.id}`}>
+              <circle cx={b.maxX} cy={b.minY} r={10 * px} className="plan2d-mark-hit" />
+              <circle cx={b.maxX} cy={b.minY} r={4.5 * px} strokeWidth={2 * px} className="plan2d-mark-dot" />
+            </g>
+          );
+        })}
+        {!drag && model.openings.map((o) => {
+          const sev = worstOf((byOpening.get(o.id) ?? []).filter(counts)); if (!sev) return null;
+          const sp = spaces.find((s) => s.id === o.spaceId); if (!sp || o.wallIndex >= sp.polygon.length) return null;
+          const { a, b, inward } = openingSegment(sp, o); const off = mul(inward, 5 * px);
+          return (
+            <g key={`mo${o.id}`} className={`plan2d-mark is-${sev}`} data-hit={`mk:o:${o.id}`}>
+              <line x1={a.x + off.x} y1={a.y + off.y} x2={b.x + off.x} y2={b.y + off.y} strokeWidth={14 * px} className="plan2d-mark-hit" />
+              <line x1={a.x + off.x} y1={a.y + off.y} x2={b.x + off.x} y2={b.y + off.y} strokeWidth={2.5 * px} strokeLinecap="round" className="plan2d-mark-line" />
+            </g>
+          );
+        })}
+        {!drag && loose.map((p) => (
+          <g key={`mp${p.id}`} className={`plan2d-mark is-${p.severity}`} data-hit={`mk:p:${p.id}`}>
+            <circle cx={p.at!.x} cy={p.at!.y} r={10 * px} className="plan2d-mark-hit" />
+            <circle cx={p.at!.x} cy={p.at!.y} r={4.5 * px} strokeWidth={2 * px} className="plan2d-mark-dot" />
+          </g>
         ))}
+
+        {/* Fix preview: where things go if the hovered fix runs */}
+        {fixPreview && <FixGhosts ghosts={fixPreview.preview} furniture={furniture} px={px} />}
+
+        {/* Wall snap tick */}
+        {drag?.kind === 'item' && drag.snap && (
+          <line key={drag.snap.key} x1={drag.snap.a.x} y1={drag.snap.a.y} x2={drag.snap.b.x} y2={drag.snap.b.y} className="plan2d-tick" strokeWidth={3 * px} strokeLinecap="round" pointerEvents="none" />
+        )}
+
+        {/* Turning: live angle */}
+        {drag?.kind === 'rotate' && (() => {
+          const f = furniture.find((x) => x.id === drag.id); if (!f) return null;
+          const deg = Math.round((normAng(drag.rot) * 180) / Math.PI) % 360;
+          const far = f.d / 2 + 40 * px;
+          const at = { x: f.x - Math.sin(drag.rot) * far, y: f.y + Math.cos(drag.rot) * far };
+          return <text x={at.x} y={at.y} fontSize={fs} textAnchor="middle" dominantBaseline="central" className="plan2d-live plan2d-halo" pointerEvents="none">{deg}°</text>;
+        })()}
 
 
         {/* Drag feedback: guides, wall distance, overlaps */}
@@ -749,14 +929,21 @@ export function PlanView() {
         <form className="plan2d-edit card" onSubmit={(e) => { e.preventDefault(); commitLength(); }}
           style={{ left: ((editWall.pos.x - view.x) / view.w) * size.w, top: ((editWall.pos.y - view.y) / view.h) * size.h }}>
           <label className="plan2d-edit-label" htmlFor="plan2d-len">Wall length</label>
-          <input id="plan2d-len" className="field" autoFocus value={editWall.value}
-            onChange={(e) => setEditWall({ ...editWall, value: e.target.value })}
+          <input id="plan2d-len" className="field" autoFocus value={editWall.value} aria-invalid={editWall.error || undefined}
+            onChange={(e) => setEditWall({ ...editWall, value: e.target.value, error: false })}
             onKeyDown={(e) => { if (e.key === 'Escape') setEditWall(null); }} onBlur={() => setEditWall(null)} />
-          <span className="muted plan2d-edit-hint">cm or m</span>
+          <span className={`plan2d-edit-hint${editWall.error ? ' is-error' : ' muted'}`}>{editWall.error ? 'Try 320 or 3.2 m' : 'cm or m'}</span>
         </form>
       )}
 
-      {hover && !drag && !menu && (() => {
+      {card && !drag && !menu && (() => {
+        const ps = cardProblems(card.key); if (!ps.length) return null;
+        const sx = ((card.anchor.x - view.x) / view.w) * size.w, sy = ((card.anchor.y - view.y) / view.h) * size.h;
+        const left = Math.max(8, Math.min(sx + 10, size.w - 316)), top = Math.max(56, Math.min(sy - 10, size.h - 190));
+        return <ProblemCard problems={ps} style={{ left, top }} onEnter={cancelClose} onLeave={() => { if (!card.pinned) closeSoon(); }} onClose={closeCard} />;
+      })()}
+
+      {hover && !drag && !menu && !card && (() => {
         const f = furniture.find((x) => x.id === hover.id); if (!f) return null;
         return <div className="plan2d-tip" style={{ left: hover.sx + 14, top: hover.sy + 14 }}>{f.name} <span className="muted">{Math.round(f.w * 100)}×{Math.round(f.d * 100)} cm</span></div>;
       })()}
@@ -778,7 +965,7 @@ export function PlanView() {
       })()}
 
       <div className="plan2d-toolbar" role="toolbar" aria-label="Plan tools">
-        <button className="plan2d-tb" onClick={fit} aria-label="Fit plan to view" data-tip="Fit to view"><Icon name="maximize" /></button>
+        <button className="plan2d-tb" onClick={fit} aria-label="Fit plan to view" data-tip="Fit to view (F)"><Icon name="maximize" /></button>
         <div className="plan2d-layers">
           <button className={`plan2d-tb${layersOpen ? ' is-on' : ''}`} onClick={() => setLayersOpen((v) => !v)} aria-haspopup="menu" aria-expanded={layersOpen} aria-label="Layers" data-tip="Layers"><Icon name="layout" /></button>
           {layersOpen && (
@@ -792,8 +979,8 @@ export function PlanView() {
           )}
         </div>
         <span className="plan2d-sep" />
-        <button className="plan2d-tb" onClick={() => addOpening('door')} disabled={selection?.kind !== 'wall'} aria-label="Add door to selected wall" data-tip="Add door (select a wall)"><Icon name="door" /></button>
-        <button className="plan2d-tb" onClick={() => addOpening('window')} disabled={selection?.kind !== 'wall'} aria-label="Add window to selected wall" data-tip="Add window (select a wall)"><Icon name="window" /></button>
+        <button className="plan2d-tb" onClick={() => addOpening('door')} disabled={selection?.kind !== 'wall'} aria-label="Add door to selected wall" data-tip={selection?.kind === 'wall' ? 'Add a door here' : 'Click a wall, then add a door'}><Icon name="door" /></button>
+        <button className="plan2d-tb" onClick={() => addOpening('window')} disabled={selection?.kind !== 'wall'} aria-label="Add window to selected wall" data-tip={selection?.kind === 'wall' ? 'Add a window here' : 'Click a wall, then add a window'}><Icon name="window" /></button>
         <span className="plan2d-sep" />
         <span className="plan2d-tb plan2d-help" tabIndex={0} role="note" aria-label="Shortcuts: Shift click or drag to multi-select, arrows nudge, R rotate, L lock, Ctrl D duplicate, F zoom, Alt drag skips snap">
           ?
@@ -894,19 +1081,22 @@ function Heat({ grid }: { grid: NonNullable<import('../../core/types').Analysis[
   return <g pointerEvents="none">{cells}</g>;
 }
 
-function Item({ f, px, fs, layers, sel, bad, hl, preview, hover }: {
-  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; bad: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean;
+function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover }: {
+  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; drag: 'ok' | 'bad' | null; focus: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean;
 }) {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
+  const ring = sel || focus;
   return (
-    <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`} className={`plan2d-item${sel ? ' is-sel' : ''}${bad ? ' is-bad' : ''}${preview ? ' is-preview' : ''}`}>
+    <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`}
+      className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}`}>
+      {ring && <rect x={-w / 2 - 5 * px} y={-d / 2 - 5 * px} width={w + 10 * px} height={d + 10 * px} rx={4 * px} className="plan2d-ring" strokeWidth={2 * px} pointerEvents="none" />}
       {layers.clearance && c && (
         <rect x={-w / 2 - c.left} y={-d / 2 - c.back} width={w + c.left + c.right} height={d + c.back + c.front}
           className="plan2d-clear" strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} />
       )}
       <rect data-hit={`f:${f.id}`} x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(0.02, w / 12)}
-        className="plan2d-item-body" strokeWidth={(sel || bad ? 2 : 1) * px} />
+        className="plan2d-item-body" strokeWidth={(sel || drag ? 1.5 : 1) * px} />
       <g className="plan2d-sym" strokeWidth={px} pointerEvents="none"><FurnSymbol cat={f.category} w={w} d={d} /></g>
       {hl && <rect x={-w / 2 - 4 * px} y={-d / 2 - 4 * px} width={w + 8 * px} height={d + 8 * px} fill="none" stroke={hl.color} strokeWidth={1.5 * px} pointerEvents="none" />}
       {(sel || hover) && (
@@ -917,10 +1107,36 @@ function Item({ f, px, fs, layers, sel, bad, hl, preview, hover }: {
         <g>
           <line x1={0} y1={d / 2} x2={0} y2={d / 2 + 18 * px} stroke="var(--accent)" strokeWidth={px} pointerEvents="none" />
           <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={6 * px} className="plan2d-rot" strokeWidth={1.25 * px}>
-            <title>Drag to rotate (15° steps). Press R for 90°.</title>
+            <title>Drag to turn in 15° steps (Shift for any angle). R turns 90°.</title>
           </circle>
         </g>
       )}
+    </g>
+  );
+}
+
+/** Ghost footprints for a fix being previewed, with a short arrow from where each item is now. */
+function FixGhosts({ ghosts, furniture, px }: { ghosts: GhostPose[]; furniture: FurnitureItem[]; px: number }) {
+  return (
+    <g pointerEvents="none" className="plan2d-fixghosts">
+      {ghosts.map((g) => {
+        const now = furniture.find((f) => f.id === g.id);
+        const deg = (g.rotation * 180) / Math.PI;
+        const far = now ? Math.hypot(g.x - now.x, g.y - now.y) : 0;
+        return (
+          <g key={g.id}>
+            {now && far > 0.03 && !g.removed && (
+              <line x1={now.x} y1={now.y} x2={g.x} y2={g.y} className="plan2d-fixarrow" strokeWidth={1.5 * px} strokeDasharray={`${3 * px} ${3 * px}`} />
+            )}
+            <g transform={`translate(${g.x} ${g.y}) rotate(${deg})`} className={`plan2d-fixghost${g.removed ? ' is-remove' : ''}`}>
+              <rect x={-g.w / 2} y={-g.d / 2} width={g.w} height={g.d} rx={Math.min(0.02, g.w / 12)} strokeWidth={1.5 * px} strokeDasharray={`${5 * px} ${3 * px}`} />
+              {!g.removed && <line x1={-g.w / 4} y1={g.d / 2 - 4 * px} x2={g.w / 4} y2={g.d / 2 - 4 * px} strokeWidth={1.5 * px} />}
+              {g.removed && <><line x1={-g.w / 2} y1={-g.d / 2} x2={g.w / 2} y2={g.d / 2} strokeWidth={1.5 * px} /><line x1={g.w / 2} y1={-g.d / 2} x2={-g.w / 2} y2={g.d / 2} strokeWidth={1.5 * px} /></>}
+            </g>
+            {now && far > 0.03 && !g.removed && <circle cx={g.x} cy={g.y} r={3 * px} className="plan2d-fixdot" />}
+          </g>
+        );
+      })}
     </g>
   );
 }
