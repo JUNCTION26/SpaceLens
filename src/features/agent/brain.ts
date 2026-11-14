@@ -31,7 +31,7 @@ Reply as JSON {say, sketch, actions}.
   add_catalog{catalogId, place?, w?, d?, h?, color?}: add a catalog piece.
   add_wall{from?, to?}: a partition wall; with no from/to it follows the person's latest line.
   move{id, place | x,y}; rotate{id, angle degrees clockwise}; resize{id, w?, d?, h?, color?}; remove{id}.
-  design_room{brief}: full layout for the whole room from a brief (people, purpose, style, budget). Use for "design/furnish my room".
+  design_room{brief}: full layout for the whole room from a brief (people, purpose, style, budget). Use for "design/furnish my room", and for themed or personal rooms ("make a room for my cat named Gerard", "build me a Barbie room", "a gaming room for two"): pass the whole sentence as brief; custom pieces, posters and names are made for it.
   apply_layout{candidateId}: apply a previewed layout (c1...).
   explain{id?, topic: price|choice|layout|direction}: say WHY using world.design and item data. Put the answer in say; the action only highlights.
   compare{a, b}: two items or two layouts.

@@ -2,6 +2,7 @@ import { gemini, hasGemini } from '../../core/gemini';
 import { area, wallLength } from '../../core/geometry';
 import type { RequirementItem, Requirements, SpaceModel } from '../../core/types';
 import { CATALOG, type CatalogEntry } from '../furniture/catalog';
+import { isThemedRequest, rulesBrief } from '../themes/brief';
 
 /** Find the best catalog entry for a keyword list (first keyword that matches wins). */
 export function matchCatalog(keywords: string[]): CatalogEntry | undefined {
@@ -285,7 +286,30 @@ export function validate(raw: Partial<Requirements>, model: SpaceModel, text: st
   };
 }
 
+/**
+ * A themed or personal room ("a room for my cat named Gerard"): no model call here, the theme
+ * pipeline writes its own brief. The items list holds catalogue stand-ins so the brief reads well.
+ */
+export function compileThemed(text: string, model: SpaceModel): Requirements {
+  const b = rulesBrief(text);
+  const base = compileRules(text, model);
+  const items: RequirementItem[] = [];
+  for (const o of b.objects) {
+    if (!o.catalogId) continue;
+    const ex = items.find((i) => i.catalogId === o.catalogId);
+    if (ex) ex.qty += o.qty ?? 1; else items.push({ catalogId: o.catalogId, qty: o.qty ?? 1 });
+  }
+  if (!items.length) items.push({ catalogId: 'rug-160', qty: 1 });
+  const custom = b.objects.filter((o) => o.source === 'custom').map((o) => o.name.toLowerCase());
+  return {
+    ...base, purpose: b.title.slice(0, 60), style: 'theme', items,
+    notes: [`Themed room: ${custom.length} custom pieces (${custom.slice(0, 5).join(', ')}${custom.length > 5 ? '...' : ''}) made to the idea.`, ...b.notes],
+    questions: [], compiledBy: 'rules',
+  };
+}
+
 export async function compileIntent(text: string, model: SpaceModel): Promise<Requirements> {
+  if (isThemedRequest(text)) return compileThemed(text, model);
   if (hasGemini()) {
     try {
       const catalog = CATALOG.map((c) => `${c.id}: ${c.name} ${Math.round(c.w * 100)}x${Math.round(c.d * 100)} cm`).join('\n');

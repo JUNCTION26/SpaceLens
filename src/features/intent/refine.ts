@@ -3,6 +3,9 @@ import { getState } from '../../core/store';
 import type { RequirementItem, Requirements, SpaceModel } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
 import { SCHEMA, addItem, compileIntent, ensurePerPerson, matchCatalog, parseBudget, roomSummary, validate } from './compile';
+import { editBrief } from '../themes/refine';
+import { rulesBrief } from '../themes/brief';
+import { lastThemed } from '../themes/session';
 
 /** What ran and how long it took, shown under the program. */
 export interface CompileMeta { by: 'gemini' | 'rules'; model?: string; ms: number; inTokens: number; outTokens: number; error?: string }
@@ -107,7 +110,15 @@ export function refineRules(cur: Requirements, text: string, model: SpaceModel):
   return { next, reply: said.length ? `Changed: ${said.join(', ')}.` : 'Could not read that. Try "add a lamp", "cheaper" or "more open".' };
 }
 
+/** A follow-up on a themed room is kept as a change; the theme pipeline applies it to the pieces it made. */
+export function refineThemedReq(cur: Requirements, text: string): { next: Requirements; reply: string } {
+  const preview = editBrief(lastThemed()?.result.brief ?? rulesBrief(cur.purpose), text);
+  const changes = cur.notes.filter((n) => n.startsWith('Change: ')).length + 1;
+  return { next: { ...cur, purpose: `${cur.purpose.replace(/ \(\d+ changes?\)$/, '')} (${changes} change${changes > 1 ? 's' : ''})`, notes: [...cur.notes, `Change: ${text.trim()}`] }, reply: preview.reply };
+}
+
 export async function refineIntent(cur: Requirements, text: string, history: string[], model: SpaceModel): Promise<{ next: Requirements; reply: string; meta: CompileMeta }> {
+  if (cur.style === 'theme') return { ...refineThemedReq(cur, text), meta: { by: 'rules', ms: 0, inTokens: 0, outTokens: 0 } };
   if (hasGemini()) {
     try {
       const catalog = CATALOG.map((c) => `${c.id}: ${c.name} ${Math.round(c.w * 100)}x${Math.round(c.d * 100)} cm, ${c.priceSek} kr`).join('\n');

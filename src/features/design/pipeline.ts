@@ -13,6 +13,10 @@ import { evaluateRules } from './rules';
 import { designScore } from './score';
 import { describeLayout, solveProgram } from './solve';
 import { mergeFurniture, subModelFor } from '../building/submodel';
+import { isThemedRequest } from '../themes/brief';
+import { designThemedRoom } from '../themes/designThemed';
+import { refineThemed } from '../themes/refine';
+import { lastThemed, rememberThemed } from '../themes/session';
 
 export type StageStatus = 'running' | 'done' | 'skipped' | 'failed';
 export interface Stage { id: string; label: string; status: StageStatus; ms?: number; model?: string; detail?: string }
@@ -115,8 +119,30 @@ export function activeSpaceId(model: SpaceModel): string | null {
   return model.spaces[0].id;
 }
 
+/**
+ * Themed or personal briefs ("a room for my cat named Gerard") go to the theme pipeline: custom
+ * pieces, printed names and wall decor. Follow-ups saved on the requirements as "Change: ..." edit
+ * the last themed room in place.
+ */
+async function designThemed(model: SpaceModel, req: Requirements, text: string, opts: DesignOpts, spaceId: string | null): Promise<DesignResult> {
+  const changes = req.notes.filter((n) => n.startsWith('Change: ')).map((n) => n.slice(8));
+  const prev = lastThemed();
+  const topts = { onStage: opts.onStage, onProgress: opts.onProgress, signal: opts.signal, spaceId: spaceId ?? undefined, req };
+  if (prev && prev.text === text && changes.length > prev.applied.length && prev.applied.every((c, i) => changes[i] === c)) {
+    let result = prev.result;
+    for (const c of changes.slice(prev.applied.length)) result = await refineThemed(model, result, c, topts);
+    rememberThemed({ text, result, applied: changes });
+    return result;
+  }
+  const result = await designThemedRoom(model, text, topts);
+  rememberThemed({ text, result, applied: [] });
+  if (changes.length) return designThemed(model, req, text, opts, spaceId);
+  return result;
+}
+
 export async function designRoom(model: SpaceModel, req: Requirements, opts: DesignOpts = {}): Promise<DesignResult> {
   const spaceId = opts.spaceId ?? activeSpaceId(model);
+  if (req.style === 'theme' || (opts.brief && isThemedRequest(opts.brief))) return designThemed(model, req, opts.brief ?? req.purpose, opts, spaceId);
   if (spaceId && model.spaces.length > 1) {
     const sub = subModelFor(model, spaceId);
     if (!sub) return { candidates: [], reports: [], infeasibility: { reasons: ['That room is not in this plan'], relaxations: [] }, stages: [] };

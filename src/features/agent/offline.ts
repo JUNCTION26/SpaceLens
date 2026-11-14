@@ -3,6 +3,7 @@
 import { parseSpoken, type SpokenCommand } from '../voice/parse';
 import type { Action, AgentReply } from './actions';
 import { refersToSketch } from './deixis';
+import { isThemedRequest } from '../themes/brief';
 
 const WALL_WORD: Record<string, string> = { north: 'north', south: 'south', east: 'east', west: 'west', window: 'window', door: 'door' };
 
@@ -38,7 +39,8 @@ export function offlineReply(text: string, hasSketch: boolean, inRoom: (category
     const q = t.replace(/^.*?\b(find|buy|shop for|shop|where can i get|search for)\b\s*(me\s+)?(a|an|some)?\s*/, '').replace(/[?.!]+$/, '');
     return reply('Searching.', [{ type: 'find_products', query: q || t }]);
   }
-  if (/\b(design|furnish|plan|lay ?out|arrange|inred)\b/.test(t) && /\b(room|office|space|bedroom|living|kitchen|it|this|for|with|me)\b/.test(t)) {
+  const themedRoom = isThemedRequest(text) && /\b(room|nook|office|bedroom|den|space|corner)\b/.test(t) && !/\b(poster|sign|statue|neon)\b/.test(t);
+  if (themedRoom || (/\b(design|furnish|plan|lay ?out|arrange|inred)\b/.test(t) && /\b(room|office|space|bedroom|living|kitchen|it|this|for|with|me)\b/.test(t))) {
     return reply('Designing it now.', [{ type: 'design_room', brief: text }]);
   }
   if (/\b(apply|use|go with|pick) (this|that|it|the (first|best)|option|layout)\b/.test(t)) return reply('Applied.', [{ type: 'apply_layout' }]);

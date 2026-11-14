@@ -62,7 +62,7 @@ const FRANCHISE: Array<[RegExp, string, string]> = [
   [/hello kitty/, 'pink', 'a generic cute pink theme (no characters or logos)'],
 ];
 
-const THEMED = /\b(for my (cat|dog|kitten|puppy|pet|son|daughter|kids?|boy|girl)|cat room|dog room|named|called|themed?|barbie|princess|unicorn|dinosaur|space room|gaming|gamer|reading nook|nook|calm|cosy|cozy|real (ikea )?products|ikea|from (a|the) store|batman|bat room|super ?hero|spider-?man|pok[eé]mon|minecraft|mario|statue|poster|neon)\b/;
+const THEMED = /\b(for my (cat|dog|kitten|puppy|pet|son|daughter|kids?|boy|girl)|cat room|dog room|named|called|themed?|barbie|princess|unicorn|dinosaur|space room|gaming|gamer|reading nook|nook|real (ikea )?products|ikea|from (a|the) store|batman|bat room|super ?hero|spider-?man|pok[eé]mon|minecraft|mario)\b/;
 
 /** True for briefs about a theme, a character, a pet, a named person or real products. */
 export function isThemedRequest(text: string): boolean {

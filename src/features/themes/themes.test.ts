@@ -125,4 +125,21 @@ describe('designThemedRoom', () => {
     const bedAfter = bigger.brief.objects.find((o) => o.recipe === 'pet-bed')!;
     expect(bedAfter.sizeCm![0]).toBeGreaterThan((bedBefore.sizeCm ?? [55])[0]);
   });
+
+  it('Describe and the agent route a themed sentence here, and follow-ups edit the same room', async () => {
+    const { compileIntent } = await import('../intent/compile');
+    const { refineIntent } = await import('../intent/refine');
+    const { designRoom } = await import('../design/pipeline');
+    const { offlineReply } = await import('../agent/offline');
+    expect(offlineReply('make a room for my cat named Gerard', false).actions?.[0]).toMatchObject({ type: 'design_room', brief: 'make a room for my cat named Gerard' });
+    const text = 'make a room for my cat named Gerard';
+    const req = await compileIntent(text, model);
+    expect(req.style).toBe('theme');
+    expect(req.items.length).toBeGreaterThan(0);
+    const res = await designRoom(model, req, { brief: text });
+    expect(res.candidates[0].furniture.some((f) => f.custom && textOf(f.custom).includes('GERARD'))).toBe(true);
+    const { next } = await refineIntent(req, 'add a second poster that says GOOD BOY', [], model);
+    const res2 = await designRoom(model, next, { brief: text });
+    expect(res2.candidates[0].furniture.some((f) => f.custom && textOf(f.custom).includes('GOOD BOY'))).toBe(true);
+  });
 });
