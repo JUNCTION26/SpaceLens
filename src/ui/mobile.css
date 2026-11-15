@@ -25,7 +25,10 @@
   .stage-split { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .panel-col { border: 0; overflow: visible; padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
   /* The assistant row and the message line stay at the bottom of the panel, above the tab bar. */
-  .panel-col > .agent-dock, .panel-col > .status-line { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 2; background: var(--panel); }
+  .app .panel-col > .agent-dock, .app .panel-col > .status-line { position: sticky; z-index: 2; background: var(--panel); }
+  .app .panel-col > .status-line { bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
+  /* The dock sits directly above the 28px message line, so the two never overlap. */
+  .app .panel-col > .agent-dock { bottom: calc(var(--tabs-h) + 28px + env(safe-area-inset-bottom)); }
   .search-field { width: 40px; }
   .search-field:focus-within { width: 160px; }
   .panel-col-head { padding: var(--s4) var(--s4) var(--s2); }
@@ -50,9 +53,6 @@
   .mobile-more-sheet { position: absolute; left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 6px; }
   .mobile-more-sheet .nav-item { height: 44px; font-size: 15px; }
 
-  .dialog-backdrop { align-items: flex-end; padding: 0; }
-  .dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 24px); border-radius: 16px 16px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
-  .dialog-head { position: sticky; top: 0; background: var(--panel); z-index: 2; }
   .demo-caption { left: 50%; top: auto; bottom: calc(132px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
   .scene3d-hint { display: none; }
   .plan2d-toolbar { top: 10px; left: 10px; flex-direction: column; }
@@ -71,8 +71,7 @@
 @media (pointer: coarse) {
   .btn, .btn-sm, .btn-xl, .icon-btn, .nav-item, .nav-link, .nav-collapse, .seg button, .chip-btn, select { min-height: 44px; }
   select { height: 44px; }
-  .icon-btn, .sheet-head .icon-btn, .nav-collapse { min-width: 44px; min-height: 44px; }
-  .sheet-head .icon-btn { width: 44px; height: 44px; }
+  .icon-btn, .nav-collapse { min-width: 44px; min-height: 44px; }
   .topbar-center .seg button { min-height: 44px; }
   .provenance-step { min-width: 44px; min-height: 44px; }
   input, select, textarea { font-size: max(16px, 1em); }
@@ -80,5 +79,4 @@
 
 @media (max-width: 900px) {
   .mobile-more-sheet { animation: mo-rise var(--dur-2) var(--ease-out) both; }
-  .dialog { animation: mo-rise var(--dur-3) var(--ease-out) both; }
 }

@@ -19,13 +19,12 @@
 .inspector-section{position:relative;margin:0 calc(-1 * var(--s5)) var(--s3);padding:var(--s3) var(--s5);border-bottom:1px solid var(--line);background:var(--panel-2)}
 .inspector-x{position:absolute;top:6px;right:6px;width:28px;height:28px;z-index:1}
 .status-line{flex:none;height:28px;padding:0 var(--s5);display:flex;align-items:center;border-top:1px solid var(--line);font-size:var(--fs-sm);color:var(--muted);overflow:hidden}
-.status-msg{flex:1;min-width:0;display:flex;align-items:center;gap:8px;animation:status-fade 4s linear both}
-.status-msg.has-action{animation-duration:8s}
+:not(.panel-col)>.status-line:empty{display:none}
+.status-msg{flex:1;min-width:0;display:flex;align-items:center;gap:8px;animation:status-in .15s ease-out}
 .status-msg.is-warn{color:var(--warn)}
 .status-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-act{flex:none;border:0;background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;padding:0}
-@keyframes status-fade{0%{opacity:0}5%{opacity:1}85%{opacity:1}100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.status-msg{animation:none}}
+@keyframes status-in{from{opacity:0}to{opacity:1}}
 .search-field{display:inline-flex;align-items:center;gap:6px;height:32px;width:180px;padding:0 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--muted);transition:width .15s}
 .search-field:focus-within{border-color:var(--line-strong);color:var(--text)}
 .search-field input{flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);outline:none;box-shadow:none;padding:0}
