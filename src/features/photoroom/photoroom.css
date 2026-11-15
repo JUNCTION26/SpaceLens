@@ -22,3 +22,6 @@
 .proom-strip { gap: 8px; }
 .proom-scale { gap: 8px; }
 .proom .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.proom-pick { display: flex; gap: 8px; }
+.proom-pick .proom-big { flex: 1 1 auto; width: auto; min-width: 0; }
+.proom-cam { flex: 0 0 44px; min-height: 44px; width: 44px; padding: 0; justify-content: center; }

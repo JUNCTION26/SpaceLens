@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { apiBase } from '../../core/ai/transport';
 import { useStore } from '../../core/store';
 import type { SpaceModel } from '../../core/types';
@@ -45,6 +45,8 @@ export function PhotoRoom() {
     } finally { setBusy(false); }
   };
 
+  const onFiles = (e: ChangeEvent<HTMLInputElement>) => { const f = Array.from(e.target.files ?? []); if (f.length) void run(f); e.target.value = ''; };
+
   const live = result && model.id === result.modelId ? model : null;
   const space = live?.spaces[0];
   const len = (m: SpaceModel, w: WallName) => {
@@ -61,10 +63,16 @@ export function PhotoRoom() {
 
   return (
     <div className="proom">
-      <label className={`btn ${result ? '' : 'btn-primary '}proom-big proom-upload`} aria-busy={busy}>
-        {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name={result ? 'plus' : 'image'} size={16} />{result ? <span className="sr-only">Photos or video</span> : ' Photos or video'}</>}
-        <input type="file" accept="image/*,video/*" multiple disabled={busy} aria-label="Room photos or video" onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) void run(f); e.target.value = ''; }} />
-      </label>
+      <div className="proom-pick">
+        <label className={`btn ${result ? '' : 'btn-primary '}proom-big proom-upload`} aria-busy={busy}>
+          {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name={result ? 'plus' : 'image'} size={16} />{result ? <span className="sr-only">Photos or video</span> : ' Photos or video'}</>}
+          <input type="file" accept="image/*,video/*" multiple disabled={busy} aria-label="Room photos or video" onChange={onFiles} />
+        </label>
+        <label className="btn proom-cam proom-upload" title="Camera" aria-busy={busy}>
+          <Icon name="camera" size={16} />
+          <input type="file" accept="image/*" capture="environment" disabled={busy} aria-label="Take a photo with the camera" onChange={onFiles} />
+        </label>
+      </div>
 
       {failed && <span className="chip chip-warn proom-fail"><Icon name="alert" size={12} /> No room found</span>}
 
