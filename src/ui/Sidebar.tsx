@@ -1,12 +1,13 @@
 import { Icon } from './icons';
 import { GROUPS, NAV, useUi, type NavItem } from './uiStore';
 import { useStore } from '../core/store';
+import { apiBase } from '../core/ai/transport';
 
 /** One slim rail: five destinations, each opening its last-used section. */
 export function Sidebar({ active }: { active: NavItem }) {
   const openGroup = useUi((s) => s.openGroup);
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
-  const online = useStore((s) => Boolean(s.settings.geminiKey));
+  const online = useStore((s) => Boolean(s.settings.geminiKey)) || Boolean(apiBase());
   return (
     <nav className="sidebar" aria-label="Sections">
       <div className="sidebar-scroll">

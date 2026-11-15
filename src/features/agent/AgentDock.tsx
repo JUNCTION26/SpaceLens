@@ -11,6 +11,7 @@ import { preloadMods } from './mods';
 import { SketchOverlay } from './SketchLayer';
 import { useSketch } from './sketchStore';
 import { currentSpeech, Ear, isEcho, isSpeaking, onSpeech, recognitionSupported, setMuted, stopSpeaking } from './speech';
+import { apiBase } from '../../core/ai/transport';
 import './agent.css';
 
 const GLYPH: Record<string, string> = {
@@ -97,7 +98,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const s = useAgent();
   const geminiKey = useStore((x) => x.settings.geminiKey);
   // The Gemini voice is optional and measured: it only replaces the browser voice when it starts fast.
-  useEffect(() => { if (geminiKey && neuralVoiceWanted()) void applyVoicePreference(true); }, [geminiKey]);
+  useEffect(() => { if ((geminiKey || apiBase()) && neuralVoiceWanted()) void applyVoicePreference(true); }, [geminiKey]);
   const drawing = useSketch((x) => x.drawing);
   const hasMarks = useSketch((x) => x.marks.length > 0);
   const [text, setText] = useState('');

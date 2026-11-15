@@ -11,6 +11,7 @@ import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } fro
 import { Icon } from '../../ui/icons';
 import { showLayouts } from '../layout/progress';
 import { takePendingBrief } from '../demo/starts';
+import { apiBase } from '../../core/ai/transport';
 import './intent.css';
 
 const EXAMPLES = [
@@ -70,7 +71,7 @@ export function IntentPanel() {
       console.error(e);
       notify('Brief not read', { tone: 'warn', actions: [
         { label: 'Try again', primary: true, run: () => void compileRef.current(q) },
-        ...(useStore.getState().settings.geminiKey ? [] : [{ label: 'Add a Gemini key', run: () => useUi.getState().setSettingsOpen(true) }]),
+        ...(useStore.getState().settings.geminiKey || apiBase() ? [] : [{ label: 'Add a Gemini key', run: () => useUi.getState().setSettingsOpen(true) }]),
       ] });
     }
     finally { setCompiling(false); }
