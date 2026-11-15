@@ -4,6 +4,7 @@ import { useStore } from '../../core/store';
 import type { SpaceModel } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { useUi } from '../../ui/uiStore';
+import { SizeRow } from '../capture/SizeRow';
 import { gatherImages } from './frames';
 import { forgeUnknowns, MAX_PHOTOS, photoToRoom } from './pipeline';
 import { mostVisibleWall, rescaleRoom, WALL_INDEX, WALL_LABEL, type PhotoRoomEstimate, type WallName } from './room';
@@ -81,10 +82,7 @@ export function PhotoRoom() {
           <div className="proom-strip">
             {result.photos.map((p, i) => <img key={i} src={p} alt="" />)}
           </div>
-          <div className="proom-chips">
-            <span className="chip" title="Size">{len(live, 'back').toFixed(1)} x {len(live, 'left').toFixed(1)} m</span>
-            <span className="chip" title="Ceiling">{live.ceilingM.toFixed(1)} m <Icon name="maximize" size={12} /></span>
-          </div>
+          <SizeRow />
 
           <form className="proom-scale" onSubmit={(e) => { e.preventDefault(); rescale(); }}>
             <select value={wall} onChange={(e) => setWall(e.target.value as WallName)} aria-label="Wall">
