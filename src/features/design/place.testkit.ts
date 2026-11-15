@@ -49,6 +49,21 @@ export function facingErr(seat: FurnitureItem, target: FurnitureItem): number {
   return Math.acos(Math.max(-1, Math.min(1, (fx * dx + fy * dy) / l)));
 }
 
+/** Angle (radians) between the way `seat` faces and the direction to the nearest point of `target`'s footprint. */
+export function facingErrRect(seat: FurnitureItem, target: FurnitureItem): number {
+  const T = corners(target), p = { x: seat.x, y: seat.y };
+  let best = T[0], bd = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const a = T[i], b = T[(i + 1) % 4], ab = { x: b.x - a.x, y: b.y - a.y }, l2 = ab.x * ab.x + ab.y * ab.y;
+    const u = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / l2)) : 0;
+    const q = { x: a.x + ab.x * u, y: a.y + ab.y * u }, d = Math.hypot(q.x - p.x, q.y - p.y);
+    if (d < bd) { bd = d; best = q; }
+  }
+  const fx = -Math.sin(seat.rotation), fy = Math.cos(seat.rotation);
+  const dx = best.x - p.x, dy = best.y - p.y, l = Math.hypot(dx, dy) || 1;
+  return Math.acos(Math.max(-1, Math.min(1, (fx * dx + fy * dy) / l)));
+}
+
 /** Clear gap between `host`'s front edge and `other`'s nearest edge, along the host's depth axis. */
 export function frontGap(host: FurnitureItem, other: FurnitureItem): number {
   const ly = localY(host, other);

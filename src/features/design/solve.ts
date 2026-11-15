@@ -311,6 +311,13 @@ function membersOf(ctx: Ctx, root: string): string[] {
   return out;
 }
 
+/**
+ * A chair with no desk or table to join sits with its back to a wall (a reading corner), never loose in
+ * the floor. Armchairs keep free poses: rows of waiting chairs and conversation groups stand off the walls.
+ */
+const loneSeat = (f: FurnitureItem) => isSeatCategory(f.category);
+const kindOf = (f: FurnitureItem): Group['kind'] => (semanticsOf(f).wallBacked || loneSeat(f) ? 'wall' : 'free');
+
 function buildGroups(ctx: Ctx, items: FurnitureItem[], fixed: Set<string>): Group[] {
   const roots = items.filter((f) => !ctx.parent.has(f.id));
   const groups: Group[] = [];
@@ -324,8 +331,7 @@ function buildGroups(ctx: Ctx, items: FurnitureItem[], fixed: Set<string>): Grou
     const bk = benchKey(f);
     if (bk) { (arrays.get(bk) ?? arrays.set(bk, []).get(bk)!).push(f); continue; }
     if (FLOAT_HOST.test(f.category)) { const k = `${f.catalogId}:${f.w}x${f.d}`; (arrays.get(k) ?? arrays.set(k, []).get(k)!).push(f); continue; }
-    const sem = semanticsOf(f);
-    groups.push({ id: f.id, roots: [f.id], members: membersOf(ctx, f.id), priority: anchorPriority(f), fixed: false, kind: sem.wallBacked ? 'wall' : 'free', optional: OPTIONAL.has(f.category) });
+    groups.push({ id: f.id, roots: [f.id], members: membersOf(ctx, f.id), priority: anchorPriority(f), fixed: false, kind: kindOf(f), optional: OPTIONAL.has(f.category) || isSeatCategory(f.category) });
   }
   for (const [k, list] of arrays) {
     const members = list.flatMap((f) => membersOf(ctx, f.id));
@@ -734,7 +740,7 @@ function slotsFor(ctx: Ctx, g: Group, items: FurnitureItem[]): Spec[] {
   if (g.kind === 'wall') {
     const root = ctx.byId.get(g.roots[0])!;
     const w = [...wallSlots(ctx, g), ...(isSingleBed(root) && narrowFor(ctx, root) ? daybedSlots(ctx, g) : [])];
-    return w.length ? w : freeSlots(ctx, g);
+    return w.length || (g.members.length === 1 && loneSeat(root)) ? w : freeSlots(ctx, g);
   }
   return freeSlots(ctx, g);
 }
@@ -1155,7 +1161,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
         cands.push({ spec, mirror, items: res.items, deferred: res.deferred, q: quickScore(ctx, all, gIds) - 0.3 * split, wallKey: spec.kind === 'wall' ? `w${spec.wall}` : spec.kind, split });
       }
       }
-      if (DBG && g.kind === 'array') console.log('  state', st.placed.map((p) => cls(ctx, p)).join(','), 'specs', specs.length, 'cands', cands.length, [...ctx.rejects].map(([k, n]) => `${k}=${n}`).join(' '));
+      if (DBG) console.log('  state', st.placed.map((p) => cls(ctx, p)).join(','), 'specs', specs.length, 'cands', cands.length, [...ctx.rejects].map(([k, n]) => `${k}=${n}`).join(' '));
       if (!cands.length) continue;
       // Keep the best few per wall so every wall stays in play, then score those in full.
       cands.sort((a, b) => b.q - a.q);
@@ -1185,7 +1191,22 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     if (!next.length) {
       // Split a composite group into its pieces and try again; drop optional pieces; otherwise give up.
       if (g.members.length > g.roots.length && g.kind !== 'array') {
-        for (const id of g.members.slice(1)) { const p = ctx.parent.get(id); if (p) { ctx.parent.delete(id); ctx.flank.delete(id); const sib = ctx.children.get(p.id); if (sib) ctx.children.set(p.id, sib.filter((x) => x !== id)); } }
+        const detach = (id: string) => { const p = ctx.parent.get(id); if (p) { ctx.parent.delete(id); ctx.flank.delete(id); const sib = ctx.children.get(p.id); if (sib) ctx.children.set(p.id, sib.filter((x) => x !== id)); } };
+        // Seats stay with their desk or table: other pieces go their own way first; if only seats are
+        // left, the last seat is given up (with a reason) rather than set loose in the room.
+        const seatOf = (id: string) => ctx.parent.get(id)?.rel.kind === 'paired-seat';
+        const others = g.members.slice(1).filter((id) => !seatOf(id));
+        let freed: string[] = others;
+        if (!others.length) {
+          const last = g.members.filter(seatOf).pop()!;
+          detach(last);
+          for (const st of states) st.dropped = [...st.dropped, last];
+          freed = [];
+          groups = [...groups.slice(0, gi), ...buildGroups(ctx, g.members.filter((id) => id !== last).map((id) => ctx.byId.get(id)!), fixed).filter((x) => x.roots.some((r) => g.roots.includes(r))), ...groups.slice(gi + 1)];
+          gi--;
+          continue;
+        }
+        for (const id of freed) detach(id);
         const rest = groups.slice(gi + 1);
         const split = buildGroups(ctx, g.members.map((id) => ctx.byId.get(id)!), fixed);
         groups = [...groups.slice(0, gi), ...split, ...rest];
@@ -1256,7 +1277,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     for (const id of st.deferred) {
       if (st.items.some((f) => f.id === id)) continue;
       const f = ctx.byId.get(id)!;
-      const g: Group = { id, roots: [id], members: [id], priority: anchorPriority(f), fixed: false, kind: semanticsOf(f).wallBacked ? 'wall' : 'free', optional: OPTIONAL.has(f.category) };
+      const g: Group = { id, roots: [id], members: [id], priority: anchorPriority(f), fixed: false, kind: kindOf(f), optional: OPTIONAL.has(f.category) };
       const saved = ctx.parent.get(id);
       ctx.parent.delete(id);
       let best: { items: FurnitureItem[]; s: number; spec: Spec } | null = null;
@@ -1277,7 +1298,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
   // Which pieces could not be seated in the best state: lets the caller give up exactly those.
   let unplaced: string[] | undefined;
   {
-    const lost = (st: State) => st.dropped.filter((id) => !OPTIONAL.has(ctx.byId.get(id)!.category));
+    const lost = (st: State) => st.dropped.filter((id) => { const c = ctx.byId.get(id)!.category; return !OPTIONAL.has(c) && !(isSeatCategory(c) && !ctx.parent.has(id)); });
     const keep = states.filter((st) => !lost(st).length);
     if (!keep.length && states.length) unplaced = states.map(lost).sort((a, b) => a.length - b.length)[0];
     states = keep;
@@ -1461,6 +1482,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   const wallMs = opts.maxWallMs ?? 20000;
   const fixedIds = new Set(opts.fixedIds ?? []);
   const originals = new Map(items.map((f) => [f.id, f]));
+  const seatProgram = withSeatHosts(programIn, items.map(normaliseItem));
   // Each round tries the full set, then gives up pieces in order. Later rounds also shrink the
   // clear space around every movable piece, for halls too narrow for the usual pull-out room.
   // The space in front of a piece (door swing, drawers, getting out) never drops below half.
@@ -1475,7 +1497,9 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     let hint = scale === 1 ? first.unplaced ?? [] : [];
     const gone: FurnitureItem[] = [];
     const goneIds = new Set<string>();
-    const take = (list: FurnitureItem[]) => { for (const g of list) if (!goneIds.has(g.id) && !g.locked && !fixedIds.has(g.id)) { goneIds.add(g.id); gone.push(g); } };
+    // A desk or table that goes takes its own chairs with it: they would only stand loose otherwise.
+    const seatsOf = (id: string) => seatProgram.relations.filter((r) => r.kind === 'paired-seat' && r.target === id).map((r) => scaled.find((f) => f.id === r.subject)).filter((f): f is FurnitureItem => !!f);
+    const take = (list: FurnitureItem[]) => { for (const g of list) if (!goneIds.has(g.id) && !g.locked && !fixedIds.has(g.id)) { goneIds.add(g.id); gone.push(g); take(seatsOf(g.id)); } };
     const attempt = async (): Promise<SolveResult | null> => {
       if (!gone.length && scale === 1) return null;
       const res = await solveOnce(model, scaled.filter((g) => !goneIds.has(g.id)), without(programIn, goneIds), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
