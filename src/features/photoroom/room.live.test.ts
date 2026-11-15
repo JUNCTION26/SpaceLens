@@ -18,6 +18,16 @@ describe.skipIf(!live)('photo room live', () => {
     const { buildPhotoRoom } = await import('./room');
     const dir = penv.PHOTOROOM_DIR!;
     const files = fs.readdirSync(dir).filter((f: string) => /\.jpe?g$/i.test(f));
+    if (penv.PHOTOROOM_MULTI === '1') {
+      // All photos in the folder are one room: a single multi-photo call.
+      const t0 = Date.now();
+      const photos = files.map((f: string) => `data:image/jpeg;base64,${fs.readFileSync(path.join(dir, f)).toString('base64')}`);
+      const est = await estimateRoom(photos, { prefer: penv.PHOTOROOM_MODEL ? [penv.PHOTOROOM_MODEL] : undefined });
+      const model = buildPhotoRoom(est);
+      fs.writeFileSync(path.join(dir, `multi.${files.length}.json`), JSON.stringify({ ms: Date.now() - t0, aiModel: est.model, est, model }, null, 1));
+      expect(model.spaces[0].polygon).toHaveLength(4);
+      return;
+    }
     await Promise.all(files.map(async (f: string) => {
       const t0 = Date.now();
       const photo = `data:image/jpeg;base64,${fs.readFileSync(path.join(dir, f)).toString('base64')}`;

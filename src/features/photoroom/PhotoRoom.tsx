@@ -6,7 +6,7 @@ import { Icon } from '../../ui/icons';
 import { useUi } from '../../ui/uiStore';
 import { gatherImages } from './frames';
 import { forgeUnknowns, MAX_PHOTOS, photoToRoom } from './pipeline';
-import { rescaleRoom, WALL_INDEX, WALL_LABEL, type PhotoRoomEstimate, type WallName } from './room';
+import { mostVisibleWall, rescaleRoom, WALL_INDEX, WALL_LABEL, type PhotoRoomEstimate, type WallName } from './room';
 import './photoroom.css';
 
 const SIDES: WallName[] = ['back', 'left', 'right'];
@@ -38,6 +38,7 @@ export function PhotoRoom() {
       dispatch({ type: 'REPLACE_MODEL', model: r.model });
       setView('3d');
       setResult({ est: r.estimate, photos: r.photos, modelId: r.model.id });
+      setWall(mostVisibleWall(r.estimate.wallConfidence));
       setCm('');
       void forgeUnknowns(r.model);
     } catch {
@@ -87,7 +88,7 @@ export function PhotoRoom() {
 
           <form className="proom-scale" onSubmit={(e) => { e.preventDefault(); rescale(); }}>
             <select value={wall} onChange={(e) => setWall(e.target.value as WallName)} aria-label="Wall">
-              {SIDES.map((w) => <option key={w} value={w}>{WALL_LABEL[w]}</option>)}
+              {(SIDES.includes(wall) ? SIDES : [...SIDES, wall]).map((w) => <option key={w} value={w}>{WALL_LABEL[w]}</option>)}
             </select>
             <input inputMode="decimal" value={cm} onChange={(e) => setCm(e.target.value)} placeholder={String(Math.round(len(live, wall) * 100))} aria-label="Real length in cm" />
             <span className="muted">cm</span>

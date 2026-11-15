@@ -7,6 +7,9 @@ import { loadServerModels, routeFor, runRouted, TIMING } from '../../core/ai/rou
 
 export const STRONG_VISION = ['gemini-4-hydrogen', 'gemini-3.8-flash'];
 
+/** A stronger model gets 25 s to start answering before the next one takes over. */
+const VISION_TIMING = { ...TIMING.vision, hedgeMs: 12_000, firstTokenTimeoutMs: 25_000 };
+
 /** Runs one call, stronger models first, falling through to the usual route. Throws an Error with a safe message. */
 export async function strongCall<T>(req: ModelRequest, opts: { task?: 'vision' | 'smart' | 'fast'; prefer?: string[]; signal?: AbortSignal; parse?: boolean } = {}): Promise<{ data: T; model: string }> {
   const t = currentTransport();
@@ -18,7 +21,7 @@ export async function strongCall<T>(req: ModelRequest, opts: { task?: 'vision' |
     const order = [...new Set([...(opts.prefer ?? STRONG_VISION).filter((m) => base.includes(m)), ...base])];
     let data: T | undefined;
     const parse = opts.parse ?? Boolean(req.schema || req.json);
-    const out = await runRouted(t, order, req, TIMING[task], opts.signal, {
+    const out = await runRouted(t, order, req, task === 'vision' ? VISION_TIMING : TIMING[task], opts.signal, {
       accept: (o) => {
         if (!parse) { data = o.text as T; return; }
         const text = o.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
