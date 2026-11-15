@@ -46,4 +46,4 @@ A private setup link may carry a Gemini key after `#key=`; the app saves it in t
 
 - Remove only the key: open Settings, clear the key field.
 - Remove everything: use your browser's site data setting for this site (in most browsers: the padlock or site icon, then Cookies and site data, then Clear). That deletes the model, settings, library and caches in one step.
-- Start over inside the app: Settings, Reset to sample room replaces the model with the sample.
+- Start over inside the app: Settings, My room replaces the model with the small starter room.
