@@ -53,15 +53,8 @@
 
 /* Panels, sheets, popovers, toasts, dialogs */
 .side-body > * { animation: mo-rise var(--dur-2) var(--ease-out) both; }
-.inspector-sheet { animation: mo-slide-x var(--dur-2) var(--ease-out) both; }
-.checks-pop { animation: mo-pop var(--dur-2) var(--ease-out) both; }
-.toast { animation: mo-rise var(--dur-2) var(--ease-out) both; }
-.toast.leaving, .toast.is-leaving, .toast[data-leaving], .toast[data-state='closed'] { animation: mo-fade-out var(--dur-2) var(--ease-standard) forwards; }
 .demo-caption { animation: mo-rise var(--dur-2) var(--ease-out) both; }
-.dialog-backdrop, .modal-back { animation: mo-backdrop var(--dur-3) var(--ease-standard) both; }
-.dialog, .modal { animation: mo-scale-in var(--dur-2) var(--ease-out) both; }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .dialog-backdrop, .modal-back { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   .mobile-more { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 }
 
@@ -73,7 +66,7 @@ button, .chip, .card, .seg button, .nav-item, .rail-item, summary, input, select
 .nav-item, .rail-item, .seg button { transition-duration: var(--dur-2); transition-timing-function: var(--ease-out); }
 .nav-item svg, .rail-item svg { transition: color var(--dur-2) var(--ease-standard), transform var(--dur-2) var(--ease-spring); }
 .nav-item.on svg, .rail-item.on svg { transform: scale(1.06); }
-.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .rail-item:active, .nav-item:active, .seg button:active, button.chip:active, .toast-act:active { transform: scale(var(--mo-press)); transition-duration: 60ms; }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .rail-item:active, .nav-item:active, .seg button:active, button.chip:active { transform: scale(var(--mo-press)); transition-duration: 60ms; }
 @media (hover: hover) {
   .btn:hover:not(:disabled):not(.btn-ghost), .card.clickable:hover, button.card:hover { transform: translateY(var(--mo-lift)); box-shadow: var(--elev-1); }
   .btn:active:not(:disabled) { transform: scale(var(--mo-press)); box-shadow: none; }
@@ -105,15 +98,15 @@ details > summary { transition: color var(--dur-1) var(--ease-standard); }
 .spinner { display: inline-block; flex: none; border-style: solid; border-color: currentColor; border-right-color: transparent; border-radius: 50%; }
 
 /* Depth: glass for floating surfaces with a solid fallback */
-.float, .checks-pop, .toast, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg { background: var(--panel); border-color: var(--hairline); }
+.float, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg { background: var(--panel); border-color: var(--hairline); }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .float, .checks-pop, .toast, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg {
+  .float, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg {
     background: color-mix(in srgb, var(--panel) 76%, transparent);
     -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
   }
 }
-.float, .checks-pop, .toast, .demo-caption { box-shadow: var(--elev-2); }
-.dialog, .modal, .inspector-sheet, .crash-card { border-color: var(--hairline); box-shadow: var(--elev-3); }
+.float, .demo-caption { box-shadow: var(--elev-2); }
+.crash-card { border-color: var(--hairline); box-shadow: var(--elev-3); }
 .sheet-head, .panel, .list, .list > *, .shortcuts dl > div { border-color: var(--hairline); }
 .card, .stat, .chip { border-color: var(--hairline); }
 
@@ -129,12 +122,11 @@ body { line-height: var(--lh); font-optical-sizing: auto; font-kerning: normal; 
 h1, h2, h3, h4 { line-height: var(--lh-tight); text-wrap: balance; font-optical-sizing: auto; }
 h1, .panel-col-head h1 { letter-spacing: -0.022em; }
 h2 { letter-spacing: -0.018em; }
-:where(label, .field > span, .chip, .nav-label, .rail-item, .section-label, .toast-text, .empty p, p) { text-wrap: pretty; }
+:where(label, .field > span, .chip, .nav-label, .rail-item, .section-label, .empty p, p) { text-wrap: pretty; }
 :where(button, input, select, summary) { line-height: var(--lh-tight); }
 
 /* Focus: always visible for keyboard users, never removed */
 :where(button, a, input, select, textarea, summary, [tabindex], [role='button'], [role='tab'], [role='switch']):focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
-.toast-act:focus-visible, .toast-x:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
 
 /* Scrollbars, selection, overflow */
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 40%, transparent) transparent; }
@@ -142,8 +134,7 @@ h2 { letter-spacing: -0.018em; }
 ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 55%, transparent); background-clip: padding-box; }
 ::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); color: inherit; }
 html { overflow-x: clip; max-width: 100%; }
-.toasts, .dialog, .modal, .checks-pop { max-width: min(100%, calc(100vw - 16px)); }
-@media (max-width: 360px) { .btn, .chip, .toast-text { white-space: normal; } .row { min-width: 0; } }
+@media (max-width: 360px) { .btn, .chip { white-space: normal; } .row { min-width: 0; } }
 
 /* Touch keeps the 44 px targets from mobile.css and drops hover lift */
 @media (pointer: coarse) {
