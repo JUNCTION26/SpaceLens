@@ -149,8 +149,8 @@ button.card:hover, .card.clickable:hover { border-color: var(--line-strong); bac
 .divider { height: 1px; background: var(--line); margin: var(--s2) 0; border: 0; }
 .scroll { overflow: auto; min-height: 0; }
 .num, .mono { font-variant-numeric: tabular-nums; }
-.seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--line); }
-.seg button { border: 0; background: transparent; color: var(--muted); padding: 0 10px; min-height: 26px; border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: var(--fw-strong); white-space: nowrap; }
+.seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius-sm); background: var(--panel-2); border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 0 var(--s3); min-height: calc(var(--ctl) - 4px); border-radius: var(--radius-sm); font-size: var(--fs-sm); font-weight: var(--fw-strong); white-space: nowrap; }
 .seg button:hover:not(.on) { color: var(--text); }
 .seg button.on { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong), 0 1px 2px rgba(0, 0, 0, .12); }
 details > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); font-weight: var(--fw-strong); }
@@ -284,7 +284,7 @@ button.brand:hover { background: var(--hover); }
 
 /* Slim rail: five destinations, icon over a one-word label */
 .sidebar-scroll { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s1); }
-.rail-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 56px; border: 0; border-radius: var(--radius); background: transparent; color: var(--muted); font-size: 12px; font-weight: var(--fw-strong); }
+.rail-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 56px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: var(--fs-sm); font-weight: var(--fw-strong); }
 .rail-item svg { width: 20px; height: 20px; }
 .rail-item:hover { color: var(--text); background: var(--hover); }
 .rail-item.on { color: var(--text); background: var(--press); }
@@ -295,9 +295,9 @@ button.brand:hover { background: var(--hover); }
 .rail-settings i.ok { background: var(--ok); }
 /* Panel header: group title and its sections */
 .panel-col-head { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s5) var(--s5) var(--s3); }
-.panel-col-head h1 { font-size: 20px; letter-spacing: -0.02em; }
+.panel-col-head h1 { font-size: var(--fs-lg); letter-spacing: -0.02em; }
 .section-seg { align-self: stretch; }
-.section-seg button { flex: 1; min-height: 28px; }
+.section-seg button { flex: 1; min-height: calc(var(--ctl) - 4px); }
 /* The one floating toolbar on the canvas */
 .topbar .project-name { font-weight: var(--fw-strong); color: var(--text); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

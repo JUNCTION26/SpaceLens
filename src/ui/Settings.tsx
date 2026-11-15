@@ -97,7 +97,6 @@ function ServerDot() {
 
 const fmtMs = (ms: number | null) => (ms === null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-const cell = { padding: '3px 8px 3px 0', textAlign: 'left' as const, fontVariantNumeric: 'tabular-nums' as const };
 
 function routeSummary(tasks: AiTask[]) {
   const picks = tasks.map((t) => (aiRoute(t)[0] ? shortModel(aiRoute(t)[0]) : '–'));
@@ -145,7 +144,7 @@ function KeyField() {
     try { const t = (await navigator.clipboard.readText()).trim(); if (t) setSettings({ geminiKey: t }); } catch { /* clipboard blocked: paste by hand */ }
   };
   const say: Record<KeyState, string> = {
-    idle: serverOn() ? 'Optional' : 'This browser only',
+    idle: '',
     checking: 'Checking',
     ok: summary || 'Works',
     quota: 'Limit reached',
@@ -154,9 +153,9 @@ function KeyField() {
   };
   return (
     <div className="field">
-      <span>Personal key{serverOn() ? ' (optional)' : ''}</span>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input style={{ flex: 1 }} type="password" autoComplete="off" aria-label="Gemini API key" value={key} onChange={(e) => setSettings({ geminiKey: e.target.value.trim() })} placeholder="Paste key" />
+      <span>Key</span>
+      <div className="settings-inline">
+        <input type="password" autoComplete="off" aria-label="Gemini API key" value={key} onChange={(e) => setSettings({ geminiKey: e.target.value.trim() })} placeholder="Paste key" />
         <button className="btn btn-sm" onClick={paste}>Paste</button>
       </div>
       <small className={state === 'invalid' || (state === 'offline' && !serverOn()) ? '' : 'muted'} role="status">{say[state]}</small>
@@ -173,10 +172,10 @@ function ModelChoice() {
     <details className="field">
       <summary>Models</summary>
       {TASKS.map((t) => (
-        <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-          <span style={{ flex: '0 0 120px' }}>{TASK_LABEL[t]}</span>
-          <select style={{ flex: 1 }} value={over[t] ?? ''} onChange={(e) => change(t, e.target.value)}>
-            <option value="">Automatic (fastest)</option>
+        <label key={t} className="settings-task">
+          <span>{TASK_LABEL[t]}</span>
+          <select value={over[t] ?? ''} onChange={(e) => change(t, e.target.value)}>
+            <option value="">Auto</option>
             {candidatesFor(t).map((m) => <option key={m} value={m}>{shortModel(m)}</option>)}
           </select>
         </label>
@@ -192,9 +191,9 @@ function SessionMeter() {
     <div className="field">
       <span>Usage</span>
       <div className="stats3">
-        <div className="stat"><b>{usage.calls}</b><span>calls</span></div>
-        <div className="stat"><b>{(usage.inputTokens + usage.outputTokens).toLocaleString()}</b><span>tokens</span></div>
-        <div className="stat"><b>{usage.calls === 0 ? '–' : cost === null ? 'tokens only' : `$${cost < 0.01 ? '<0.01' : cost.toFixed(2)}`}</b><span>est. cost</span></div>
+        <div className="stat"><b>{usage.calls}</b><span>Calls</span></div>
+        <div className="stat"><b>{(usage.inputTokens + usage.outputTokens).toLocaleString()}</b><span>Tokens</span></div>
+        <div className="stat"><b>{usage.calls === 0 ? '–' : cost === null ? '–' : `$${cost < 0.01 ? '<0.01' : cost.toFixed(2)}`}</b><span>Cost</span></div>
       </div>
       {rows.length > 0 && (
         <small className="muted">{rows.map((r) => `${TASK_LABEL[r.task]}: ${secs(r.avgMs)} avg (${r.calls})`).join(' · ')}</small>
@@ -214,24 +213,24 @@ function AiSpeed({ hasKey }: { hasKey: boolean }) {
   return (
     <div className="field">
       <span>Speed</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button className="btn btn-sm" onClick={test} disabled={!hasKey || running}>{running ? 'Testing…' : 'Test speed'}</button>
+      <div className="settings-inline">
+        <button className="btn btn-sm" onClick={test} disabled={!hasKey || running}>{running ? 'Testing' : 'Test'}</button>
         {rows.length > 0 && !running && (
           <small className="muted">{routeSummary(tasks)}</small>
         )}
       </div>
       {rows.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--fs-sm)' }}>
+        <table className="settings-table">
           <thead className="muted">
-            <tr><th style={cell}>Model</th><th style={cell}>First token</th><th style={cell}>Total</th><th style={cell}>Status</th></tr>
+            <tr><th>Model</th><th>First</th><th>Total</th><th>Status</th></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.model}>
-                <td style={cell}>{shortModel(r.model)}</td>
-                <td style={cell}>{fmtMs(r.firstTokenMs)}</td>
-                <td style={cell}>{fmtMs(r.totalMs)}</td>
-                <td style={{ ...cell, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className={r.ok ? '' : 'muted'} title={r.error}>{r.ok ? 'OK' : r.error ?? 'failed'}</td>
+                <td>{shortModel(r.model)}</td>
+                <td>{fmtMs(r.firstTokenMs)}</td>
+                <td>{fmtMs(r.totalMs)}</td>
+                <td className={r.ok ? 'cut' : 'cut muted'} title={r.error}>{r.ok ? 'OK' : r.error ?? 'failed'}</td>
               </tr>
             ))}
           </tbody>
