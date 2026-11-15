@@ -39,7 +39,7 @@ flowchart TB
   Browser -.->|model calls without a browser key| S[API server]
 ```
 
-The built site is static files. The API server (`server/`, Node built-ins only) exposes `GET /healthz`, `GET /v1/models`, `POST /v1/generate` and `POST /v1/generate/stream`. It validates the request against a strict schema, checks origin and rate limits, adds its own key and forwards to Gemini. It stores no design data. The app does not call it yet; it calls Gemini directly with the visitor's own key.
+The built site is static files. The API server (`server/`, Node built-ins only) exposes `GET /healthz`, `GET /v1/models`, `POST /v1/generate` and `POST /v1/generate/stream`. It validates the request against a strict schema, checks origin and rate limits, adds its own key and forwards to Gemini. It stores no design data. It also keeps layout polls in memory (`POST /v1/votes`, `GET /v1/votes/:id`, `POST /v1/votes/:id/vote`): 2 to 4 layouts, one vote per browser token, at most 300 polls for 48 hours, validated field by field, thumbnails limited to plain SVG. Polls are lost when the process restarts. The app calls Gemini directly when the visitor has set a key, and uses the server for model calls and polls when `VITE_API_BASE` is configured.
 
 ## Layers
 
@@ -92,10 +92,10 @@ flowchart TB
 | Geometry | `src/core/geometry.ts` | Vector and polygon maths used by the app |
 | Store | `src/core/store.ts` | Model, undo and redo stacks, settings, toasts |
 | Model access | `src/core/ai/*` | Streaming client, model list, router, error categories |
-| Inputs | `capture`, `drawings`, `building`, `forge`, `stores`, `vision`, `voice`, `agent` | Ways of writing into the model |
-| Judges | `referee`, `design/rules.ts`, `safety`, `sim`, `problems` | Verdicts about a model; none of them edit it |
-| Design | `design`, `layout`, `intent`, `themes`, `budget` | Brief to ranked candidate layouts |
-| Views | `plan2d`, `scene3d`, `xr`, `ar`, `render`, `provenance`, `export` | Read the model and draw or export it |
+| Inputs | `capture`, `photoroom`, `drawings`, `formats` (DXF), `building`, `forge`, `stores`, `vision`, `voice`, `agent` | Ways of writing into the model |
+| Judges | `referee`, `design/rules.ts`, `safety`, `jurisdiction`, `sim`, `movein`, `problems` | Verdicts about a model; none of them edit it |
+| Design | `design`, `layout`, `intent`, `themes`, `budget`, `taste` | Brief to ranked candidate layouts |
+| Views | `plan2d`, `scene3d`, `xr`, `render`, `provenance`, `export`, `formats` (IFC4), `ar`, `shoplist`, `vote` | Read the model and draw, export or share it |
 | Shell | `src/ui/*`, `src/App.tsx` | Navigation, theme, settings, toasts, shared icons |
 
 The rule: `core` depends on nothing in `features` or `ui`, and the referee's decision code depends only on core types and its own geometry file. `scripts/check-boundaries.mjs` enforces exactly that (`npm run check:boundaries`, run in CI).
@@ -134,6 +134,38 @@ erDiagram
 ## Plan to building
 
 Vector PDF plans are converted into a multi-room spatial model without a model call. Room outlines drawn in the PDF become spaces, wall thickness is read from the drawing, door symbols and window openings are attached to the walls they touch, and printed room areas are compared with the computed ones. Each wall carries evidence (page and region), so the page can be highlighted from the model. The benchmark runner is `scripts/stoa-build.mjs` and its results are `public/samples/stoa/build-results.json`. Door and window detection is the weak part, and rooms built from walls alone are less accurate than rooms with a drawn outline.
+
+## Photo to room
+
+`src/features/photoroom`: `pipeline.ts` shrinks the photo and asks a Gemini vision model for a structured estimate (room type, width, depth, ceiling, confidence, cues, openings, furniture with size and floor position). `strong.ts` tries the stronger vision models first and then falls through to the shared router. `room.ts` validates the estimate and builds a `SpaceModel`: a rectangle with the camera at the front wall, openings on named walls, and each piece mapped to a catalogue item (`KIND_TO_CATALOG`) or to a custom object. All of it is photo-inferred and estimated; `rescaleRoom` takes one typed wall length, marks that wall user-measured and scales the room. Unknown pieces are then generated through the forge pipeline at their estimated size.
+
+## DXF import and IFC4 export
+
+`formats/dxfRead.ts` parses ASCII DXF into flattened lines, polylines (with bulges), arcs, circles, block inserts and text, converts to metres from the header units (or guesses from the extent and says so in its report), then reuses the PDF plan-to-building code to make rooms, doors and windows. The file is untrusted input, with an entity cap. `formats/ifcWrite.ts` writes IFC4 text: project, site, building and storey, one `IfcSpace` per room, walls as extruded solids, doors, windows and furnishing elements, with GlobalIds derived deterministically from element ids. Walls have no opening voids.
+
+## AR export
+
+`ar/usdz.ts` builds a three.js scene from the same builder as the GLB export (generated objects as their own parts) and writes it with three's USDZ exporter at true scale. On iOS it is opened in AR Quick Look; elsewhere the file is downloaded. It has unit tests but has not been tried on a device.
+
+## Move-in planning
+
+`movein/plan.ts` finds the route from the entrance to each piece's room through `building/connectivity`, tests the piece through every door on it with `sim/passage`, and gives a verdict per piece: fits, tilt (the two smallest sides pass the door's width and height), assemble inside (flat-pack halves each side) or won't fit. Items are ordered deepest room first, then by size.
+
+## Taste learning
+
+`taste/signals.ts` watches store changes and logs signals (apply, skip, move, add, remove, colour, material, budget, custom) to browser storage, capped at 400. `profile.ts` folds them into traits with a value and a confidence, with a 21-day half-life. `apply.ts` turns a confident profile into multipliers on the layout solver weights and named design rules and into short planner hints. Traits below 0.25 confidence are ignored, the whole feature can be switched off, and the log can be cleared.
+
+## Country rule packs
+
+`jurisdiction/rulepacks.ts` holds the Finland and Sweden packs. Each rule has a value, unit, scope, source (document, section, URL, date read) and a confidence label (requirement, guidance or rule of thumb), and many map onto a key in the safety defaults, so selecting a pack sets those thresholds. The sources are listed in [RULE-SOURCES.md](RULE-SOURCES.md). The packs are planning guidance, not a compliance check.
+
+## Shopping list
+
+`shoplist/buildShoppingList.ts` groups the model's furniture into lines (name, size in cm, quantity, unit price, link) with totals per currency and a count of unpriced lines; the panel downloads it as CSV with escaping.
+
+## Share and vote
+
+`vote/api.ts` turns candidate layouts into plan data (room outline and item rectangles) and talks to the server's poll routes; a per-browser voter token is kept in local storage and the poll link is `?poll=<id>`. `vote/VoteUi.tsx` has the Share button in Layouts (hidden when no server is configured) and the full-screen vote page. `server/votes.mjs` is the in-memory store.
 
 ## Whole buildings
 
@@ -214,7 +246,7 @@ Every candidate the design solver returns has passed `validateLayout`, and the s
 
 ## Deterministic solving
 
-`design/solve.ts` takes a `seed` and never reads the clock to decide when to stop; the `timeBudgetMs` option scales a fixed amount of search work (see [ADR 7](adr/0007-deterministic-seeded-solver.md)). The same seed and inputs give the same layouts on any machine, which is what lets the scenario tests assert on outcomes.
+`design/solve.ts` takes a `seed` and does not use the clock to decide when the search is done; the `timeBudgetMs` option scales a fixed amount of search work (see [ADR 7](adr/0007-deterministic-seeded-solver.md)). The same seed and inputs give the same layouts on any machine, which is what lets the scenario tests assert on outcomes. The one exception is a safety net: `maxWallMs` (20 s by default) is a hard wall-clock ceiling past which the search stops expanding and returns the best layout found, so a slow machine or a huge room cannot hang the panel.
 
 ## AI routing
 
@@ -251,7 +283,7 @@ All edits are `Op` values (a union in `core/types.ts`) applied by the pure reduc
 
 ## Testing strategy
 
-- Vitest in a Node environment, hermetic: no network, no API key. At the time of writing there are 43 test files with about 309 test cases (counted from `it(` and `test(` calls, so parameterised cases count once).
+- Vitest in a Node environment, hermetic: no network, no API key. At the time of writing there are 56 test files with 405 test cases, 11 of them opt-in and skipped by default (Vitest's own count). The server has its own tests, run with `npm run test:server`.
 - Pure logic is tested directly: geometry, operations and store, solver and design scenarios (room scenarios in `design/scenarios.ts`), rules, referee, critic parsing, kits and object validation, shop parsing, safety, speech sentence splitting, sharing and export, model routing and error categories.
 - The Stoa benchmarks (`drawings/stoa.eval.test.ts`, `drawings/stoa.build.eval.test.ts`) run the real extraction code with no model calls; live-model scripts (`scripts/forge-live.mjs`, `scripts/*-live.test.ts`) are opt-in through environment flags.
 - Browser checks use headless scripts in `scripts/e2e` (screenshots, DOM queries, performance) and are run by hand, not in CI.
