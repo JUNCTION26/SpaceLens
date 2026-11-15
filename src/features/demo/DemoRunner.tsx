@@ -9,7 +9,7 @@ import { runRoutes } from '../sim/routes';
 import { testPassage } from '../sim/passage';
 import { validateLayout } from '../referee/validate';
 
-const PROMPT = 'Home office for two, keep my desk, clear route to the window, under 12 000 kr';
+const PROMPT ='Home office for two, keep my desk, clear route to the window, under 12 000 kr';
 
 type Say = (title: string, text: string) => void;
 interface Ctx { say: Say; wait: (ms: number) => Promise<void> }
@@ -109,8 +109,14 @@ export function DemoRunner() {
   const skipRef = useRef(false);
   const runId = useRef(0);
 
+  // ?demo=<kind> deep link: load the demo building (the 3D view is not mounted for view=2d)
   useEffect(() => {
-    const start = () => { setOn(true); setPaused(false); pausedRef.current = false; void run(++runId.current); };
+    if (typeof location === 'undefined' || !new URLSearchParams(location.search).has('demo')) return;
+    void import('../building/demo').then((m) => m.applyDemoLink());
+  }, []);
+
+  useEffect(() => {
+    const start =() => { setOn(true); setPaused(false); pausedRef.current = false; void run(++runId.current); };
     window.addEventListener('spacelens:demo', start);
     return () => window.removeEventListener('spacelens:demo', start);
     // eslint-disable-next-line react-hooks/exhaustive-deps

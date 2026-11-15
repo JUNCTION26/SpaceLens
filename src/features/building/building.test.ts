@@ -3,6 +3,7 @@ import { area, pointInPolygon } from '../../core/geometry';
 import { makeItem } from '../furniture/catalog';
 import { toSpaceModel } from './assemble';
 import { buildingRoutes, roomGraph } from './connectivity';
+import { demoBuilding, demoKindFromSearch } from './demo';
 import { buildingBill, defaultBrief, furnishBuilding, mergeFurniture, roomPurpose, skipReason, subModelFor } from './furnish';
 import { lShell, planBuilding, rectShell, type BuildingPlan } from './partition';
 import { officeProgramme, programmeFromRules, villaProgramme } from './programme';
@@ -214,3 +215,19 @@ describe('room purposes from printed names', () => {
   });
 });
 
+describe('demo deep links', () => {
+  it('reads the demo kind from the query, with or without other params', () => {
+    expect(demoKindFromSearch('?demo=lshape')).toBe('lshape');
+    expect(demoKindFromSearch('?demo=office&view=2d')).toBe('office');
+    expect(demoKindFromSearch('?view=2d&demo=villa&furnish=1')).toBe('villa');
+    expect(demoKindFromSearch('?demo=nope')).toBeNull();
+    expect(demoKindFromSearch('')).toBeNull();
+  });
+  it('builds a multi-room building, not the single sample room', () => {
+    for (const k of ['lshape', 'office'] as const) {
+      const m = demoBuilding(k);
+      expect(m, k).not.toBeNull();
+      expect(m!.spaces.length, k).toBeGreaterThan(3);
+    }
+  }, 60000);
+});

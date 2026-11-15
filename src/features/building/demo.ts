@@ -42,15 +42,26 @@ export async function loadDemo(kind: DemoKind, furnish = false): Promise<boolean
   return true;
 }
 
-let ran = false;
-/** Apply ?demo=<kind>[&furnish=1] once per page load. */
-export function applyDemoLink(search: string = typeof location !== 'undefined' ? location.search : '') {
-  if (ran) return;
-  ran = true;
-  const q = new URLSearchParams(search);
-  const kind = q.get('demo');
-  if (kind === 'villa' || kind === 'office' || kind === 'lshape') void loadDemo(kind, q.get('furnish') === '1');
+/** The demo kind named by a query string, or null. */
+export function demoKindFromSearch(search: string): DemoKind | null {
+  const kind = new URLSearchParams(search).get('demo');
+  return kind === 'villa' || kind === 'office' || kind === 'lshape' ? kind : null;
 }
+
+let ran = false;
+/**
+ * Apply ?demo=<kind>[&furnish=1] once per page load. Called from an always-mounted component
+ * (the 3D view is not mounted for view=2d, so it cannot own this).
+ */
+export function applyDemoLink(search: string = typeof location !== 'undefined' ? location.search : ''): Promise<boolean> {
+  const kind = demoKindFromSearch(search);
+  if (ran || !kind) return Promise.resolve(false);
+  ran = true;
+  return loadDemo(kind, new URLSearchParams(search).get('furnish') === '1');
+}
+
+/** Test hook: allow applyDemoLink to run again. */
+export function resetDemoLink() { ran = false; }
 
 if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as unknown as { __spacelensBuilding: unknown }).__spacelensBuilding = { demoBuilding, loadDemo, furnishBuilding };
