@@ -7,22 +7,22 @@ import { apiBase } from '../core/ai/transport';
 export function Sidebar({ active }: { active: NavItem }) {
   const openGroup = useUi((s) => s.openGroup);
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
+  const settingsOpen = useUi((s) => s.settingsOpen);
+  const searchOpen = useUi((s) => s.searchOpen);
+  const here = (g: string) => !settingsOpen && !searchOpen && g === active.group;
   const online = useStore((s) => Boolean(s.settings.geminiKey)) || Boolean(apiBase());
   return (
     <nav className="sidebar" aria-label="Sections">
       <div className="sidebar-scroll">
         {GROUPS.map((g) => (
-          <button key={g.key} data-group={g.key} className={`rail-item${g.key === active.group ? ' on' : ''}`}
-            aria-current={g.key === active.group ? 'page' : undefined} onClick={() => openGroup(g.key)}>
+          <button key={g.key} data-group={g.key} className={`rail-item${here(g.key) ? ' on' : ''}`}
+            aria-current={here(g.key) ? 'page' : undefined} onClick={() => openGroup(g.key)}>
             <Icon name={g.icon} size={20} /><span>{g.key}</span>
           </button>
         ))}
       </div>
       <div className="sidebar-foot">
-        <button className="icon-btn" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))} title="Guided demo" aria-label="Guided demo">
-          <Icon name="play" size={16} />
-        </button>
-        <button className="icon-btn rail-settings" onClick={() => setSettingsOpen(true)} title={online ? 'Settings · Gemini' : 'Settings · Offline'} aria-label={`Settings, ${online ? 'Gemini on' : 'offline'}`}>
+        <button className={`icon-btn rail-settings${settingsOpen ? ' on' : ''}`} aria-pressed={settingsOpen} onClick={() => setSettingsOpen(!settingsOpen)} title={online ? 'Settings · Gemini' : 'Settings · Offline'} aria-label={`Settings, ${online ? 'Gemini on' : 'offline'}`}>
           <Icon name="settings" size={16} /><i className={online ? 'ok' : ''} aria-hidden="true" />
         </button>
       </div>

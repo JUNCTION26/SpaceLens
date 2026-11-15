@@ -13,6 +13,7 @@ const ALL_NAV: NavItem[] = [
   { key: 'building', label: 'Floor', icon: 'grid', mode: 'capture', group: 'Space', hint: 'Plan a whole floor' },
   { key: 'describe', label: 'Describe', icon: 'sparkles', mode: 'design', group: 'Design', hint: 'Say what you need' },
   { key: 'layouts', label: 'Layouts', icon: 'layout', mode: 'design', group: 'Design', hint: 'Compare layouts' },
+  { key: 'checks', label: 'Checks', icon: 'check', mode: 'design', group: 'Design', hint: 'Checks' },
   { key: 'inspire', label: 'Style', icon: 'palette', mode: 'design', group: 'Design', hint: 'Style from a photo' },
   { key: 'furniture', label: 'Library', icon: 'sofa', mode: 'design', group: 'Furnish', hint: 'Add furniture' },
   { key: 'create', label: 'Create', icon: 'cube', mode: 'design', group: 'Furnish', hint: 'Make a custom piece' },
@@ -45,6 +46,8 @@ interface UiState {
   tabByMode: Record<string, string>;
   captureKind: CaptureKind | null;
   settingsOpen: boolean;
+  /** The search results replace the panel content while this is on. */
+  searchOpen: boolean;
   inspectorOpen: boolean;
   mobilePane: 'side' | 'inspector';
   navCollapsed: boolean;
@@ -55,6 +58,7 @@ interface UiState {
   openSection: (key: string) => void;
   openCapture: (kind: CaptureKind) => void;
   setSettingsOpen: (on: boolean) => void;
+  setSearchOpen: (on: boolean) => void;
   toggleInspector: () => void;
   setMobilePane: (p: 'side' | 'inspector') => void;
   toggleNav: () => void;
@@ -64,6 +68,7 @@ export const useUi = create<UiState>((set, get) => ({
   tabByMode: {},
   captureKind: null,
   settingsOpen: false,
+  searchOpen: false,
   inspectorOpen: true,
   mobilePane: 'side',
   navCollapsed: readCollapsed(),
@@ -75,14 +80,19 @@ export const useUi = create<UiState>((set, get) => ({
   setTab: (mode, key) => set({ tabByMode: { ...get().tabByMode, [mode]: resolveNav(mode, key).key } }),
   openSection: (key) => {
     const n = NAV.find((x) => x.key === (ALIAS[key] ?? key)) ?? NAV[0];
-    set({ mobilePane: 'side', tabByMode: { ...get().tabByMode, [n.mode]: n.key }, lastByGroup: { ...get().lastByGroup, [n.group]: n.key } });
+    set({ mobilePane: 'side', settingsOpen: false, searchOpen: false, tabByMode: { ...get().tabByMode, [n.mode]: n.key }, lastByGroup: { ...get().lastByGroup, [n.group]: n.key } });
     useStore.getState().setMode(n.mode);
   },
   openCapture: (kind) => {
     set({ captureKind: kind });
     get().openSection(kind === 'import' ? 'drawings' : 'capture');
   },
-  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  setSettingsOpen: (settingsOpen) => {
+    set({ settingsOpen, searchOpen: false });
+    // Settings live in the workspace panel, so opening them from the home screen enters the workspace.
+    if (settingsOpen && useStore.getState().mode === 'home') useStore.getState().setMode('design');
+  },
+  setSearchOpen: (searchOpen) => set({ searchOpen }),
   toggleInspector: () => set({ inspectorOpen: !get().inspectorOpen }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
   toggleNav: () => {
@@ -103,7 +113,7 @@ export function applyDeepLink(search: string = typeof location !== 'undefined' ?
   const theme = q.get('theme');
   if (theme === 'dark' || theme === 'light' || theme === 'system') s.setSettings({ theme });
   if (q.get('coach') === '0') { try { localStorage.setItem('spacelens.coach.done.v1', '1'); } catch { /* blocked */ } }
-  if (q.get('sample') === '1') s.dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() });
+  if (q.get('sample') === '1') s.dispatch({ type: 'REPLACE_MODEL', model: { ...sampleRoom(), name: 'My room' } });
   const view = q.get('view');
   if (view === '2d' || view === 'split' || view === '3d') s.setView(view);
   const nav = q.get('nav');

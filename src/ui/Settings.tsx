@@ -5,77 +5,80 @@ import { usage } from '../core/gemini';
 import { aiProbeResults, aiRoute, aiTaskStats, candidatesFor, estimateCostUsd, getOverrides, probeModels, setOverride, shortModel, TASKS, type AiTask, type ModelStatus } from '../core/ai';
 import { applyVoicePreference, neuralVoiceWanted } from '../features/agent/neuralVoice';
 import { useUi } from './uiStore';
-import { Icon } from './icons';
 import { apiBase } from '../core/ai/transport';
 import './shell.css';
 
+const SHORTCUTS: Array<[string, string]> = [
+  ['Ctrl/Cmd + K', 'Search'],
+  ['1 to 4', 'Sections'],
+  ['Ctrl/Cmd + Z', 'Undo'],
+  ['Ctrl/Cmd + Y', 'Redo'],
+  ['?', 'Settings'],
+  ['Esc', 'Close'],
+];
+
+/** Settings as the left panel content; the gear or any destination leaves it. */
 export function Settings() {
-  const open = useUi((s) => s.settingsOpen);
   const setOpen = useUi((s) => s.setSettingsOpen);
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
   const [, tick] = useState(0);
-  const opener = useRef<HTMLElement | null>(null);
-  const sheet = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) return;
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    sheet.current?.querySelector<HTMLElement>('button, input, select')?.focus();
     const id = setInterval(() => tick((n) => n + 1), 1000);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener('keydown', onKey, true);
-      const o = opener.current;
-      if (o && document.contains(o)) o.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || (e.target as HTMLElement)?.closest?.('input, textarea, select')) return;
+      if (useStore.getState().selection) return;
+      setOpen(false);
     };
-  }, [open, setOpen]);
+    window.addEventListener('keydown', onKey);
+    return () => { clearInterval(id); window.removeEventListener('keydown', onKey); };
+  }, [setOpen]);
 
-  if (!open) return null;
   const reset = () => {
     const s = useStore.getState();
-    s.dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() });
-    s.setMode('design');
-    s.toast('Sample room loaded', 'ok');
-    setOpen(false);
+    s.dispatch({ type: 'REPLACE_MODEL', model: { ...sampleRoom(), name: 'My room' } });
+    s.toast('Room loaded', 'ok');
+    useUi.getState().openSection('layouts');
   };
   return (
-    <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <div className="dialog settings-sheet" ref={sheet} role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <div className="dialog-head">
-          <h2 id="settings-title">Settings</h2>
-          <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close settings">
-            <Icon name="x" size={16} />
-          </button>
-        </div>
-        <section className="settings-group" aria-labelledby="sg-look">
-          <h3 id="sg-look">Look</h3>
-          <div className="field">
-            <span>Theme</span>
-            <div className="seg" role="radiogroup" aria-label="Theme">
-              {(['system', 'dark', 'light'] as const).map((t) => (
-                <button key={t} role="radio" aria-checked={settings.theme === t} className={settings.theme === t ? 'on' : ''} onClick={() => setSettings({ theme: t })}>
-                  {t[0].toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </div>
+    <div className="settings-panel">
+      <header className="panel-col-head"><h1>Settings</h1></header>
+      <section className="settings-group" aria-labelledby="sg-look">
+        <h3 id="sg-look">Look</h3>
+        <div className="field">
+          <span>Theme</span>
+          <div className="seg" role="radiogroup" aria-label="Theme">
+            {(['system', 'dark', 'light'] as const).map((t) => (
+              <button key={t} role="radio" aria-checked={settings.theme === t} className={settings.theme === t ? 'on' : ''} onClick={() => setSettings({ theme: t })}>
+                {t[0].toUpperCase() + t.slice(1)}
+              </button>
+            ))}
           </div>
-        </section>
-        <section className="settings-group" aria-labelledby="sg-assistant">
-          <h3 id="sg-assistant">Assistant <AiDot /></h3>
-          <VoiceField />
-        </section>
-        <details className="settings-group settings-adv">
-          <summary><h3>Advanced</h3><ServerDot /></summary>
-          <KeyField />
-          <AiSpeed hasKey={Boolean(settings.geminiKey)} />
-          <ModelChoice />
-          <SessionMeter />
-          <button className="btn" onClick={reset}>Sample room</button>
-        </details>
-      </div>
+        </div>
+      </section>
+      <section className="settings-group" aria-labelledby="sg-assistant">
+        <h3 id="sg-assistant">Assistant <AiDot /></h3>
+        <VoiceField />
+      </section>
+      <details className="settings-group settings-adv">
+        <summary><h3>Advanced</h3><ServerDot /></summary>
+        <KeyField />
+        <AiSpeed hasKey={Boolean(settings.geminiKey)} />
+        <ModelChoice />
+        <SessionMeter />
+      </details>
+      <details className="settings-group settings-adv">
+        <summary><h3>More</h3></summary>
+        <div className="settings-row">
+          <button className="btn btn-sm" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Demo</button>
+          <button className="btn btn-sm" onClick={reset}>My room</button>
+        </div>
+      </details>
+      <details className="settings-group settings-adv settings-keys">
+        <summary><h3>Shortcuts</h3></summary>
+        <dl>{SHORTCUTS.map(([k, d]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{d}</dd></div>)}</dl>
+      </details>
     </div>
   );
 }
