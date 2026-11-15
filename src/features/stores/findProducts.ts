@@ -61,7 +61,8 @@ export async function verifyCandidate(c: Candidate, win: Pick<FitWindow, 'w' | '
   let page: ReadListing;
   try { page = await read(c.url, signal); } catch { return null; }
   if (page.price === null || !(page.price > 0)) return null;
-  if (!IKEA.test(page.url || c.url)) return null;
+  const same = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+  if (!IKEA.test(page.url || c.url) || !same(page.url || c.url, c.url)) return null;
   // The reader flags links the store sent elsewhere; their numbers belong to another page.
   if (page.note && /general page|redirected this link/i.test(page.note)) return null;
   if (!fitsWindow(page.stated, win)) return null;
