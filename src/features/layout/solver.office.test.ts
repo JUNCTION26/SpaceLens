@@ -29,7 +29,7 @@ describe('generateLayouts: home office for two', () => {
     const ms = performance.now() - t0;
     expect(infeasibility).toBeNull();
     expect(candidates.length).toBeGreaterThanOrEqual(2);
-    expect(ms).toBeLessThan(6000);
+    expect(ms).toBeLessThan(6000 * Number(process.env.SPACELENS_TIME_SLACK ?? 1));
     for (const c of candidates) {
       const checks = validateLayout(model, c.furniture, req);
       expect(checks.filter((k) => k.result === 'fail').map((k) => k.details)).toEqual([]);

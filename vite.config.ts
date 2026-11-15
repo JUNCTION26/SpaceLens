@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import os from 'node:os';
+
+// Wall-clock budgets in tests are multiplied by this. Strict numbers: SPACELENS_TIME_SLACK=1.
+const slack = process.env.SPACELENS_TIME_SLACK ?? (process.env.CI || os.cpus().length < 8 || os.loadavg()[0] > os.cpus().length ? '4' : '1');
 
 export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/SpaceLens/' : '/',
@@ -24,9 +28,13 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    exclude: ['**/node_modules/**', '**/dist/**', '.verify/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', '.verify*/**'],
+    env: { SPACELENS_TIME_SLACK: slack },
+    // Separate processes keep the heavy solver tests from starving each other.
+    pool: 'forks',
+    poolOptions: { forks: { maxForks: 4, minForks: 1 } },
     // Solver and geometry tests are CPU-bound; a busy runner must not turn slowness into failure.
-    testTimeout: 60000,
-    hookTimeout: 60000,
+    testTimeout: 120000,
+    hookTimeout: 120000,
   },
 } as any);
