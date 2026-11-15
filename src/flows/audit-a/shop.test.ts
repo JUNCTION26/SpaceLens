@@ -2,7 +2,7 @@
 // Offline with no key: search must answer with matches or a clean empty result, never a raw error.
 import { describe, expect, it, vi } from 'vitest';
 import { sampleRoom } from '../../core/sample';
-import type { StoreListing } from '../../features/stores/search';
+import type { StoreListing } from '../../core/types';
 import { searchProducts } from '../../features/stores/search';
 import { addToRoom, listingToItem, missingDims, MissingDimensionsError } from '../../features/stores/convert';
 import { compareListings, negotiationNotes } from '../../features/stores/advise';

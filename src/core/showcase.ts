@@ -1,36 +1,240 @@
 import type { FurnitureItem, SpaceModel } from './types';
-import { makeItem } from '../features/furniture/catalog';
 
-/** Light oak, warm white and a sage accent: one palette across every piece. */
-const OAK = '#d2b48a';
-const WARM_WHITE = '#f1ece2';
-const SAGE = '#9aab8d';
-const SAGE_DEEP = '#7d9272';
-
-interface Spec { id: string; cat: string; x: number; y: number; rot: number; color: string; material?: string; name?: string }
-
-// Room is 4.5 m wide (x) by 3.8 m deep (y). Rotation 0 faces +y (south); PI faces north; PI/2 faces west.
-// North wall: window above the desk. East wall: door near the north corner. Long south wall: the sofa.
-const SPECS: Spec[] = [
-  { id: 'f_rug', cat: 'rug-200', x: 2.0, y: 2.35, rot: Math.PI / 2, color: WARM_WHITE, material: 'wool', name: 'Rug' },
-  { id: 'f_sofa', cat: 'sofa-3', x: 2.0, y: 3.8 - 0.46, rot: Math.PI, color: SAGE, material: 'linen', name: 'Sofa' },
-  { id: 'f_coffee', cat: 'coffee-table', x: 2.0, y: 2.05, rot: 0, color: OAK, material: 'light oak', name: 'Coffee table' },
-  { id: 'f_arm', cat: 'armchair-wing', x: 3.65, y: 1.95, rot: 1.0, color: SAGE_DEEP, material: 'velvet', name: 'Armchair' },
-  { id: 'f_lamp', cat: 'floor-lamp', x: 3.3, y: 3.55, rot: 0, color: WARM_WHITE, name: 'Floor lamp' },
-  { id: 'f_shelf', cat: 'bookshelf', x: 0.14, y: 2.75, rot: -Math.PI / 2, color: WARM_WHITE, name: 'Bookshelf' },
-  { id: 'f_desk', cat: 'desk-140', x: 1.4, y: 0.35, rot: 0, color: OAK, material: 'light oak', name: 'Desk' },
-  { id: 'f_chair', cat: 'desk-chair', x: 1.4, y: 1.0, rot: Math.PI, color: WARM_WHITE, name: 'Desk chair' },
-  { id: 'f_plant', cat: 'plant', x: 0.3, y: 0.3, rot: 0, color: '#5f8a55', name: 'Plant' },
-];
+// The pieces are frozen from the catalogue (light oak, warm white and a sage accent), so core stays free of feature code.
+// Room is 4.5 m wide (x) by 3.8 m deep (y). North wall: window above the desk. East wall: door. Long south wall: the sofa.
+const FURNITURE: FurnitureItem[] = [
+  {
+    "id": "f_rug",
+    "catalogId": "rug-200",
+    "name": "Rug",
+    "category": "rug",
+    "x": 2,
+    "y": 2.35,
+    "rotation": 1.5707963267948966,
+    "w": 2,
+    "d": 3,
+    "h": 0.01,
+    "clearance": {
+      "front": 0,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 2490,
+    "priceStatus": "estimated",
+    "color": "#f1ece2",
+    "material": "wool",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_sofa",
+    "catalogId": "sofa-3",
+    "name": "Sofa",
+    "category": "sofa",
+    "x": 2,
+    "y": 3.34,
+    "rotation": 3.141592653589793,
+    "w": 2.1,
+    "d": 0.92,
+    "h": 0.82,
+    "clearance": {
+      "front": 0.45,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 7990,
+    "priceStatus": "estimated",
+    "color": "#9aab8d",
+    "material": "linen",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_coffee",
+    "catalogId": "coffee-table",
+    "name": "Coffee table",
+    "category": "coffee-table",
+    "x": 2,
+    "y": 2.05,
+    "rotation": 0,
+    "w": 1.1,
+    "d": 0.6,
+    "h": 0.45,
+    "clearance": {
+      "front": 0.3,
+      "back": 0.3,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 1290,
+    "priceStatus": "estimated",
+    "color": "#d2b48a",
+    "material": "light oak",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_arm",
+    "catalogId": "armchair-wing",
+    "name": "Armchair",
+    "category": "armchair",
+    "x": 3.65,
+    "y": 1.95,
+    "rotation": 1,
+    "w": 0.82,
+    "d": 0.85,
+    "h": 1.05,
+    "clearance": {
+      "front": 0.4,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 4490,
+    "priceStatus": "estimated",
+    "color": "#7d9272",
+    "material": "velvet",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_lamp",
+    "catalogId": "floor-lamp",
+    "name": "Floor lamp",
+    "category": "lamp",
+    "x": 3.3,
+    "y": 3.55,
+    "rotation": 0,
+    "w": 0.35,
+    "d": 0.35,
+    "h": 1.6,
+    "clearance": {
+      "front": 0,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 690,
+    "priceStatus": "estimated",
+    "color": "#f1ece2",
+    "material": "steel and linen",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_shelf",
+    "catalogId": "bookshelf",
+    "name": "Bookshelf",
+    "category": "bookshelf",
+    "x": 0.14,
+    "y": 2.75,
+    "rotation": -1.5707963267948966,
+    "w": 0.8,
+    "d": 0.28,
+    "h": 2,
+    "clearance": {
+      "front": 0.6,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 1290,
+    "priceStatus": "estimated",
+    "color": "#f1ece2",
+    "material": "white laminate",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_desk",
+    "catalogId": "desk-140",
+    "name": "Desk",
+    "category": "desk",
+    "x": 1.4,
+    "y": 0.35,
+    "rotation": 0,
+    "w": 1.4,
+    "d": 0.7,
+    "h": 0.74,
+    "clearance": {
+      "front": 0.75,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 2490,
+    "priceStatus": "estimated",
+    "color": "#d2b48a",
+    "material": "light oak",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_chair",
+    "catalogId": "desk-chair",
+    "name": "Desk chair",
+    "category": "chair",
+    "x": 1.4,
+    "y": 1,
+    "rotation": 3.141592653589793,
+    "w": 0.5,
+    "d": 0.5,
+    "h": 0.85,
+    "clearance": {
+      "front": 0.75,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 990,
+    "priceStatus": "estimated",
+    "color": "#f1ece2",
+    "material": "plastic",
+    "sourceKind": "manual"
+  },
+  {
+    "id": "f_plant",
+    "catalogId": "plant",
+    "name": "Plant",
+    "category": "plant",
+    "x": 0.3,
+    "y": 0.3,
+    "rotation": 0,
+    "w": 0.45,
+    "d": 0.45,
+    "h": 1.3,
+    "clearance": {
+      "front": 0,
+      "back": 0,
+      "left": 0,
+      "right": 0
+    },
+    "locked": false,
+    "owned": false,
+    "priceSek": 390,
+    "priceStatus": "estimated",
+    "color": "#5f8a55",
+    "material": "ceramic pot",
+    "sourceKind": "manual"
+  }
+] as FurnitureItem[];
 
 /** The room people see first: a furnished living-and-work studio, hand-placed to pass every layout check. */
 export function showcaseRoom(): SpaceModel {
   const now = Date.now();
   const W = 4.5, D = 3.8;
-  const furniture: FurnitureItem[] = SPECS.map((s) => {
-    const it = makeItem(s.cat, { x: s.x, y: s.y, rotation: s.rot });
-    return { ...it, id: s.id, name: s.name ?? it.name, color: s.color, material: s.material ?? it.material, sourceKind: 'manual' };
-  });
+  const furniture: FurnitureItem[] = FURNITURE.map((f) => ({ ...f, clearance: { ...f.clearance } }));
   const wall = (status: 'verified' | 'estimated' = 'estimated') => ({ thicknessM: 0.12, sourceKind: 'manual' as const, status });
   return {
     id: 'home-studio',
