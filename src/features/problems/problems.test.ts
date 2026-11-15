@@ -69,3 +69,25 @@ describe('problems', () => {
     }
   }, 60000);
 });
+
+describe('two rooms', () => {
+  const two = () => {
+    const m = room(rect(4, 4), [opening('d1', 'door', 2, 3.2, 0.8, 'in'), opening('w1', 'window', 0, 2, 1.2)]);
+    const poly = rect(4, 4).map((p) => ({ x: p.x + 5, y: p.y }));
+    m.spaces.push({ id: 's2', name: 'Bedroom', polygon: poly, walls: poly.map(() => ({ thicknessM: 0.1, sourceKind: 'manual' as const, status: 'verified' as const })) });
+    return m;
+  };
+  it('does not judge an item in room B against room A', () => {
+    const m = two();
+    const f = [item('b', 7, 2, 1, 0.6, { name: 'Table', category: 'table' })];
+    const { problems } = collectProblems(m, f, null, { design: true });
+    expect(problems.filter((p) => p.itemIds.includes('b') && p.source === 'design' && /outside|out of/i.test(p.title))).toEqual([]);
+    expect(problems.filter((p) => p.itemIds.includes('b') && p.rule === 'Inside room')).toEqual([]);
+  });
+  it('reports nothing for a valid furnished two-room model', () => {
+    const m = two();
+    const f = [item('a', 3.2, 2, 0.8, 0.5, { name: 'Table', category: 'table' }), item('b', 7, 2, 1, 0.6, { name: 'Table', category: 'table' })];
+    const { problems } = collectProblems(m, f, null, { design: true });
+    expect(problems.filter((p) => p.severity !== 'tip').map((p) => p.title)).toEqual([]);
+  });
+});

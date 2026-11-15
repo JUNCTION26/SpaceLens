@@ -36,6 +36,8 @@ export interface Problem {
   at: Vec2 | null;
   /** One plain sentence with numbers. */
   title: string;
+  /** Room the problem belongs to, for grouping. */
+  room?: string;
   fixes: Fix[];
 }
 

@@ -1,4 +1,4 @@
-import { centroid, openingSegment } from '../../core/geometry';
+import { centroid, openingSegment, pointInPolygon } from '../../core/geometry';
 import type { FurnitureItem, Requirements, RuleVerdict, SpaceModel, ValidationResult, Vec2 } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { evaluateRules } from '../design/rules';
@@ -70,6 +70,35 @@ const designSeverity = (v: RuleVerdict): ProblemSeverity | null =>
   v.pass || v.severity === 'hard' ? null : v.severity === 'strong' ? 'warn' : v.score < 0.3 ? 'tip' : null;
 const safetySeverity = (f: SafetyFinding): ProblemSeverity => (f.severity === 'critical' ? 'error' : f.severity === 'important' ? 'warn' : 'tip');
 
+/** Items belong to the room whose outline holds their centre; strays go to the nearest room by centre. */
+export function assignToSpaces(model: SpaceModel, furniture: FurnitureItem[]): Map<string, FurnitureItem[]> {
+  const spaces = model.spaces.filter((s) => s.polygon.length >= 3);
+  const out = new Map<string, FurnitureItem[]>(spaces.map((s) => [s.id, []]));
+  for (const f of furniture) {
+    const c = { x: f.x, y: f.y };
+    let home = spaces.find((s) => pointInPolygon(c, s.polygon));
+    if (!home && spaces.length) {
+      let best = Infinity;
+      for (const s of spaces) { const m = centroid(s.polygon); const d = Math.hypot(m.x - c.x, m.y - c.y); if (d < best) { best = d; home = s; } }
+    }
+    if (home) out.get(home.id)!.push(f);
+  }
+  return out;
+}
+
+/** Judges every room on its own furniture. */
+function designVerdicts(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null) {
+  const out: Array<{ space: SpaceModel['spaces'][number]; v: RuleVerdict }> = [];
+  const groups = assignToSpaces(model, furniture);
+  for (const space of model.spaces) {
+    const items = groups.get(space.id); if (!items) continue;
+    let verdicts: RuleVerdict[] = [];
+    try { verdicts = evaluateRules(model, items, req, { spaceId: space.id }); } catch { verdicts = []; }
+    for (const v of verdicts) out.push({ space, v });
+  }
+  return out;
+}
+
 /** Merges referee checks, design rule verdicts and safety findings into one list, worst first. Fixes are added later. */
 export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null, opts: CollectOptions = {}): CollectResult {
   const byId = new Map(furniture.map((f) => [f.id, f]));
@@ -97,14 +126,12 @@ export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], r
   }
 
   if (opts.design) {
-    let verdicts: RuleVerdict[] = [];
-    try { verdicts = evaluateRules(model, furniture, req); } catch { verdicts = []; }
-    for (const v of verdicts) {
+    for (const { space, v } of designVerdicts(model, furniture, req)) {
       const severity = designSeverity(v); if (!severity) continue;
       const itemIds = v.itemIds.filter((id) => byId.has(id));
       const p: Problem = {
-        id: `design:${v.ruleId}:${[...v.itemIds].sort().join(',')}`, severity, source: 'design', rule: v.name, itemIds, openingIds: v.itemIds.filter((id) => openingIds.has(id)),
-        at: atOf(itemIds, []), title: sentence(v.message), fixes: [],
+        id: `design:${v.ruleId}:${[...v.itemIds].sort().join(',')}${itemIds.length ? '' : `@${space.id}`}`, severity, source: 'design', rule: v.name, itemIds, openingIds: v.itemIds.filter((id) => openingIds.has(id)),
+        at: atOf(itemIds, []), title: sentence(v.message), room: space.name, fixes: [],
       };
       if (raw.has(p.id)) continue;
       out.push(p); raw.set(p.id, { source: 'design', verdict: v });
