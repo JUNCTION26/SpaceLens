@@ -23,6 +23,10 @@ import { enforceColors } from './recolor';
 import { defaultSemantics, rulesObject } from './rulesFallback';
 import { MATERIAL_IDS, normalizeSpec, SPEC_JSON_SCHEMA, specFootprint } from './spec';
 import { validateSpec } from './validate';
+import { composeObject } from './compose';
+import { parseWish, wishLines, type Wish } from './wish';
+import { checkWishes, enforceWishes } from './wishCheck';
+import { editBySentence } from './wishEdit';
 
 export interface GenerateOpts {
   onPartial?: (partial: ObjectSpec) => void;
@@ -48,13 +52,16 @@ export interface GenInfo {
   detailModel?: string;
   items: number;
   fixes: string[];
+  /** Wishes from the description the result meets, and the ones it could not meet (short phrases). */
+  met?: string[];
+  unmet?: string[];
 }
 
 /** An ObjectSpec plus generation details and, while streaming, the ghost silhouette. */
 export type ForgeSpec = ObjectSpec & { gen?: GenInfo; silhouette?: ObjectPart[] };
 
 type Size = { w: number; d: number; h: number };
-export { parseEdit };
+export { parseEdit, editBySentence, parseWish };
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const cm = (m: number) => Math.round(m * 100);
 
@@ -152,9 +159,34 @@ function requestLines(parsed: ParsedRequest, target: Size): string {
   return lines.join('\n');
 }
 
-function userParts(prompt: string, parsed: ParsedRequest, target: Size, examples: KitExample[]): GeminiPart[] {
+function userParts(prompt: string, parsed: ParsedRequest, target: Size, examples: KitExample[], wish?: Wish): GeminiPart[] {
   const shots = examples.map((e) => `Request: "${e.prompt}"\n${JSON.stringify(e.json)}`).join('\n\n');
-  return [{ text: `EXAMPLES (match this style and precision):\n${shots}\n\nNOW BUILD:\nRequest: "${prompt}"\n${requestLines(parsed, target)}` }];
+  const hard = wish ? wishLines(wish) : [];
+  const req = hard.length ? `\nHARD REQUIREMENTS (every one must hold; name counted parts "drawer 1", "shelf 2", "door 1", "platform 1"):\n- ${hard.join('\n- ')}` : '';
+  return [{ text: `EXAMPLES (match this style and precision):\n${shots}\n\nNOW BUILD:\nRequest: "${prompt}"\n${requestLines(parsed, target)}${req}` }];
+}
+
+/** The offline object for a description: the compositional builder, or the kit templates for objects it does not know. */
+export function offlineObject(prompt: string, parsed: ParsedRequest, wish: Wish, t0?: number): ObjectSpec {
+  try {
+    if (!wish.noun && parsed.kind) return rulesObject(prompt, { parsed, t0 });
+    const s = composeObject(wish, { t0 });
+    if (s.parts.length >= 3) return s;
+  } catch { /* fall through to the templates */ }
+  return rulesObject(prompt, { parsed, t0 });
+}
+
+/** Hold a model result to the wish list: repair what can be repaired, take counts from the builder when they are wrong. */
+export function holdToWish(spec: ObjectSpec, wish: Wish, builder: ObjectSpec): { spec: ObjectSpec; met: string[]; unmet: string[]; fixes: string[] } {
+  const e = enforceWishes(spec, wish);
+  let out = e.spec;
+  const fixes = e.fixes.map((f) => `wish ${f}`);
+  let r = checkWishes(out, wish);
+  if (r.unmet.some((u) => /^\d+ /.test(u))) {
+    const b = checkWishes(builder, wish);
+    if (b.unmet.length < r.unmet.length) { out = { ...builder, id: spec.id, model: `${spec.model}+rules` }; r = b; fixes.push('wish counts from builder'); }
+  }
+  return { spec: out, met: r.met, unmet: r.unmet, fixes };
 }
 
 // ---- deterministic repairs on the raw items ------------------------------------------------
@@ -407,11 +439,13 @@ function stamp(spec: ObjectSpec, info: GenInfo): ForgeSpec {
 export async function generateObject(prompt: string, opts: GenerateOpts = {}): Promise<ForgeSpec> {
   const t0 = now();
   const parsed = parseRequest(prompt);
-  const target = resolveSize(parsed);
-  const sil = rulesObject(prompt, { parsed, t0 });
+  const wish = parseWish(prompt);
+  const sil = offlineObject(prompt, parsed, wish, t0);
+  const target = wish.noun ? { ...sil.size } : resolveSize(parsed);
+  const silCheck = checkWishes(sil, wish);
   if (!aiReady()) {
     await reveal(sil, opts.onPartial, opts.signal);
-    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: 0, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: [] });
+    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: 0, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: [], met: silCheck.met, unmet: silCheck.unmet });
   }
   // Instant silhouette while the model starts.
   opts.onPartial?.({ ...sil, parts: [], silhouette: sil.parts } as ForgeSpec);
@@ -420,7 +454,7 @@ export async function generateObject(prompt: string, opts: GenerateOpts = {}): P
   const system = systemPrompt(tier);
   const st: StreamState = { firstPartsMs: null, t0 };
   try {
-    const first = await callModel(system, userParts(prompt, parsed, target, pickExamples(prompt, parsed, 2)), parsed, want, opts, st, sil.parts);
+    const first = await callModel(system, userParts(prompt, parsed, target, pickExamples(prompt, parsed, 2), wish), parsed, want, opts, st, sil.parts);
     let r = await withRepair(first, parsed, want, opts, st, system);
     let passes = r.passes;
     const draftMs = Math.round(now() - t0);
@@ -445,12 +479,13 @@ export async function generateObject(prompt: string, opts: GenerateOpts = {}): P
     const { f, model } = r;
     if (f.spec.parts.length < 3) throw new Error('empty object');
     const totalMs = Math.round(now() - t0);
-    return stamp({ ...f.spec, id: f.spec.id || uid('obj'), prompt, model, latencyMs: totalMs, createdAt: Date.now() },
-      { model, tier: modelTier(model), firstPartsMs: st.firstPartsMs, totalMs, draftMs, detailMs, detailModel, passes, items: f.items, fixes: f.fixes });
+    const held = holdToWish({ ...f.spec, model }, wish, sil);
+    return stamp({ ...held.spec, id: f.spec.id || uid('obj'), prompt, model: held.spec.model, latencyMs: totalMs, createdAt: Date.now() },
+      { model: held.spec.model, tier: modelTier(model), firstPartsMs: st.firstPartsMs, totalMs, draftMs, detailMs, detailModel, passes, items: f.items, fixes: [...f.fixes, ...held.fixes], met: held.met, unmet: held.unmet });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
     await reveal(sil, opts.onPartial, opts.signal);
-    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: null, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: ['model failed'] });
+    return stamp(sil, { model: 'rules', tier: 'lean', firstPartsMs: null, totalMs: Math.round(now() - t0), passes: 0, items: 0, fixes: ['model failed'], met: silCheck.met, unmet: silCheck.unmet });
   }
 }
 
@@ -474,7 +509,14 @@ export async function editObject(base: ObjectSpec, instruction: string, opts: Ge
     const fitted = fitSpec({ ...base, parts }, target);
     return { ...withSemantics(fitted, parsed), id: uid('obj'), prompt, model: 'rules', latencyMs: Math.round(now() - t0), createdAt: Date.now() };
   };
-  if (!aiReady()) { const s = finishLocal(); await reveal(s, opts.onPartial, opts.signal); return s; }
+  // Rules first: a sentence they fully understand never needs the model.
+  let byRules: ReturnType<typeof editBySentence> | null = null;
+  try { byRules = editBySentence(base, instruction); } catch { byRules = null; }
+  if (byRules && byRules.applied.length && !byRules.unhandled.length) {
+    const s = { ...byRules.spec, id: uid('obj'), latencyMs: Math.round(now() - t0), createdAt: Date.now() };
+    await reveal(s, opts.onPartial, opts.signal); return s;
+  }
+  if (!aiReady()) { const s = byRules && byRules.applied.length ? { ...byRules.spec, id: uid('obj') } : finishLocal(); await reveal(s, opts.onPartial, opts.signal); return s; }
   const want: Want = { prompt, size: target, name: base.name };
   const system = systemPrompt(modelTier(aiRoute('fast')[0]));
   const st: StreamState = { firstPartsMs: null, t0 };

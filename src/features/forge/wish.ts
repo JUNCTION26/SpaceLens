@@ -295,6 +295,7 @@ export function parseWish(text: string): Wish {
   else if (/\b(sled|skid|mede)\b/.test(t)) w.support = 'sled';
   else if (/\b(plinth|sockel)\b/.test(t)) w.support = 'plinth';
   if (w.counts.legs === undefined && /\b(3|three|tre|kolme) ?(legs?|ben|jalkaa)\b/.test(t)) w.counts.legs = 3;
+  if (!w.support && /\b(legs|on legs|ben|jalat|jaloilla|jalkaa)\b/.test(t)) w.support = 'legs';
 
   // Features and style.
   for (const [re, f] of FEATURE_LEX) if (re.test(t) && !w.features.includes(f)) w.features.push(f);
