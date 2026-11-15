@@ -148,7 +148,7 @@ describe('junk filter and fallback', () => {
   it('drops layouts with no items or a zero score', async () => {
     const { dropJunk } = await import('./designThemed');
     const mk = (id: string, n: number, score: number) => ({ id, name: id, summary: '', parentVersion: 1, furniture: Array.from({ length: n }, (_, i) => ({ id: `${id}${i}` })), metrics: { score }, checks: [], assumptions: [], generator: 'theme' });
-    const r = dropJunk({ candidates: [mk('a', 0, 50), mk('b', 3, 0), mk('c', 3, 60)], reports: [{ candidateId: 'a' }, { candidateId: 'c' }], infeasibility: null, stages: [] } as never);
+    const r = dropJunk({ candidates: [mk('a', 0, 50), mk('b', 3, 0), mk('c', 3, 60)], reports: [{ candidateId: 'a' }, { candidateId: 'c' }], infeasibility: null, stages: [] } as unknown as Parameters<typeof dropJunk>[0]);
     expect(r.candidates.map((c) => c.id)).toEqual(['c']);
     expect(r.reports).toHaveLength(1);
   });
