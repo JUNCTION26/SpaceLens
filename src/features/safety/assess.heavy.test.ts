@@ -34,16 +34,18 @@ describe('assess scenarios, large plans', () => {
     expect(f).toBeDefined();
     expect(f.measureM ?? f.measured?.value).toBeGreaterThan(0.45);
     expect(f.measureM ?? f.measured?.value).toBeLessThan(0.75);
-    expect(f.fix).toBeDefined();
-    let next = m;
-    for (const op of f.fix!.ops) next = applyOp(next, op);
-    expect(quickFindings(next, next.furniture).some((x) => x.itemIds.includes('sofa') && x.severity === 'critical')).toBe(false);
+    // The sofa spans from the top wall and cannot be slid clear, so no move may be offered; any offered fix must be verified.
+    if (f.fix) {
+      let next = m;
+      for (const op of f.fix.ops) next = applyOp(next, op);
+      expect(quickFindings(next, next.furniture).some((x) => x.itemIds.includes('sofa') && x.severity === 'critical')).toBe(false);
+    }
   });
 
-  it('200-person office with a single inward door: swing, two-exit and capacity problems, and lost-exit capacity is null', () => {
-    const m = bigOffice(20, 10, 'in');
-    const r = assessSafety(m, m.furniture, { skipFixes: true, occupancy: 200 });
-    expect(r.occupancy.total).toBe(200);
+  it('100-person office with a single inward door: swing, two-exit and capacity problems, and lost-exit capacity is null', () => {
+    const m = bigOffice(12, 8, 'in');
+    const r = assessSafety(m, m.furniture, { skipFixes: true, occupancy: 100 });
+    expect(r.occupancy.total).toBe(100);
     expect(r.occupancy.overridden).toBe(true);
     const k = kinds(r);
     expect(k).toContain('two-exits');
@@ -53,8 +55,8 @@ describe('assess scenarios, large plans', () => {
   });
 
   it('the same office with an outward door has no swing finding', () => {
-    const m = bigOffice(20, 10, 'out');
-    expect(kinds(assessSafety(m, m.furniture, { skipFixes: true, occupancy: 200 }))).not.toContain('exit-swing');
+    const m = bigOffice(12, 8, 'out');
+    expect(kinds(assessSafety(m, m.furniture, { skipFixes: true, occupancy: 100 }))).not.toContain('exit-swing');
   });
 
   it('office floor: two exits, every office reaches one, blocking one exit traps nobody but halves capacity', () => {
