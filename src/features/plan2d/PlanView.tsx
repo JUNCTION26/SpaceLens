@@ -229,7 +229,7 @@ export function PlanView() {
     if (drag?.kind !== 'item' && drag?.kind !== 'rotate') return { outside: out, overlapsWith: withMap, blockers: blk };
     const push = (a: FurnitureItem, b: FurnitureItem) => { const l = withMap.get(a.id) ?? []; l.push(b.name); withMap.set(a.id, l); blk.add(a.id); blk.add(b.id); };
     const cs = furniture.map((f) => itemCorners(f));
-    const soft = (f: FurnitureItem) => f.category === 'rug' || !!catalogEntry(f.catalogId)?.overlaps;
+    const soft = (f: FurnitureItem) => f.category === 'rug' || f.mount === 'wall' || f.mount === 'ceiling' || !!catalogEntry(f.catalogId)?.overlaps;
     for (let i = 0; i < furniture.length; i++) {
       for (let j = i + 1; j < furniture.length; j++) {
         if (soft(furniture[i]) || soft(furniture[j])) continue;
@@ -1082,6 +1082,14 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, blocker }: {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
   const ring = focus && !sel;
+  // Wall pieces hang above the floor: only a thin line on the wall, no footprint or clearance.
+  if (f.mount === 'wall') {
+    return (
+      <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`} className={`plan2d-item plan2d-wall${sel ? ' is-sel' : ''}${f.locked ? ' is-locked' : ''}`}>
+        <line data-hit={`f:${f.id}`} x1={-w / 2} y1={-d / 2} x2={w / 2} y2={-d / 2} className="plan2d-item-body" strokeWidth={(sel ? 4 : 3) * px} strokeLinecap="round" fill="none" />
+      </g>
+    );
+  }
   return (
     <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`}
       className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}${f.category === 'rug' ? ' is-rug' : ''}${blocker ? ' is-blocker' : ''}`}>

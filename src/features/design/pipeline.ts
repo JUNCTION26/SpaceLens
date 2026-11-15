@@ -7,6 +7,7 @@ import type { DesignReport, FurnitureItem, Infeasibility, LayoutCandidate, Requi
 import { catalogEntry, makeItem } from '../furniture/catalog';
 import { pointInPolygon, uid } from '../../core/geometry';
 import { explainInfeasible } from '../layout/solver';
+import { dressWalls } from '../layout/dress';
 import { applyFixes, critique, type Critique } from './critic';
 import { planConcepts, rulesConcept, type Concept } from './planner';
 import { evaluateRules } from './rules';
@@ -219,6 +220,12 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
     const name = planned && c.name ? (k === 0 ? c.name : `${c.name} ${k + 1}`) : cand.name;
     entries.push({ cand: { ...cand, name }, concept: c, report: s.reports?.find((r) => r.candidateId === cand.id) });
   }));
+  // Dress the walls of every layout: art, curtains, shelves, mirror, and a wall TV when one was asked for.
+  const wantsTv = req.items.some((i) => /tv/.test(i.catalogId)) || /tv|television/i.test(`${req.purpose} ${req.notes.join(' ')}`);
+  for (const e of entries) {
+    const dressed = dressWalls(model, e.cand.furniture, { spaceId: opts.spaceId, tv: wantsTv, hall: /hall|entr/i.test(req.purpose) });
+    if (dressed.length) e.cand = { ...e.cand, furniture: [...e.cand.furniture, ...dressed] };
+  }
   end('solve', t, { detail: `${entries.length} layout${entries.length === 1 ? '' : 's'}` });
   abortIf(opts.signal);
 
