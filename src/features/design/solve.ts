@@ -48,7 +48,7 @@ export interface SolveProgramOptions {
 }
 /** Set on a layout produced with pieces left out or with reduced clear space. */
 export interface Degraded { dropped: string[]; clearanceFactor: number }
-export type SolvedCandidate = LayoutCandidate & { degraded?: Degraded };
+export type SolvedCandidate = LayoutCandidate & { degraded?: Degraded; idea?: LayoutIdea };
 export interface SolveResult {
   candidates: SolvedCandidate[]; reports: DesignReport[]; infeasibility: Infeasibility | null;
   /** Ids the best partial layout could not seat (set when nothing was returned). */
@@ -800,6 +800,41 @@ function anchorSig(ctx: Ctx, st: State): string {
     return p.group.id;
   }).sort().join('|');
 }
+/** Where the most important movable anchor went: its wall (or table grid / free quarter). */
+function mainKey(ctx: Ctx, st: State): string | null {
+  const p = st.placed.filter((q) => !q.group.fixed && q.group.priority >= 40).sort((a, b) => b.group.priority - a.group.priority)[0];
+  if (!p) return null;
+  const s = p.spec;
+  if (s.kind === 'wall') return `${p.group.id}@w${s.wall}${s.side ? 's' : ''}`;
+  if (s.kind === 'array') return `${p.group.id}@a${s.rows}x${s.cols}r${Math.round(s.rot * 2 / Math.PI) & 1}`;
+  if (s.kind === 'free') { const b = ctx.room.box; return `${p.group.id}@f${s.x < (b.minX + b.maxX) / 2 ? 'w' : 'e'}${s.y < (b.minY + b.maxY) / 2 ? 'n' : 's'}`; }
+  return null;
+}
+
+/** The main idea of a layout in machine-readable form: where each anchor went and how open the middle is. */
+export interface LayoutIdea {
+  /** Stable text key: equal keys mean the same idea. */
+  key: string;
+  anchors: Array<{ id: string; category: string; wall: number | null; compass: string | null; atWindow: boolean }>;
+  centre: 'open' | 'zoned';
+  /** Largest open rectangle as a share of the floor (0..1). */
+  openShare: number;
+}
+function ideaOf(ctx: Ctx, st: State, openAreaM2: number): LayoutIdea {
+  const anchors = st.placed.filter((p) => !p.group.fixed && p.group.priority >= 45).sort((a, b) => b.group.priority - a.group.priority).map((p) => {
+    const f = p.items[0], wall = p.spec.kind === 'wall' ? p.spec.wall : null;
+    return { id: f.id, category: f.category, wall, compass: wall == null ? null : compass(ctx, wall), atWindow: nearWindow(ctx, f) };
+  });
+  const b = ctx.room.box;
+  let area = 0;
+  const poly = ctx.room.poly;
+  for (let i = 0; i < poly.length; i++) { const a = poly[i], q = poly[(i + 1) % poly.length]; area += a.x * q.y - q.x * a.y; }
+  area = Math.abs(area) / 2 || (b.maxX - b.minX) * (b.maxY - b.minY);
+  const openShare = Math.round(Math.min(1, openAreaM2 / area) * 100) / 100;
+  const centre = openShare >= 0.2 ? 'open' : 'zoned';
+  return { key: [...anchors.map((a) => `${a.category}:${a.compass ?? 'free'}${a.atWindow ? '+window' : ''}`), centre].join('|'), anchors, centre, openShare };
+}
+
 /** Compass name of a wall from its inward normal (the top of the plan is north). */
 function compass(ctx: Ctx, wi: number): string {
   const n = ctx.room.walls[wi].n;
@@ -1184,8 +1219,16 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     const seen = new Set<string>(), beam: State[] = [], rest: State[] = [], dup: State[] = [];
     // One state per concept first (so 'side by side' survives next to 'facing walls'), then per signature.
     const ideas = new Set<string>();
+    // The main anchor on each wall it can take survives first: the variants are built on that choice.
+    const mains = new Set<string>();
     for (const st of next) {
       if (beam.length >= Math.ceil(B / 2)) break;
+      const mk = mainKey(ctx, st);
+      if (mk && !mains.has(mk)) { mains.add(mk); ideas.add(conceptName(ctx, st, 2)); seen.add(signature(ctx, st)); beam.push(st); }
+    }
+    for (const st of next) {
+      if (beam.length >= Math.ceil(B / 2) + 1) break;
+      if (beam.includes(st)) continue;
       const idea = conceptName(ctx, st, 2);
       if (!ideas.has(idea)) { ideas.add(idea); seen.add(signature(ctx, st)); beam.push(st); }
     }
@@ -1295,15 +1338,24 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
 
   // Full evaluation, referee, variety.
   const finals: Array<{ st: State; verdicts: RuleVerdict[]; checks: ValidationResult[]; ds: number; sig: string }> = [];
+  // Checks the empty room already fails (an opening drawn past its wall end) say nothing about the
+  // furniture: they stay in the report but do not reject every layout.
+  const roomFails = new Set(validateLayout(model, [], req, { spaceId: space.id }).filter((c) => c.result === 'fail').map((c) => c.id));
   for (const st of pool) {
     const checks = validateLayout(model, restore(st.items), req, { spaceId: space.id });
-    if (checks.some((c) => c.result === 'fail')) { if (DBG) console.log('REFEREE', checks.filter((c) => c.result === 'fail').map((c) => c.id + ' ' + c.rule + ' ' + c.measured + '/' + c.threshold + ' ' + c.subjectIds)); continue; }
+    if (checks.some((c) => c.result === 'fail' && !roomFails.has(c.id))) { if (DBG) console.log('REFEREE', checks.filter((c) => c.result === 'fail').map((c) => c.id + ' ' + c.rule + ' ' + c.measured + '/' + c.threshold + ' ' + c.subjectIds)); continue; }
     const L = layoutCtx(ctx, st.items);
     const verdicts = evaluateCtx(L);
     finals.push({ st, verdicts, checks, ds: designScore(verdicts) + programScore(program, L) * 2 + tasteTerm(ctx, st.items) * 60, sig: signature(ctx, st, 1) });
   }
   finals.sort((a, b) => b.ds - a.ds);
   const chosen: typeof finals = [];
+  // First, one layout per wall the main anchor (bed, sofa, desk...) takes: the biggest decision in a room.
+  for (const f of finals) {
+    if (chosen.length >= variants) break;
+    const mk = mainKey(ctx, f.st);
+    if (mk && f.ds >= (finals[0]?.ds ?? 0) - 15 && !chosen.some((c) => mainKey(ctx, c.st) === mk)) chosen.push(f);
+  }
   // Variants must differ in a design decision: which wall or orientation an anchor takes, or how the
   // tables are arranged. A layout that only moves a small piece is a near-duplicate and is dropped,
   // even if that leaves fewer variants. A different concept first, then any other anchor decision.
@@ -1319,7 +1371,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
   }
   if (!chosen.length) return { candidates: [], reports: [], infeasibility: infeasible(ctx, null, [], work, req), unplaced };
 
-  const out: Array<{ verdicts: RuleVerdict[]; cand: LayoutCandidate }> = [];
+  const out: Array<{ verdicts: RuleVerdict[]; cand: SolvedCandidate }> = [];
   // Name: the first phrase, plus the first later phrase that tells same-named variants apart.
   const names = new Set<string>();
   const phrases = chosen.map((f) => f.st.placed.filter((p) => !p.group.fixed && p.group.priority >= 15).map((p) => phrase(ctx, f.st, p)));
@@ -1347,14 +1399,16 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
       'Seats belong to the nearest desk or table',
       ...(req ? [`Walkway ${Math.round(req.minRouteWidthM * 100)} cm from the door to ${req.routeTargets.map((t) => t.kind).join(' and ') || 'the room'}`] : []),
       ...(flanked ? ['Bed side access is measured past the nightstands'] : []),
+      ...(roomFails.size ? [`The room drawing itself fails ${roomFails.size} check${roomFails.size === 1 ? '' : 's'} before any furniture; fix the plan to clear ${roomFails.size === 1 ? 'it' : 'them'}`] : []),
       ...f.st.dropped.map((id) => `Left out the ${ctx.byId.get(id)!.name.toLowerCase()}: no spot without blocking something`),
     ];
     const ds = designScore(f.verdicts);
+    const openArea = Math.round(largestOpenRect(g) * 10) / 10;
     out.push({
       verdicts: f.verdicts,
       cand: {
-        id: uid('cand'), name, summary: '', parentVersion: model.version, furniture: restore(f.st.items),
-        metrics: { openAreaM2: Math.round(largestOpenRect(g) * 10) / 10, costSek: cost, minClearanceM: minClearance(f.st.items), routeLenM: route.lengthM == null ? null : Math.round(route.lengthM * 10) / 10, score: ds },
+        id: uid('cand'), name, summary: '', parentVersion: model.version, furniture: restore(f.st.items), idea: ideaOf(ctx, f.st, openArea),
+        metrics: { openAreaM2: openArea, costSek: cost, minClearanceM: minClearance(f.st.items), routeLenM: route.lengthM == null ? null : Math.round(route.lengthM * 10) / 10, score: ds },
         checks: f.checks, assumptions, generator: `design rules + relation solver, seed ${seed}`,
       },
     });
