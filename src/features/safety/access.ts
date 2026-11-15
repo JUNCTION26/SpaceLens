@@ -186,7 +186,18 @@ function findBlocker(ctx: Ctx, chk: Check, furniture: FurnitureItem[], dest: Des
   };
   if (chk.reason === 'turn' || chk.reason === 'transfer') {
     const p = centre(g, chk.target);
-    const { f, w } = itemAt(p);
+    const at0 = itemAt(p);
+    const w = at0.w;
+    // The widest spot may touch no item; the circle is then limited by whatever stands within a turning radius of it.
+    let f = at0.f;
+    if (!f) {
+      let bd = Infinity;
+      for (const c of furniture) {
+        if (isRug(c) || c.mount === 'wall' || c.mount === 'ceiling') continue;
+        const d = distToPoly(p, itemCorners(c)) + (c.locked ? 0.3 : 0);
+        if (d <= cfg.turningM && d < bd) { bd = d; f = c; }
+      }
+    }
     const target = dest.item && f?.id !== dest.item.id && f ? f : f ?? dest.item;
     return { kind: target ? 'item' : 'wall', id: target?.id ?? null, at: p, reason: chk.reason, widthM: w, item: target };
   }
