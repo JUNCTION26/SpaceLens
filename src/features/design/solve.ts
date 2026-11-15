@@ -19,6 +19,11 @@ import { deductions, designScore, explainDetailed, pointsOf } from './score';
 import { isHostCategory, isSeatCategory, normaliseItem, semanticsOf } from './semantics';
 import { assignSeatHosts } from './program';
 import { isMounted, placeWallItems } from '../layout/wallItems';
+import type { Weights } from '../layout/solver';
+import { layoutFeatures } from '../taste/features';
+import { tasteWeights } from '../taste/apply';
+import type { TasteProfile } from '../taste/profile';
+import { activeProfile } from '../taste/state';
 
 export interface SolveProgramOptions {
   variants?: number;
@@ -38,8 +43,17 @@ export interface SolveProgramOptions {
   signal?: AbortSignal;
   /** Room of the model to furnish (default: the first). Other rooms and their furniture are left alone. */
   spaceId?: string;
+  /** Taste to apply: a profile, null for none. Default: the person's active profile, if any. */
+  taste?: TasteProfile | null;
 }
-export interface SolveResult { candidates: LayoutCandidate[]; reports: DesignReport[]; infeasibility: Infeasibility | null }
+/** Set on a layout produced with pieces left out or with reduced clear space. */
+export interface Degraded { dropped: string[]; clearanceFactor: number }
+export type SolvedCandidate = LayoutCandidate & { degraded?: Degraded };
+export interface SolveResult {
+  candidates: SolvedCandidate[]; reports: DesignReport[]; infeasibility: Infeasibility | null;
+  /** Ids the best partial layout could not seat (set when nothing was returned). */
+  unplaced?: string[];
+}
 
 const OPTIONAL = new Set(['rug', 'lamp', 'plant', 'side-table']);
 const FLOAT_HOST = /^(table|cafe-table|kitchen-island)$/;
@@ -93,6 +107,10 @@ interface Ctx {
   rejects: Map<string, number>;
   /** Items placed with their left and right use zones swapped (a single bed's open side away from the wall). */
   swapped: WeakSet<FurnitureItem>;
+  /** Room-only fit results per size and pose, shared by identical pieces within one solve. */
+  staticFit: Map<string, string | null>;
+  /** Taste multipliers on the solver weights; null when no profile is active. */
+  taste: Weights | null;
 }
 const swapSides = (c: Clearance): Clearance => ({ ...c, left: c.right, right: c.left });
 const asymmetric = (f: FurnitureItem) => Math.abs(f.clearance.left - f.clearance.right) > 0.05;
@@ -130,6 +148,18 @@ function nearestHosts(items: FurnitureItem[]): Map<string, string> {
   return out;
 }
 
+function staticFit(ctx: Ctx, f: FurnitureItem, g: Geo): string | null {
+  const poly = ctx.room.poly;
+  if (rectOutside(g.r, poly) > M) return 'wall';
+  if (f.h > ctx.model.ceilingM) return 'ceiling';
+  if (isRug(f)) return null;
+  for (const { z } of ctx.room.swingZones) if (overlapDepth(z, g.r) > M) return 'door';
+  for (const { z } of ctx.room.approachZones) if (overlapDepth(z, g.r) > M) return 'door';
+  if (f.h > 1.0) for (const { z } of ctx.room.windowZones) if (overlapDepth(z, g.r) > M) return 'window';
+  if (g.unfold && rectOutside(g.unfold, poly) > M) return 'unfold';
+  return null;
+}
+
 /** First hard problem when adding `cand` to `others`, or null. */
 function fits(ctx: Ctx, others: FurnitureItem[], cand: FurnitureItem[]): string | null {
   const all = [...others, ...cand];
@@ -139,13 +169,15 @@ function fits(ctx: Ctx, others: FurnitureItem[], cand: FurnitureItem[]): string 
   const poly = ctx.room.poly;
   for (let k = 0; k < cand.length; k++) {
     const f = cand[k], g = geo(ctx, f);
-    if (rectOutside(g.r, poly) > M) return 'wall';
-    if (f.h > ctx.model.ceilingM) return 'ceiling';
+    // Room-only checks depend on the piece's size and pose alone: same answer for identical pieces.
+    const sk = `${f.w}|${f.d}|${f.h}|${f.unfoldedD ?? 0}|${f.category === 'rug' ? 1 : 0}|${f.x.toFixed(3)}|${f.y.toFixed(3)}|${f.rotation.toFixed(3)}`;
+    let sv = ctx.staticFit.get(sk);
+    if (sv === undefined) {
+      sv = staticFit(ctx, f, g);
+      ctx.staticFit.set(sk, sv);
+    }
+    if (sv) return sv;
     if (isRug(f)) continue;
-    for (const { z } of ctx.room.swingZones) if (overlapDepth(z, g.r) > M) return 'door';
-    for (const { z } of ctx.room.approachZones) if (overlapDepth(z, g.r) > M) return 'door';
-    if (f.h > 1.0) for (const { z } of ctx.room.windowZones) if (overlapDepth(z, g.r) > M) return 'window';
-    if (g.unfold && rectOutside(g.unfold, poly) > M) return 'unfold';
     const host = hostOf.has(f.id) ? byId.get(hostOf.get(f.id)!) : undefined;
     const hostR = host ? geo(ctx, host).r : null;
     for (const s of g.sides) {
@@ -710,10 +742,19 @@ const hasChoice = (ctx: Ctx, g: Group) => ((g.kind !== 'array' && asymmetric(ctx
 
 // ---------------------------------------------------------------- scoring
 function layoutCtx(ctx: Ctx, items: FurnitureItem[]): LayoutCtx { return analyse(ctx.room, items, ctx.req, ctx.cache); }
+/** Taste as a small signed term (about -0.15 .. +0.15): each weight above 1 rewards its trait, below 1 rewards the opposite. */
+function tasteTerm(ctx: Ctx, items: FurnitureItem[]): number {
+  const w = ctx.taste;
+  if (!w) return 0;
+  const f = layoutFeatures(ctx.model, items);
+  const rels = Object.values(f.rel) as number[];
+  const near = rels.length ? 0.5 - rels.reduce((t, x) => t + x, 0) / rels.length : 0; // + near the window
+  return 0.3 * ((w.wall - 1) * (f.hug - 0.5) + (w.open - 1) * (f.open - 0.5) + (w.window - 1) * near);
+}
 function scoreItems(ctx: Ctx, items: FurnitureItem[]): number {
   const L = layoutCtx(ctx, items);
   const v = evaluateCtx(L, { fast: true });
-  return 0.8 * (designScore(v) / 100) + 0.2 * programScore(ctx.program, L) + ctx.noise();
+  return 0.8 * (designScore(v) / 100) + 0.2 * programScore(ctx.program, L) + tasteTerm(ctx, items) + ctx.noise();
 }
 /** Cheap pre-score: only the relations that mention the group's pieces. */
 function quickScore(ctx: Ctx, items: FurnitureItem[], groupIds: Set<string>): number {
@@ -1019,7 +1060,8 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
   const ctx: Ctx = {
     room, model, program, req, byId: new Map(work.map((f) => [f.id, f])), clr: new Map(work.map((f) => [f.id, { ...f.clearance }])),
     flank: new Map(), parent: new Map(), children: new Map(), cache: new Map(), routes: [], routeWidth: 0.8,
-    noise: () => (r() - 0.5) * 0.002, rejects: new Map(), swapped: new WeakSet(),
+    noise: () => (r() - 0.5) * 0.002, rejects: new Map(), swapped: new WeakSet(), staticFit: new Map(),
+    taste: (() => { const p = opts.taste === undefined ? activeProfile() : opts.taste; return p ? tasteWeights(p).solver : null; })(),
   };
   buildTree(ctx, work, fixed);
   // Chairs at tables keep room behind them to pull out and to pass (the referee does not ask this,
@@ -1189,7 +1231,14 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     }
     st.score = scoreItems(ctx, st.items);
   }
-  states = states.filter((st) => st.dropped.every((id) => OPTIONAL.has(ctx.byId.get(id)!.category)));
+  // Which pieces could not be seated in the best state: lets the caller give up exactly those.
+  let unplaced: string[] | undefined;
+  {
+    const lost = (st: State) => st.dropped.filter((id) => !OPTIONAL.has(ctx.byId.get(id)!.category));
+    const keep = states.filter((st) => !lost(st).length);
+    if (!keep.length && states.length) unplaced = states.map(lost).sort((a, b) => a.length - b.length)[0];
+    states = keep;
+  }
 
   // Local pass: slide, flip and nudge each group while the score rises, for a fixed number of evaluations.
   const improve = async (st: State): Promise<State> => {
@@ -1251,7 +1300,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     if (checks.some((c) => c.result === 'fail')) { if (DBG) console.log('REFEREE', checks.filter((c) => c.result === 'fail').map((c) => c.id + ' ' + c.rule + ' ' + c.measured + '/' + c.threshold + ' ' + c.subjectIds)); continue; }
     const L = layoutCtx(ctx, st.items);
     const verdicts = evaluateCtx(L);
-    finals.push({ st, verdicts, checks, ds: designScore(verdicts) + programScore(program, L) * 2, sig: signature(ctx, st, 1) });
+    finals.push({ st, verdicts, checks, ds: designScore(verdicts) + programScore(program, L) * 2 + tasteTerm(ctx, st.items) * 60, sig: signature(ctx, st, 1) });
   }
   finals.sort((a, b) => b.ds - a.ds);
   const chosen: typeof finals = [];
@@ -1268,7 +1317,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
     const sg = anchorSig(ctx, f.st);
     if (!chosen.some((c) => anchorSig(ctx, c.st) === sg)) chosen.push(f);
   }
-  if (!chosen.length) return { candidates: [], reports: [], infeasibility: infeasible(ctx, null, [], work, req) };
+  if (!chosen.length) return { candidates: [], reports: [], infeasibility: infeasible(ctx, null, [], work, req), unplaced };
 
   const out: Array<{ verdicts: RuleVerdict[]; cand: LayoutCandidate }> = [];
   // Name: the first phrase, plus the first later phrase that tells same-named variants apart.
@@ -1357,33 +1406,61 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   if (first.candidates.length || !items.length) return first;
   const wallMs = opts.maxWallMs ?? 20000;
   const fixedIds = new Set(opts.fixedIds ?? []);
+  const originals = new Map(items.map((f) => [f.id, f]));
   // Each round tries the full set, then gives up pieces in order. Later rounds also shrink the
   // clear space around every movable piece, for halls too narrow for the usual pull-out room.
+  // The space in front of a piece (door swing, drawers, getting out) never drops below half.
   for (const scale of [1, 0.5, 0.25]) {
-    const scaled = scale === 1 ? items : items.map((f) => (f.locked || fixedIds.has(f.id) ? f : { ...f, clearance: { front: f.clearance.front * scale, back: f.clearance.back * scale, left: f.clearance.left * scale, right: f.clearance.right * scale } }));
+    const front = Math.max(scale, 0.5);
+    const scaled = scale === 1 ? items : items.map((f) => (f.locked || fixedIds.has(f.id) ? f : { ...f, clearance: { front: f.clearance.front * front, back: f.clearance.back * scale, left: f.clearance.left * scale, right: f.clearance.right * scale } }));
     const order = dropOrder(scaled, fixedIds);
     // Decor goes as one step (it is already optional, so dropping it one by one rarely changes the outcome).
     const steps: FurnitureItem[][] = scale === 1 ? [] : [[]];
     for (const f of order) { if (OPTIONAL.has(f.category) && steps.length === 1 && steps[0].every((x) => OPTIONAL.has(x.category))) steps[0].push(f); else steps.push([f]); }
+    // The pieces the last attempt could not seat go first, all at once.
+    let hint = scale === 1 ? first.unplaced ?? [] : [];
     const gone: FurnitureItem[] = [];
-    for (const step of steps) {
-      if (opts.signal?.aborted || now() - t0 > wallMs || gone.length + step.length >= items.length) break;
-      gone.push(...step);
-      const ids = new Set(gone.map((g) => g.id));
-      const res = await solveOnce(model, scaled.filter((g) => !ids.has(g.id)), without(programIn, ids), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
-      if (!res.candidates.length) continue;
+    const goneIds = new Set<string>();
+    const take = (list: FurnitureItem[]) => { for (const g of list) if (!goneIds.has(g.id) && !g.locked && !fixedIds.has(g.id)) { goneIds.add(g.id); gone.push(g); } };
+    const attempt = async (): Promise<SolveResult | null> => {
+      if (!gone.length && scale === 1) return null;
+      const res = await solveOnce(model, scaled.filter((g) => !goneIds.has(g.id)), without(programIn, goneIds), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
+      if (res.candidates.length) return res;
+      hint = res.unplaced ?? [];
+      return null;
+    };
+    const finish = (res: SolveResult): SolveResult => {
       const left = gone.map((g) => `Left out the ${g.name.toLowerCase()}: no layout of the full set passes the checks`);
       const shrunk = scale < 1 ? [`Clear space around the pieces reduced to ${Math.round(scale * 100)}% so they fit this narrow room`] : [];
       const lead = gone.length ? `Left out ${gone.map((g) => g.name.toLowerCase()).join(', ')}: they do not fit this room with the rest` : shrunk[0];
-      return {
-        ...res,
-        candidates: res.candidates.map((c) => ({ ...c, assumptions: [...c.assumptions, ...shrunk, ...left] })),
-        infeasibility: { reasons: [lead, ...(first.infeasibility?.reasons ?? [])], relaxations: first.infeasibility?.relaxations ?? [] },
-      };
+      const degraded: Degraded = { dropped: gone.map((g) => g.id), clearanceFactor: scale };
+      const candidates = res.candidates.map((c): SolvedCandidate => {
+        // Judged at the real clearances, not the reduced ones the solver used to find the spot.
+        const full = c.furniture.map((f) => { const o = originals.get(f.id); return o ? { ...f, clearance: o.clearance } : f; });
+        const checks = validateLayout(model, full, opts.req ?? null, { spaceId: opts.spaceId });
+        const fails = checks.filter((k) => k.result === 'fail').length;
+        const note = fails ? [`Does not pass ${fails} check${fails === 1 ? '' : 's'} at full clearances`] : [];
+        return { ...c, checks, degraded, assumptions: [...c.assumptions, ...shrunk, ...left, ...note] };
+      });
+      return { ...res, candidates, infeasibility: { reasons: [lead, ...(first.infeasibility?.reasons ?? [])], relaxations: first.infeasibility?.relaxations ?? [] } };
+    };
+    // Scale 1 starts with the pieces named by the first failure; later rounds start with decor.
+    if (hint.length) {
+      take(hint.map((id) => scaled.find((f) => f.id === id)).filter((f): f is FurnitureItem => !!f));
+      if (gone.length < items.length && !(opts.signal?.aborted || now() - t0 > wallMs)) { const r = await attempt(); if (r) return finish(r); }
+    }
+    for (const step of steps) {
+      if (opts.signal?.aborted || now() - t0 > wallMs) break;
+      take(step);
+      take(hint.map((id) => scaled.find((f) => f.id === id)).filter((f): f is FurnitureItem => !!f));
+      if (gone.length >= items.length) break;
+      const r = await attempt();
+      if (r) return finish(r);
     }
   }
   return first;
 }
+
 
 // ---------------------------------------------------------------- honest descriptions
 export interface LayoutDescription {

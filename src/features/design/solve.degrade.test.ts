@@ -36,3 +36,32 @@ describe('solveProgram degrades instead of returning nothing', () => {
     expect(res.infeasibility?.reasons.length).toBeGreaterThan(0);
   }, 60000);
 });
+
+describe('degraded layouts are marked and judged honestly', () => {
+  const hall = () => {
+    const poly = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 0.9 }, { x: 0.9, y: 0.9 }, { x: 0.9, y: 3.5 }, { x: 0, y: 3.5 }];
+    const m = room(poly, [opening('door', 'door', 4, 0.45, 0.85, 'in')]);
+    const items = [at('shoe-bench', 'shoes'), at('plant', 'p1')];
+    return { m, items, req: reqs({ minRouteWidthM: 0.8 }) };
+  };
+  it('carries a machine-readable flag and reports the referee at full clearances', async () => {
+    const { m, items, req } = hall();
+    const res = await solveProgram(m, items, defaultProgram(m, items, req), { seed: 2, req });
+    const c = res.candidates[0];
+    expect(c.degraded).toBeDefined();
+    expect(c.degraded!.clearanceFactor).toBeGreaterThanOrEqual(0.25);
+    const full = validateLayout(m, c.furniture.map((f) => ({ ...f, clearance: items.find((i) => i.id === f.id)!.clearance })), req);
+    expect(c.checks.map((k) => k.result)).toEqual(full.map((k) => k.result));
+  }, 60000);
+  it('a layout found at 25% clearance is not reported as passing', async () => {
+    const m = room(rect(3, 0.9), [opening('door', 'door', 1, 0.45, 0.7, 'in')]);
+    const b = at('shoe-bench', 'a');
+    const items = [{ ...b, clearance: { ...b.clearance, back: 0.6, left: 0.6, right: 0.6 } }];
+    const req = reqs({ minRouteWidthM: 0.5 });
+    const res = await solveProgram(m, items, defaultProgram(m, items, req), { seed: 1, req });
+    const c = res.candidates[0];
+    expect(c.degraded?.clearanceFactor).toBe(0.25);
+    expect(c.checks.some((k) => k.result === 'fail')).toBe(true);
+    expect(c.assumptions.join(' ')).toMatch(/does not pass/i);
+  }, 60000);
+});
