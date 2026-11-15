@@ -124,7 +124,6 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
 
   const dots = [...refPts.map((p) => ({ ...p, ref: true })), ...roomPts.map((p) => ({ ...p, ref: false }))];
 
-  const aiCount = [...roomPts, ...refPts].filter((p) => p.method === 'gemini').length;
   const stepNo = sub === 'ref' ? 1 : sub === 'room' ? 2 : 3;
   const hint = sub === 'ref'
     ? refPts.length < 4 ? `Tap ${REF_NAMES[refPts.length]} corner` : 'Reference done'
@@ -140,7 +139,6 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
         {sub === 'room' && roomPts.length === 0 && <HintCorners />}
       </Stepper>
       {aiSlot}
-      {aiCount > 0 && sub !== 'check' && <p className="chip chip-ai capture-msg">{aiCount} guesses, drag to fix</p>}
       {sub === 'ref' && (
         <div className="row capture-wrap">
           <select value={refKind} onChange={(e) => setRefKind(e.target.value as 'a4' | 'custom')} aria-label="Reference">
@@ -148,10 +146,8 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
             <option value="custom">Other rectangle (cm)</option>
           </select>
           {refKind === 'custom' && <><input className="capture-num" type="number" aria-label="Width cm" value={cw} onChange={(e) => setCw(+e.target.value)} /> x <input className="capture-num" type="number" aria-label="Height cm" value={ch} onChange={(e) => setCh(+e.target.value)} /></>}
-          {refKind === 'a4' && refPts.length === 0 && <span className="muted">Short side on top</span>}
         </div>
       )}
-      {sub === 'room' && <p className="muted">Tap floor points only</p>}
       <div className="capture-imgbox"
         onPointerDown={(e) => { if (sub === 'check') return; (e.currentTarget as Element).setPointerCapture?.(e.pointerId); const p = norm(e); setDrag(hit(p)); setLoupe(p); }}
         onPointerMove={(e) => { if (!loupe) return; const p = norm(e); setLoupe(p); if (drag) move(drag, p); }}
@@ -169,7 +165,6 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
       <div className="row capture-wrap">
         <button className="btn btn-sm" disabled={!dots.length || sub === 'check'} onClick={() => (roomPts.length ? setRoomPts((a) => a.slice(0, -1)) : setRefPts((a) => a.slice(0, -1)))}>Undo point</button>
         <button className="btn btn-sm btn-ghost" onClick={() => { setRefPts(initialRef ?? []); setRoomPts(initialRoom ?? []); setSub('ref'); }}>Start over</button>
-        <span className="muted capture-legend"><i className="capture-dot is-ref" /> reference <i className="capture-dot" /> your tap <i className="capture-dot is-ai" /> AI guess</span>
       </div>
       {badH && <p className="chip chip-bad">Taps do not work. Start over.</p>}
       {sub === 'check' && closed && !badH && (
@@ -179,7 +174,6 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
               <label key={i} className="row capture-wall">
                 <span>Wall {i + 1}</span>
                 <b className="capture-mono">{Math.round(l * scale * 100)} cm</b>
-                <span className="muted">{viaGemini(i) ? 'AI + you' : 'taps'}</span>
                 <span className="capture-check"><input type="checkbox" checked={hidden.has(i)} onChange={() => setHidden((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} /> not visible</span>
               </label>
             ))}
@@ -192,8 +186,7 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
             </div>
           </div>
           {errCm != null
-            ? <p className={`chip ${Math.abs(errCm) < 5 ? 'chip-ok' : 'chip-warn'}`}>Photo said {Math.round(computed * 100)} cm, off by {errCm.toFixed(1)} cm ({((errCm / (tapeM * 100)) * 100).toFixed(1)}%). Walls rescaled to your tape.</p>
-            : <p className="muted">Not tape checked</p>}
+            ? <p className={`chip ${Math.abs(errCm) < 5 ? 'chip-ok' : 'chip-warn'}`}>Photo said {Math.round(computed * 100)} cm, off by {errCm.toFixed(1)} cm ({((errCm / (tapeM * 100)) * 100).toFixed(1)}%). Walls rescaled to your tape.</p>            : null}
         </div>
       )}
     </div>

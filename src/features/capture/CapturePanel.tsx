@@ -103,11 +103,7 @@ function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => voi
       <Stepper step={4} hint="" />
       <div className="capture-stats">
         <div><b>{s.areaM2.toFixed(1)} m²</b><span>Floor area</span></div>
-        <div><b>{s.measured}</b><span>Walls measured</span></div>
-        <div><b>{s.estimated}</b><span>Walls estimated</span></div>
-        <div><b>{s.errCm == null ? 'n/a' : `${Math.abs(s.errCm).toFixed(1)} cm`}</b><span>Tape error</span></div>
       </div>
-      {s.openings > 0 && <p className="muted">{s.openings} openings</p>}
       <button className="btn btn-primary capture-big" onClick={onDesign}>Design this room</button>
       <button className="btn btn-ghost" onClick={onAgain}>Capture another</button>
     </div>

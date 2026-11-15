@@ -190,13 +190,11 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
             <button className="btn btn-sm" onClick={() => setSegs([...segs, { len: 100, turn: 90 }])}>Add wall</button>
             <span className={`chip ${closure < 0.01 ? 'chip-ok' : closure < 0.05 ? 'chip-warn' : 'chip-bad'}`}>Gap at the end: {Number.isFinite(closure) ? fmt(closure) : '–'}</span>
           </div>
-          {closure >= 0.01 && <p className="muted">Last wall estimated</p>}
         </div>
       )}
 
       <details className="capture-more" open={!doorOk || !winOk || undefined}>
         <summary>More options</summary>
-        <p className="muted capture-small">Tap a wall to add</p>
       <div className="capture-grid">
           <Num label="Ceiling" unit={unit} value={ceilingCm} onChange={setCeilingCm} />
           <Num label="Wall thickness" unit={unit} value={thick} onChange={setThick} />
