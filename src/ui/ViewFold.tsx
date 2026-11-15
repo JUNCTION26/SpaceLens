@@ -99,7 +99,7 @@ export function toggleWalk() {
   const v = useViewPrefs.getState();
   if (v.touring) { emit('spacelens:stop-tour'); return; }
   const st = useStore.getState();
-  if (v.cam !== 'walk' && st.view === '2d' && st.mode !== 'experience') st.setView('split');
+  if (st.view === '2d' && st.mode !== 'experience') { st.setView('split'); setViewPrefs({ cam: 'walk' }); return; }
   setViewPrefs({ cam: v.cam === 'walk' ? 'orbit' : 'walk' });
 }
 

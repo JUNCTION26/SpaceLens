@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { AdaptiveDpr, ContactShadows, Edges, Environment, Html, OrbitControls, PerformanceMonitor } from '@react-three/drei';
+import { AdaptiveDpr, ContactShadows, Edges, Environment, OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
@@ -13,26 +13,19 @@ import { clearOfWalls, doorBridges, entranceSpawn, onFloor, solidSegments, space
 import { pathBetween, planTour } from '../sim/tour';
 import { applyDemoLink } from '../building/demo';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
-import { Icon } from '../../ui/icons';
+import { EYES, setViewPrefs, toggleStageFull, useViewPrefs, type ViewAngle } from '../../ui/ViewFold';
 import './scene3d.css';
 import { XRRig } from '../xr/XRRig';
-import { enterXR, useXRSupport, type XRMode } from '../xr/xrSupport';
+import { enterXR, type XRMode } from '../xr/xrSupport';
 import { approach, clampTarget, orientationLook } from './walkMath';
 import { attachWalkInput, clampPitch, type WalkInput as WalkKeys } from '../sim/walkInput';
 import { stepWalker } from '../sim/walker';
 import { furnitureObstacles, segmentObstacles } from '../sim/collide';
-import { Minimap } from '../sim/Minimap';
 
 type CamMode = 'orbit' | 'walk';
 type ViewKind = 'corner' | 'top' | 'front';
 /** Walking speed factor set from the Walk panel (1 is normal). */
 let walkSpeedMul = 1;
-const EYES = [
-  { id: 'standing', label: 'Standing', h: 1.6 },
-  { id: 'seated', label: 'Seated', h: 1.2 },
-  { id: 'child', label: 'Child', h: 1.0 },
-  { id: 'wheelchair', label: 'Wheelchair', h: 1.2 },
-];
 
 interface CamReq { toP?: THREE.Vector3; toT?: THREE.Vector3; view?: ViewKind; focus?: THREE.Vector3; box?: { cx: number; cy: number; w: number; d: number }; n: number }
 
@@ -303,60 +296,6 @@ function BuildingShell({ room, selectedWall, cutaway, gesture, onFocus, pickable
   );
 }
 
-interface LabelAnchor { id: string; at: THREE.Vector3; side: number; nameW: number; fullW: number }
-
-/**
- * Room labels for big plans. Each frame (only when the view changes) the labels are placed by
- * priority: the hovered room first, then the largest rooms. A label that would overlap one already
- * placed is hidden, labels fade out as their room gets small on screen, and the hovered room always
- * shows its full label with the area. All of it writes styles directly, without React renders.
- */
-function LabelLayout({ spaces, box, hover }: { spaces: Space[]; box: RefObject<HTMLDivElement | null>; hover: MutableRefObject<string | null> }) {
-  const anchors = useMemo<LabelAnchor[]>(() => spaces.map((s) => {
-    const c = centroid(s.polygon);
-    const at = pointInPolygon(c, s.polygon) ? c : s.polygon[0];
-    const a = area(s.polygon);
-    return { id: s.id, at: new THREE.Vector3(at.x, 0.1, at.y), side: Math.sqrt(a), nameW: s.name.length * 7 + 20, fullW: Math.max(s.name.length * 7, 48) + 20 };
-  }).sort((p, q) => q.side - p.side), [spaces]);
-  const v = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera, size }) => {
-    const root = box.current;
-    if (!root) return;
-    const els = new Map<string, HTMLElement>();
-    for (const el of Array.from(root.children) as HTMLElement[]) els.set(el.dataset.id ?? '', el);
-    const cam = camera as THREE.PerspectiveCamera;
-    const k = size.height / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov || 50) / 2));
-    const placed: Array<[number, number, number, number]> = [];
-    const hot = hover.current;
-    const order = hot ? [...anchors.filter((a) => a.id === hot), ...anchors.filter((a) => a.id !== hot)] : anchors;
-    for (const a of order) {
-      const el = els.get(a.id);
-      if (!el) continue;
-      v.copy(a.at).applyMatrix4(camera.matrixWorldInverse);
-      const depth = -v.z;
-      v.copy(a.at).project(camera);
-      const isHot = a.id === hot;
-      const px = (a.side * k) / Math.max(depth, 0.1);
-      const fade = isHot ? 1 : Math.max(0, Math.min(1, (px - 34) / 36));
-      const full = isHot || px > 150;
-      const w = full ? a.fullW : a.nameW, h = full ? 36 : 24;
-      const x = (v.x * 0.5 + 0.5) * size.width, y = (-v.y * 0.5 + 0.5) * size.height;
-      let show = depth > 0 && v.z < 1 && fade > 0.02 && x > -w && x < size.width + w && y > -h && y < size.height + h;
-      if (show && !isHot) {
-        for (const r of placed) if (x - w / 2 < r[2] && x + w / 2 > r[0] && y - h / 2 < r[3] && y + h / 2 > r[1]) { show = false; break; }
-      }
-      if (!show) { if (el.style.display !== 'none') el.style.display = 'none'; continue; }
-      placed.push([x - w / 2 - 4, y - h / 2 - 2, x + w / 2 + 4, y + h / 2 + 2]);
-      el.style.display = '';
-      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -50%)`;
-      el.style.opacity = fade.toFixed(2);
-      el.classList.toggle('full', full);
-      el.classList.toggle('hot', isHot);
-    }
-  });
-  return null;
-}
-
 /**
  * Moves a piece in instead of popping it: new pieces drop from 30 cm on a spring with a small squash
  * on landing, pieces that change pose between layouts glide there, and leaving pieces shrink away.
@@ -504,11 +443,6 @@ function Furniture({ items, ghost, interactive, onFocus, gesture }: { items: Fur
                 <meshBasicMaterial visible={false} />
                 <Edges color={isSel ? '#4da3ff' : '#ffffff'} lineWidth={isSel ? 2.5 : 1.5} />
               </mesh>
-            )}
-            {live && isSel && (
-              <Html position={[it.x, it.h + 0.18, it.y]} center zIndexRange={[2, 0]} style={{ pointerEvents: 'none' }}>
-                <div className="scene3d-dim">{Math.round(it.w * 100)} × {Math.round(it.d * 100)} × {Math.round(it.h * 100)} cm</div>
-              </Html>
             )}
             </Settle>
           </group>
@@ -1065,31 +999,6 @@ function useBackdrop() {
 const COARSE = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 const isField = (t: EventTarget | null) => t instanceof HTMLElement && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable);
 
-/** Mouse and key reference, opened from the "?" button. */
-function HelpCard({ mode }: { mode: CamMode }) {
-  const rows: Array<[string, string]> = mode === 'walk'
-    ? [['Click', 'Look around'], ['W A S D, arrows', 'Move'], ['Shift', 'Move faster'], ['C, Space', 'Lower, raise eyes'], ['Click again', 'Walk there'], ['Esc', 'Release the mouse']]
-    : [['Drag', 'Turn around'], ['Right-drag, Shift+drag', 'Pan'], ['Wheel', 'Zoom'], ['Double-click', 'Focus there'], ['F', 'Zoom to selection'], ['0, Home', 'Reset the view']];
-  return (
-    <div className="scene3d-opts scene3d-help" role="dialog" aria-label="Controls">
-      <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-    </div>
-  );
-}
-
-/** Plan chip in the corner of the eye view: where the visitor stands and which way they face. */
-function WalkMinimap({ model, walk }: { model: ReturnType<typeof useRoom>['model']; walk: MutableRefObject<Walk> }) {
-  const [at, setAt] = useState(() => ({ pos: walk.current.pos, yaw: walk.current.yaw }));
-  useEffect(() => {
-    const t = window.setInterval(() => {
-      const w = walk.current;
-      setAt((o) => (o.pos.x === w.pos.x && o.pos.y === w.pos.y && o.yaw === w.yaw ? o : { pos: { ...w.pos }, yaw: w.yaw }));
-    }, 100);
-    return () => clearInterval(t);
-  }, [walk]);
-  return <Minimap model={model} pos={at.pos} yaw={at.yaw} />;
-}
-
 export function SceneView() {
   const backdrop = useBackdrop();
   const room = useRoom();
@@ -1098,20 +1007,21 @@ export function SceneView() {
   const activeCandidateId = useStore((s) => s.activeCandidateId);
   const selection = useStore((s) => s.selection);
   const passage = useStore((s) => s.analysis.passage);
-  const [mode, setMode] = useState<CamMode>('orbit');
-  const [eyeId, setEyeId] = useState('standing');
-  const [cutaway, setCutaway] = useState(true);
-  const [figure, setFigure] = useState(false);
-  const [showBefore, setShowBefore] = useState(false);
-  const [hour, setHour] = useState(15);
-  const [quality, setQuality] = useState<Quality>(START_QUALITY);
+  // View options live in a shared store: the top bar and the View fold in the left panel set them.
+  const mode = useViewPrefs((s) => s.cam);
+  const eyeId = useViewPrefs((s) => s.eyeId);
+  const cutaway = useViewPrefs((s) => s.cutaway);
+  const figure = useViewPrefs((s) => s.figure);
+  const showBefore = useViewPrefs((s) => s.showBefore);
+  const hour = useViewPrefs((s) => s.hour);
+  const quality = useViewPrefs((s) => s.quality);
+  const tilt = useViewPrefs((s) => s.tilt);
+  const full = useViewPrefs((s) => s.full || s.pseudo);
+  const setMode = (m: CamMode) => setViewPrefs({ cam: m });
+  const setEyeId = (id: string) => setViewPrefs({ eyeId: id });
+  const setQuality = (q: Quality) => setViewPrefs({ quality: q });
   const light = daylight(hour);
-  const [menu, setMenu] = useState<'view' | 'help' | null>(null);
-  const [fs, setFs] = useState(false);
-  const [idle, setIdle] = useState(false);
-  const [tilt, setTilt] = useState(false);
   const gesture = useRef<Gesture>({ onPiece: false, touched: false, shadowDirty: true, walking: false });
-  const xrSup = useXRSupport();
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
   const [xrMode, setXrMode] = useState<XRMode | null>(null);
   const startXR = async (m: XRMode) => {
@@ -1192,7 +1102,6 @@ export function SceneView() {
     w.pos = { ...room.spawn.pos }; w.yaw = room.spawn.yaw; w.pitch = 0; w.spawnedFor = room.key;
     w.path = t.points.map((p) => ({ ...p })); w.goal = null; w.tour = true;
     setTouring(true);
-    setMenu(null);
     setMode('walk');
     if (record && glRef.current) {
       try {
@@ -1225,39 +1134,13 @@ export function SceneView() {
   useEffect(() => () => { const r = recorder.current; if (r && r.state !== 'inactive') r.stop(); }, []);
   useEffect(() => { applyDemoLink(); }, []);
 
-  /* ----- Full screen: the 3D view alone, with the control strip fading out while the mouse rests ----- */
-  // Where the Fullscreen API is missing or refused (iPhone, embedded pages) the view fills the window instead.
-  const [pseudoFs, setPseudoFs] = useState(false);
-  const toggleFs = () => {
-    const el = wrap.current;
-    if (!el) return;
-    if (pseudoFs) { setPseudoFs(false); return; }
-    if (document.fullscreenElement) { void document.exitFullscreen().catch(() => {}); return; }
-    const p = el.requestFullscreen?.();
-    if (!p) { setPseudoFs(true); return; }
-    p.catch(() => setPseudoFs(true));
-  };
-  useEffect(() => {
-    const on = () => setFs(!!wrap.current && document.fullscreenElement === wrap.current);
-    document.addEventListener('fullscreenchange', on);
-    return () => document.removeEventListener('fullscreenchange', on);
-  }, []);
-  useEffect(() => {
-    if (!pseudoFs) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setPseudoFs(false); };
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, [pseudoFs]);
-  const full = fs || pseudoFs;
-  const idleT = useRef<number | undefined>(undefined);
-  const wake = () => {
-    if (!full) return;
-    setIdle(false);
-    clearTimeout(idleT.current);
-    idleT.current = window.setTimeout(() => setIdle(true), 2500);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (full) wake(); else { clearTimeout(idleT.current); setIdle(false); } }, [full]);
+  // Full screen covers the whole views area and is started from the top bar (or Shift+F).
+  const toggleFs = toggleStageFull;
+
+  // The top bar shows tour and immersive state; the 3D view owns both.
+  useEffect(() => { setViewPrefs({ touring }); }, [touring]);
+  useEffect(() => { setViewPrefs({ xrMode }); }, [xrMode]);
+  useEffect(() => () => setViewPrefs({ touring: false, xrMode: null }), []);
 
 
   /* ----- Walk: keys, drag to look, touch halves, gamepad ----- */
@@ -1273,15 +1156,7 @@ export function SceneView() {
     return () => { h.dispose(); walkKeys.current = null; };
   }, [mode]);
 
-  /* ----- Walk: look around by turning the phone ----- */
-  const startTilt = async () => {
-    const D = (window as unknown as { DeviceOrientationEvent?: { requestPermission?: () => Promise<string> } }).DeviceOrientationEvent;
-    if (!D) { useStore.getState().toast('This device has no motion sensor', 'warn'); return; }
-    if (typeof D.requestPermission === 'function') {
-      try { if ((await D.requestPermission()) !== 'granted') { useStore.getState().toast('Motion access was not allowed', 'warn'); return; } } catch { return; }
-    }
-    setTilt(true);
-  };
+  /* ----- Walk: look around by turning the phone (switched on in the View fold) ----- */
   useEffect(() => {
     if (!tilt || mode !== 'walk') return;
     let base: { a: number; yaw: number } | null = null;
@@ -1368,27 +1243,50 @@ export function SceneView() {
     return () => window.removeEventListener('spacelens:walk', h);
   }, []);
 
+  // Requests from the top bar, the View fold and the film. Handlers read the latest closures through a ref.
+  const reqActs = useRef({ view, stopTour, startXR });
+  reqActs.current = { view, stopTour, startXR };
+  useEffect(() => {
+    // The film sets the time of day: detail { hour, handled }.
+    const hr = (e: Event) => {
+      const d = (e as CustomEvent<{ hour?: number; handled?: boolean }>).detail;
+      const h = Number(d?.hour);
+      if (!d || !Number.isFinite(h)) return;
+      d.handled = true;
+      setViewPrefs({ hour: Math.min(23, Math.max(6, h)) });
+    };
+    const ang = (e: Event) => { const v = (e as CustomEvent<ViewAngle>).detail; if (v === 'corner' || v === 'top' || v === 'front') reqActs.current.view(v); };
+    const stop = () => reqActs.current.stopTour();
+    const xr = (e: Event) => { const m = (e as CustomEvent<XRMode>).detail; if (m === 'immersive-vr' || m === 'immersive-ar') void reqActs.current.startXR(m); };
+    window.addEventListener('spacelens:hour', hr);
+    window.addEventListener('spacelens:view-angle', ang);
+    window.addEventListener('spacelens:stop-tour', stop);
+    window.addEventListener('spacelens:xr', xr);
+    return () => {
+      window.removeEventListener('spacelens:hour', hr);
+      window.removeEventListener('spacelens:view-angle', ang);
+      window.removeEventListener('spacelens:stop-tour', stop);
+      window.removeEventListener('spacelens:xr', xr);
+    };
+  }, []);
+
 
   const onDown = () => {
     // The orbit controls cancel the default pointer action, so a search box elsewhere would keep the
     // keyboard; take focus so F, Home and WASD reach the 3D view right after a click in it.
     if (wrap.current && document.activeElement !== wrap.current) wrap.current.focus({ preventScroll: true });
-    if (menu) setMenu(null);
   };
 
   // The figure, the walk and VR all start at the entrance, looking in.
   const figAt = room.spawn.pos;
   const multi = model.spaces.length > 1;
-  const hoverRoom = useRef<string | null>(null);
-  const labelBox = useRef<HTMLDivElement>(null);
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
   const devExtra = useRef<Record<string, unknown>>({});
-  devExtra.current = { fs, pseudoFs, eye, menu };
+  devExtra.current = { full, eye };
 
   return (
-    <div className={`scene3d${full ? ' is-fs' : ''}${pseudoFs ? ' is-pseudo' : ''}${idle ? ' is-idle' : ''}`} ref={wrap} tabIndex={-1} style={{ background: backdrop }}
-      onPointerDown={onDown} onPointerMove={wake}>
+    <div className="scene3d" ref={wrap} tabIndex={-1} style={{ background: backdrop }} onPointerDown={onDown}>
       <Canvas shadows dpr={quality === 'high' ? [1, 2] : [1, 1.25]} performance={{ min: 0.6, debounce: 250 }} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
         gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         {xrMode !== 'immersive-ar' && <color attach="background" args={[backdrop]} />}
@@ -1401,9 +1299,8 @@ export function SceneView() {
         <SelectionRim items={shown} />
         <PerformanceMonitor onDecline={() => setQuality('low')} flipflops={2} />
 
-        <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? () => {} : undefined} onFocus={mode === 'walk' ? undefined : focusPoint} hover={multi ? hoverRoom : undefined} />
+        <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? () => {} : undefined} onFocus={mode === 'walk' ? undefined : focusPoint} />
         <BuildingShell room={room} selectedWall={selection?.kind === 'wall' ? selection.id : null} cutaway={cutaway && mode !== 'walk'} gesture={gesture} onFocus={mode === 'walk' ? undefined : focusPoint} pickable={mode !== 'walk'} />
-        {multi && mode !== 'walk' && <LabelLayout spaces={model.spaces} box={labelBox} hover={hoverRoom} />}
         {mode === 'walk' && <Plates spaces={model.spaces} y={model.ceilingM} ceiling />}
 
         <Furniture items={shown} interactive={mode !== 'walk' && !activeCandidateId} onFocus={focusItem} gesture={gesture} />
@@ -1423,73 +1320,6 @@ export function SceneView() {
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} input={walkKeys} req={req} gesture={gesture} onRoom={setRoomId} onTourEnd={endTour} />
         <DevHandle mode={mode} extra={devExtra} />
       </Canvas>
-
-      {multi && mode !== 'walk' && (
-        <div className="scene3d-labels" ref={labelBox} aria-hidden="true">
-          {model.spaces.map((s) => (
-            <div key={s.id} data-id={s.id} className="scene3d-roomlabel" style={{ display: 'none' }}>{s.name}<span>{area(s.polygon).toFixed(0)} m²</span></div>
-          ))}
-        </div>
-      )}
-      <div className="scene3d-vignette" aria-hidden="true" />
-      {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate</div>}
-      <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="scene3d-modes" role="toolbar" aria-label="3D view">
-          <button className={`scene3d-ib${mode === 'walk' ? ' on' : ''}`} onClick={() => setMode(mode === 'walk' ? 'orbit' : 'walk')} aria-pressed={mode === 'walk'} aria-label="Walk" title={mode === 'walk' ? 'Back to orbit (Esc)' : 'Eye view'}>
-            <Icon name="walk" />
-          </button>
-          {touring && <button className="scene3d-ib on" onClick={stopTour} aria-label="Stop tour" title="Stop tour"><Icon name="pause" /></button>}
-          <button className={`scene3d-ib${full ? ' on' : ''}`} onClick={toggleFs} aria-pressed={full} aria-label="Full screen" title={full ? 'Leave full screen (Esc)' : 'Full screen (Shift+F)'}>
-            <Icon name={full ? 'x' : 'maximize'} />
-          </button>
-          {mode !== 'walk' && (
-            <button className={`scene3d-ib${menu === 'help' ? ' on' : ''}`} onClick={() => setMenu(menu === 'help' ? null : 'help')} aria-expanded={menu === 'help'} aria-label="Controls" title="Controls">
-              <span className="scene3d-q" aria-hidden="true">?</span>
-            </button>
-          )}
-          <button className={`scene3d-tb${menu === 'view' ? ' on' : ''}`} onClick={() => setMenu(menu === 'view' ? null : 'view')} aria-expanded={menu === 'view'}>
-            View<Icon name="chevronDown" />
-          </button>
-        </div>
-        {menu === 'help' && mode !== 'walk' && <HelpCard mode={mode} />}
-        {menu === 'view' && (
-          <div className="scene3d-opts">
-            <div className="scene3d-chips" role="group" aria-label="Camera">
-              {(['corner', 'top', 'front'] as ViewKind[]).map((v) => (
-                <button key={v} className="scene3d-chip" onClick={() => view(v)}>{v === 'corner' ? 'Corner' : v === 'top' ? 'Top' : 'Front'}</button>
-              ))}
-            </div>
-            {(multi && !touring) || xrSup.vr || xrSup.ar ? (
-              <div className="scene3d-chips">
-                {multi && !touring && <button className="scene3d-chip" onClick={() => startTour(false)}>Auto tour</button>}
-                {multi && !touring && canRecord && <button className="scene3d-chip" onClick={() => startTour(true)}>Record tour</button>}
-                {xrSup.vr && <button className={`scene3d-chip${xrMode === 'immersive-vr' ? ' on' : ''}`} onClick={() => startXR('immersive-vr')}>VR</button>}
-                {xrSup.ar && <button className={`scene3d-chip${xrMode === 'immersive-ar' ? ' on' : ''}`} onClick={() => startXR('immersive-ar')}>AR</button>}
-              </div>
-            ) : null}
-            {mode === 'walk' && (
-              <label className="scene3d-row">Eye height
-                <select value={eyeId} onChange={(e) => setEyeId(e.target.value)}>
-                  {EYES.map((e) => <option key={e.id} value={e.id}>{e.label} {e.h} m</option>)}
-                </select>
-              </label>
-            )}
-            {mode === 'walk' && COARSE && <label className="scene3d-row"><input type="checkbox" checked={tilt} onChange={(e) => { if (e.target.checked) void startTilt(); else setTilt(false); }} /> Look by moving the phone</label>}
-            {mode !== 'walk' && <label className="scene3d-row"><input type="checkbox" checked={cutaway} onChange={(e) => setCutaway(e.target.checked)} /> Cut away near walls</label>}
-            {mode !== 'walk' && <label className="scene3d-row"><input type="checkbox" checked={figure} onChange={(e) => setFigure(e.target.checked)} /> 1.75 m person</label>}
-            {activeCandidateId && <label className="scene3d-row"><input type="checkbox" checked={showBefore} onChange={(e) => setShowBefore(e.target.checked)} /> Show before</label>}
-            <label className="scene3d-row scene3d-sun" title={`${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.round((hour % 1) * 60)).padStart(2, '0')}`}>
-              <Icon name="sun" /><span className="sr-only">Time of day</span>
-              <input type="range" min={6} max={23} step={0.25} value={hour} onChange={(e) => setHour(Number(e.target.value))} aria-label="Time of day" />
-            </label>
-            <div className="scene3d-chips" role="group" aria-label="Quality">
-              <button className={`scene3d-chip${quality === 'high' ? ' on' : ''}`} aria-pressed={quality === 'high'} onClick={() => setQuality(quality === 'high' ? 'low' : 'high')}>HQ</button>
-            </div>
-            <div className="muted scene3d-note">Illustrative light, not a daylight study</div>
-          </div>
-        )}
-      </div>
-      {mode === 'walk' && <WalkMinimap model={model} walk={walk} />}
       {mode === 'walk' && <div className="sr-only" aria-live="polite">{recording ? 'Recording' : multi && roomName ? roomName : ''}</div>}
     </div>
   );
