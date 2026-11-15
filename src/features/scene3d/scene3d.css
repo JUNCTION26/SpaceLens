@@ -31,8 +31,8 @@
 .scene3d-opts { display: flex; flex-direction: column; gap: 10px; width: 232px; max-width: 100%; padding: 12px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); font-size: 13px; color: var(--text); }
 .scene3d-row { display: flex; align-items: center; gap: 8px; }
 .scene3d-row select { flex: 1; min-height: 28px; }
-.scene3d-sun { flex-direction: column; align-items: stretch; gap: 4px; }
-.scene3d-sun input { width: 100%; }
+.scene3d-sun { flex-direction: row; align-items: center; gap: 8px; }
+.scene3d-sun input { flex: 1; min-width: 0; }
 .scene3d-note { font-size: 12px; }
 .scene3d-joy { position: absolute; left: 16px; bottom: 96px; width: 88px; height: 88px; border-radius: 50%; background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); display: grid; place-items: center; touch-action: none; }
 .scene3d-knob { width: 36px; height: 36px; border-radius: 50%; background: var(--text); opacity: .5; pointer-events: none; }

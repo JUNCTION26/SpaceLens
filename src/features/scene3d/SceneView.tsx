@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { AdaptiveDpr, ContactShadows, Edges, Environment, Html, OrbitControls } from '@react-three/drei';
+import { AdaptiveDpr, ContactShadows, Edges, Environment, Html, OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore, useShownFurniture } from '../../core/store';
 import {
@@ -79,6 +79,20 @@ const wallMat = new THREE.MeshStandardMaterial({
   roughnessMap: tex('painted_plaster_wall_rough_1k.jpg', 1), color: '#f6f2ea', roughness: 1, metalness: 0,
 });
 wallMat.normalScale.set(0.35, 0.35);
+// Faint ambient occlusion: walls darken softly toward the floor, the way light pools in a real room.
+wallMat.onBeforeCompile = (sh) => {
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vAoY;')
+    .replace('#include <project_vertex>', `#include <project_vertex>
+    vec4 aoW = vec4(transformed, 1.0);
+    #ifdef USE_INSTANCING
+    aoW = instanceMatrix * aoW;
+    #endif
+    vAoY = (modelMatrix * aoW).y;`);
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vAoY;')
+    .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(0.7, 1.0, smoothstep(0.0, 0.6, vAoY));');
+};
 const ceilMat = new THREE.MeshStandardMaterial({ color: '#f7f5f0', roughness: 0.95 });
 const glassMat = new THREE.MeshPhysicalMaterial({ color: '#eef6ff', transmission: 1, thickness: 0.01, ior: 1.5, roughness: 0.04, metalness: 0, transparent: true, opacity: 1, depthWrite: false });
 const frameMat = new THREE.MeshStandardMaterial({ color: '#fafaf8', roughness: 0.35 });
@@ -89,6 +103,22 @@ const outdoorFloorMat = new THREE.MeshStandardMaterial({ color: '#bdb6aa', rough
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const BOX_MAT: Record<BoxMat, THREE.Material> = { wall: wallMat, glass: glassMat, frame: frameMat, base: baseMat, rail: railMat, door: doorMat };
 const SEL_COLOR = new THREE.Color('#9fd0ff'), PLAIN = new THREE.Color('#ffffff');
+
+/** Motion is off for people who asked their system for less of it. */
+const REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Automated browsers get a still camera so scripted checks see stable poses. */
+const SCRIPTED = typeof navigator !== 'undefined' && !!(navigator as Navigator & { webdriver?: boolean }).webdriver;
+type Quality = 'high' | 'low';
+/** Start at full quality unless the screen is low density on a small CPU; frame drops lower it later. */
+const START_QUALITY: Quality = typeof window !== 'undefined' && (window.devicePixelRatio || 1) < 1.25 && (navigator.hardwareConcurrency || 8) <= 4 ? 'low' : 'high';
+
+/** Light of the day: 0..1 daylight strength and 0..1 night, from an hour between 6 and 23. */
+function daylight(hour: number) {
+  const t = Math.min(1, Math.max(0, (hour - 6) / 15));
+  const day = Math.max(0, Math.sin(Math.PI * t));
+  const night = Math.min(1, Math.max(0, (hour - 19) / 2.5));
+  return { t, day, night };
+}
 
 function useRoom() {
   const model = useStore((s) => s.model);
@@ -282,11 +312,91 @@ function LabelLayout({ spaces, box, hover }: { spaces: Space[]; box: RefObject<H
   return null;
 }
 
+/**
+ * Moves a piece in instead of popping it: new pieces drop from 30 cm on a spring with a small squash
+ * on landing, pieces that change pose between layouts glide there, and leaving pieces shrink away.
+ * Everything is a transform on a wrapper group, so the furniture itself never re-renders.
+ */
+function Settle({ it, delay, leaving, instant, gesture, children }: { it: FurnitureItem; delay: number; leaving?: boolean; instant?: boolean; gesture: MutableRefObject<Gesture>; children: React.ReactNode }) {
+  const outer = useRef<THREE.Group>(null);
+  const invalidate = useThree((st) => st.invalidate);
+  const st = useRef({ born: -1, y: REDUCED || leaving ? 0 : 0.3, vy: 0, dx: 0, dz: 0, dr: 0, s: 1, last: { x: it.x, y: it.y, r: it.rotation }, done: REDUCED });
+  // a pose change that is not a live drag becomes an offset that springs back to zero: a glide
+  const prev = st.current.last;
+  if (prev.x !== it.x || prev.y !== it.y || prev.r !== it.rotation) {
+    if (!instant && !REDUCED) {
+      st.current.dx += prev.x - it.x; st.current.dz += prev.y - it.y;
+      st.current.dr += angleTo(it.rotation, prev.r);
+      st.current.done = false;
+    }
+    st.current.last = { x: it.x, y: it.y, r: it.rotation };
+  }
+  if (leaving && st.current.s > 0 && st.current.done) st.current.done = false;
+  useLayoutEffect(() => { invalidate(); });
+  // hidden until its turn in the stagger comes
+  useLayoutEffect(() => { if (!st.current.done && !leaving) outer.current?.scale.setScalar(1e-4); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }, dt) => {
+    const g = outer.current, k = st.current;
+    if (!g || k.done) return;
+    const now = clock.elapsedTime;
+    if (k.born < 0) k.born = now + delay / 1000;
+    const h = Math.min(dt, 1 / 30);
+    let busy = false;
+    if (now >= k.born) {
+      // under-damped spring for the drop (a little bounce), near-critical for the glide
+      const a = -170 * k.y - 13 * k.vy;
+      k.vy += a * h; k.y += k.vy * h;
+      if (Math.abs(k.y) + Math.abs(k.vy) > 0.002) busy = true; else { k.y = 0; k.vy = 0; }
+      const f = 1 - Math.exp(-9 * h);
+      k.dx -= k.dx * f; k.dz -= k.dz * f; k.dr -= k.dr * f;
+      if (Math.abs(k.dx) + Math.abs(k.dz) + Math.abs(k.dr) > 0.002) busy = true; else { k.dx = 0; k.dz = 0; k.dr = 0; }
+    } else busy = true;
+    if (leaving) { k.s = Math.max(0, k.s - h / 0.25); if (k.s > 0) busy = true; }
+    if (now < k.born) { g.scale.setScalar(1e-4); invalidate(); return; }
+    // squash on impact: flatten while moving down fast near the floor, stretch slightly on rebound
+    const sq = Math.max(-0.08, Math.min(0.05, k.vy * 0.035)) * (k.y < 0.06 ? 1 : 0.3);
+    const sy = (1 + sq) * k.s, sxz = (1 / Math.sqrt(1 + sq)) * k.s;
+    g.position.set(it.x + k.dx, Math.max(0, k.y), it.y + k.dz);
+    g.rotation.y = -k.dr;
+    g.scale.set(sxz, sy, sxz);
+    gesture.current.shadowDirty = true;
+    if (!busy) k.done = true;
+    invalidate();
+  });
+  // pivot at the piece's own floor point, so scale and turn happen in place
+  return (
+    <group ref={outer} position={[it.x + st.current.dx, Math.max(0, st.current.y), it.y + st.current.dz]}>
+      <group position={[-it.x, 0, -it.y]}>{children}</group>
+    </group>
+  );
+}
+
 function Furniture({ items, ghost, interactive, onFocus, gesture }: { items: FurnitureItem[]; ghost?: boolean; interactive?: boolean; onFocus?: (it: FurnitureItem) => void; gesture: MutableRefObject<Gesture> }) {
   const sel = useStore((s) => s.selection);
   const spaces = useStore((s) => s.model.spaces);
   const [hover, setHover] = useState<string | null>(null);
   const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  // Arrival order of new pieces (staggered drops) and pieces on their way out (shrink, then unmount).
+  const seen = useRef<Map<string, FurnitureItem> | null>(null);
+  const delays = useRef(new Map<string, number>());
+  const [leaving, setLeaving] = useState<FurnitureItem[]>([]);
+  useLayoutEffect(() => {
+    if (ghost) return;
+    const before = seen.current;
+    const now = new Map(items.map((it) => [it.id, it]));
+    const fresh = items.filter((it) => !before?.has(it.id));
+    const step = Math.min(60, 1800 / Math.max(1, fresh.length));
+    fresh.forEach((it, k) => delays.current.set(it.id, REDUCED ? 0 : k * step));
+    if (before && !REDUCED) {
+      const gone = [...before.values()].filter((it) => !now.has(it.id));
+      if (gone.length) {
+        setLeaving((l) => [...l.filter((g) => !now.has(g.id)), ...gone]);
+        const ids = new Set(gone.map((g) => g.id));
+        window.setTimeout(() => setLeaving((l) => l.filter((g) => !ids.has(g.id))), 320);
+      }
+    }
+    seen.current = now;
+  }, [items, ghost]);
   // A press on a piece becomes a drag only after the pointer travels a few pixels; a still press is a click.
   const drag = useRef<{ id: string; ox: number; oy: number; sx: number; sy: number; active: boolean; moved: boolean } | null>(null);
   const controls = useThree((s) => s.controls) as unknown as { enabled: boolean } | null;
@@ -340,6 +450,7 @@ function Furniture({ items, ghost, interactive, onFocus, gesture }: { items: Fur
             } : undefined}
             onPointerUp={live ? (e) => end(e, raw) : undefined}
             onPointerCancel={live ? (e) => end(e, raw) : undefined}>
+            <Settle it={it} delay={delays.current.get(it.id) ?? 0} instant={!!ghost || dragPos?.id === it.id || drag.current?.id === it.id} gesture={gesture}>
             <FurnitureMesh item={it} ghost={ghost} selected={isSel} />
             {live && (hover === it.id || isSel) && (
               <mesh position={[it.x, it.h / 2, it.y]} rotation={[0, -it.rotation, 0]} raycast={() => null}>
@@ -353,9 +464,15 @@ function Furniture({ items, ghost, interactive, onFocus, gesture }: { items: Fur
                 <div className="scene3d-dim">{Math.round(it.w * 100)} × {Math.round(it.d * 100)} × {Math.round(it.h * 100)} cm</div>
               </Html>
             )}
+            </Settle>
           </group>
         );
       })}
+      {leaving.filter((it) => !items.some((f) => f.id === it.id)).map((it) => (
+        <group key={'out:' + it.id} raycast={() => null}>
+          <Settle it={it} delay={0} leaving gesture={gesture}><FurnitureMesh item={it} /></Settle>
+        </group>
+      ))}
     </>
   );
 }
@@ -739,15 +856,20 @@ function DevHandle({ mode, extra }: { mode: string; extra: MutableRefObject<Reco
   return null;
 }
 
-function Sun({ hour, room }: { hour: number; room: ReturnType<typeof useRoom> }) {
+/**
+ * The key light: a soft sun whose direction follows the time of day and which shines in through the
+ * window openings. It warms and sinks toward evening and fades out at night.
+ */
+function Sun({ hour, room, quality }: { hour: number; room: ReturnType<typeof useRoom>; quality: Quality }) {
   const ref = useRef<THREE.DirectionalLight>(null);
   const { scene } = useThree();
-  const t = (hour - 6) / 15;
+  const { t, day, night } = daylight(hour);
   const az = Math.PI * (0.1 + 0.8 * t);
-  const el = Math.max(0.12, Math.sin(Math.PI * t)) * 1.1;
+  const el = Math.max(0.1, day) * 1.05;
   const R = room.size * 2 + 4;
   const pos: [number, number, number] = [room.cx + Math.cos(az) * R * Math.cos(el), Math.sin(el) * R, room.cy - Math.sin(az) * R * 0.6];
-  const warm = new THREE.Color('#ffb070').lerp(new THREE.Color('#fff6e8'), Math.min(1, Math.sin(Math.PI * t) * 1.6));
+  const warm = new THREE.Color('#ff9a52').lerp(new THREE.Color('#fff4e2'), Math.min(1, day * 1.6));
+  const size = quality === 'high' ? 2048 : 1024;
   useEffect(() => {
     if (!ref.current) return;
     ref.current.target.position.set(room.cx, 0, room.cy);
@@ -755,8 +877,30 @@ function Sun({ hour, room }: { hour: number; room: ReturnType<typeof useRoom> })
     const s = room.size;
     const c = ref.current.shadow.camera;
     c.left = -s; c.right = s; c.top = s; c.bottom = -s; c.far = R * 3; c.updateProjectionMatrix();
-  }, [room, scene, R]);
-  return <directionalLight ref={ref} position={pos} intensity={1.2 + 1.3 * Math.sin(Math.PI * t)} color={warm} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} shadow-normalBias={0.02} shadow-radius={4} />;
+  }, [room, scene, R, size]);
+  return <directionalLight key={size} ref={ref} position={pos} intensity={(0.35 + 2.6 * day) * (1 - night)} color={warm} castShadow shadow-mapSize={[size, size]} shadow-bias={-0.0004} shadow-normalBias={0.02} shadow-radius={quality === 'high' ? 6 : 3} />;
+}
+
+/** Warm pools of light from lamps once the sun has gone down. A fixed number of lights, so shaders never recompile. */
+const LAMP_LIGHTS = 3;
+function LampGlow({ items, hour }: { items: FurnitureItem[]; hour: number }) {
+  const lamps = useMemo(() => items.filter((it) => /lamp|light/i.test(it.category)).slice(0, LAMP_LIGHTS), [items]);
+  const { night } = daylight(hour);
+  return (
+    <>
+      {Array.from({ length: LAMP_LIGHTS }, (_, k) => {
+        const it = lamps[k];
+        return <pointLight key={k} position={it ? [it.x, Math.max(0.4, it.h * 0.85), it.y] : [0, -10, 0]} color="#ffb768" intensity={it ? night * 3.2 : 0} distance={4.5} decay={2} />;
+      })}
+    </>
+  );
+}
+
+/** A soft cool rim light over the selected piece, so it reads as lifted rather than painted. */
+function SelectionRim({ items }: { items: FurnitureItem[] }) {
+  const sel = useStore((s) => s.selection);
+  const it = sel?.kind === 'furniture' ? items.find((f) => f.id === sel.id) : undefined;
+  return <pointLight position={it ? [it.x - 0.4, it.h + 0.7, it.y - 0.4] : [0, -10, 0]} color="#cfe6ff" intensity={it ? 2.2 : 0} distance={2.6} decay={2} />;
 }
 
 /* ---------- Joystick ---------- */
@@ -826,6 +970,8 @@ export function SceneView() {
   const [figure, setFigure] = useState(false);
   const [showBefore, setShowBefore] = useState(false);
   const [hour, setHour] = useState(15);
+  const [quality, setQuality] = useState<Quality>(START_QUALITY);
+  const light = daylight(hour);
   const [menu, setMenu] = useState<'view' | 'help' | null>(null);
   const [locked, setLocked] = useState(false);
   const [lockFailed, setLockFailed] = useState(false);
@@ -1181,13 +1327,16 @@ export function SceneView() {
   return (
     <div className={`scene3d${full ? ' is-fs' : ''}${pseudoFs ? ' is-pseudo' : ''}${idle ? ' is-idle' : ''}`} ref={wrap} tabIndex={-1} style={{ background: backdrop }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onClick}>
-      <Canvas shadows dpr={[1, 2]} performance={{ min: 0.6, debounce: 250 }} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
-        gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.92; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
+      <Canvas shadows dpr={quality === 'high' ? [1, 2] : [1, 1.25]} performance={{ min: 0.6, debounce: 250 }} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
+        gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         {xrMode !== 'immersive-ar' && <color attach="background" args={[backdrop]} />}
-        <fog attach="fog" args={[backdrop, room.size * 4, room.size * 10]} />
-        <hemisphereLight args={['#f4f1ea', '#5b5348', 0.18]} />
-        <Sun hour={hour} room={room} />
-        <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85} />
+        <fog attach="fog" args={[backdrop, room.size * 2.6, room.size * 8]} />
+        <hemisphereLight args={[light.night > 0.5 ? '#5a6a8a' : '#f4f1ea', '#5b5348', 0.18 * (1 - 0.5 * light.night)]} />
+        <Sun hour={hour} room={room} quality={quality} />
+        <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85 * (1 - 0.8 * light.night) * (0.75 + 0.25 * light.day)} />
+        <LampGlow items={shown} hour={hour} />
+        <SelectionRim items={shown} />
+        <PerformanceMonitor onDecline={() => setQuality('low')} flipflops={2} />
 
         <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? (p) => { if (tapToMove) walkTo(p); } : undefined} onFocus={mode === 'walk' ? undefined : focusPoint} hover={multi ? hoverRoom : undefined} />
         <BuildingShell room={room} selectedWall={selection?.kind === 'wall' ? selection.id : null} cutaway={cutaway && mode !== 'walk'} gesture={gesture} onFocus={mode === 'walk' ? undefined : focusPoint} pickable={mode !== 'walk'} />
@@ -1202,11 +1351,11 @@ export function SceneView() {
         <Passage items={shown} />
         {figure && mode !== 'walk' && <Figure at={figAt} />}
 
-        <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.55} blur={2.8} far={1.6} resolution={512} color="#2a2118" frames={1} />
+        {quality === 'high' && <ContactShadows position={[room.cx, 0.005, room.cy]} scale={room.size * 1.6} opacity={0.55} blur={2.8} far={1.6} resolution={512} color="#2a2118" frames={1} />}
         <OrbitControls makeDefault regress enableDamping dampingFactor={0.12} zoomToCursor screenSpacePanning={false} zoomSpeed={0.9} rotateSpeed={0.8}
           maxPolarAngle={Math.PI / 2 - 0.05} minDistance={0.6} maxDistance={room.size * 4} />
         <AdaptiveDpr />
-        <MotionBudget gesture={gesture} mode={mode} deps={[model, shown, hour, showBefore, activeCandidateId, mode, figure]} />
+        <MotionBudget gesture={gesture} mode={mode} deps={[model, shown, hour, showBefore, activeCandidateId, mode, figure, quality]} />
         <XRRig spawn={figAt} spawnYaw={room.spawn.yaw} />
         <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} gesture={gesture} onRoom={setRoomId} onTourEnd={endTour} />
         <DevHandle mode={mode} extra={devExtra} />
@@ -1264,9 +1413,13 @@ export function SceneView() {
             {mode !== 'walk' && <label className="scene3d-row"><input type="checkbox" checked={cutaway} onChange={(e) => setCutaway(e.target.checked)} /> Cut away near walls</label>}
             {mode !== 'walk' && <label className="scene3d-row"><input type="checkbox" checked={figure} onChange={(e) => setFigure(e.target.checked)} /> 1.75 m person</label>}
             {activeCandidateId && <label className="scene3d-row"><input type="checkbox" checked={showBefore} onChange={(e) => setShowBefore(e.target.checked)} /> Show before</label>}
-            <label className="scene3d-row scene3d-sun">Sun {String(Math.floor(hour)).padStart(2, '0')}:00
-              <input type="range" min={6} max={21} step={0.5} value={hour} onChange={(e) => setHour(Number(e.target.value))} />
+            <label className="scene3d-row scene3d-sun" title={`${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.round((hour % 1) * 60)).padStart(2, '0')}`}>
+              <Icon name="sun" /><span className="sr-only">Time of day</span>
+              <input type="range" min={6} max={23} step={0.25} value={hour} onChange={(e) => setHour(Number(e.target.value))} aria-label="Time of day" />
             </label>
+            <div className="scene3d-chips" role="group" aria-label="Quality">
+              <button className={`scene3d-chip${quality === 'high' ? ' on' : ''}`} aria-pressed={quality === 'high'} onClick={() => setQuality(quality === 'high' ? 'low' : 'high')}>HQ</button>
+            </div>
             <div className="muted scene3d-note">Illustrative light, not a daylight study</div>
           </div>
         )}

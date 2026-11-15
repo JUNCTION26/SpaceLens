@@ -1,0 +1,19 @@
+.drill { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.drill .btn { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
+.drill-block.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.drill-step { display: inline-flex; align-items: center; gap: 4px; }
+.drill-step output { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.drill-fix { border-color: var(--warn); color: var(--warn); font-weight: var(--fw-strong); }
+
+.drill-chip { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-strong); color: var(--text); font-weight: var(--fw-strong); font-size: 14px; font-variant-numeric: tabular-nums; pointer-events: none; }
+.drill-chip.pass { background: var(--ok); border-color: var(--ok); color: #fff; }
+.drill-chip.fail { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+.drill-smoke { fill: #5b5f66; opacity: .22; pointer-events: none; }
+.drill-flame { fill: #ff7a2f; stroke: #ffd27a; pointer-events: none; }
+.drill-dot { fill: var(--accent, #6e8bff); stroke: #fff; pointer-events: none; }
+.drill-dot.wait { fill: var(--warn); }
+.drill-bottleneck { fill: var(--bad); fill-opacity: .22; stroke: var(--bad); pointer-events: none; transform-box: fill-box; transform-origin: center; animation: drill-pulse 1s ease-in-out infinite; }
+.drill-shut { stroke: var(--bad); fill: none; stroke-linecap: round; pointer-events: none; }
+@keyframes drill-pulse { 0%, 100% { transform: scale(.85); opacity: .5; } 50% { transform: scale(1.15); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drill-bottleneck { animation: none; } }

@@ -7,6 +7,7 @@ import { RuleSelector } from '../jurisdiction/RuleSelector';
 import { applyPack, packFor, type PackId } from '../jurisdiction/rulepacks';
 import { assessSafety, SAFETY_DEFAULT_INFO, SAFETY_DEFAULTS, type SafetyConfig, type SafetyFinding, type SafetyKey, type SafetyReport } from './assess';
 import { ReportButton } from './ReportButton';
+import { DrillButton } from './DrillButton';
 import { evacHeat } from './evac';
 import { evacuationPlanSvg } from './plan';
 import './safety.css';
@@ -134,6 +135,7 @@ export function SafetyPanel() {
 
       <div className="safety-country"><RuleSelector mode="select" country={country} onChange={onCountry} />{report && <ReportButton model={model} assessment={report} pack={packFor(country)} />}</div>
 
+      <DrillButton />
       <div className="seg safety-tabs" role="tablist" aria-label="Checks">
         {(['fire', 'access'] as const).map((a) => (
           <button key={a} role="tab" aria-selected={tab === a} className={tab === a ? 'on' : ''} onClick={() => setTab(a)}>

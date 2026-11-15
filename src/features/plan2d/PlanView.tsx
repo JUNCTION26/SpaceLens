@@ -9,6 +9,7 @@ import { catalogEntry, makeItem } from '../furniture/catalog';
 import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '../../core/types';
 import { useSketch } from '../agent/sketchStore';
 import { SketchLayer } from '../agent/SketchLayer';
+import { DrillOverlay } from './DrillOverlay';
 import { Icon } from '../../ui/icons';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
@@ -1071,6 +1072,7 @@ export function PlanView() {
         })()}
         {/* Sketch marks from you and the assistant; last so the pencil sits above everything. */}
         <SketchLayer />
+        <DrillOverlay />
       </svg>
 
       {editWall && (
