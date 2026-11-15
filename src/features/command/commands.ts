@@ -2,6 +2,7 @@ import { emptyModel, sampleRoom } from '../../core/sample';
 import { useStore } from '../../core/store';
 import type { Layers } from '../../core/types';
 import { useUi, NAV } from '../../ui/uiStore';
+import { toggleStageFull } from '../../ui/ViewFold';
 import { CATALOG, makeItem } from '../furniture/catalog';
 import { findFreeSpot } from '../objects/placement';
 
@@ -46,7 +47,7 @@ function download(name: string, type: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 const fileBase = () => st().model.name.replace(/[^\w .-]/g, '_') || 'space';
 
@@ -69,9 +70,8 @@ export function buildCommands(): Cmd[] {
   for (const [v, label, words] of [['2d', '2D', 'plan top flat'], ['3d', '3D', 'model scene only'], ['split', 'Split', 'both side by side']] as const) {
     add({ id: `view:${v}`, group: 'View', label: `View ${label}`, icon: 'layout', words: `view ${words}`, run: () => st().setView(v) });
   }
-  add({ id: 'fullscreen', group: 'View', label: 'Full screen', icon: 'maximize', words: 'fullscreen presentation present kiosk', run: () => {
-    if (document.fullscreenElement) void document.exitFullscreen?.(); else void document.documentElement.requestFullscreen?.();
-  } });
+  // Same as the top bar button: the views area goes full screen, or fills the window where the browser refuses.
+  add({ id: 'fullscreen', group: 'View', label: 'Full screen', icon: 'maximize', words: 'fullscreen presentation present kiosk', run: () => toggleStageFull() });
   add({ id: 'reset-view', group: 'View', label: 'Reset view', icon: 'rotate', words: 'camera zoom fit', run: () => emit('spacelens:reset-view') });
   add({ id: 'walk', group: 'Review', label: 'Start walk', icon: 'walk', words: 'walk through first person stroll', run: () => { ensure3d(); useUi.getState().openSection('walk'); later(() => emit('spacelens:walk')); } });
   add({ id: 'tour', group: 'Review', label: 'Auto tour', icon: 'play', words: 'tour flythrough fly camera automatic', run: () => { ensure3d(); useUi.getState().openSection('walk'); later(() => emit('spacelens:auto-tour'), 500); } });
