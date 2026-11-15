@@ -14,6 +14,7 @@ import { shareLink } from './share';
 import { QrShare } from './QrShare';
 import { SharePoll } from '../vote/VoteUi';
 import { Icon } from '../../ui/icons';
+import { useUi } from '../../ui/uiStore';
 import './export.css';
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'spacelens';
@@ -43,6 +44,7 @@ export function ExportPanel() {
   const q = useMemo(() => quantities(model), [model]);
   const [rates, setRates] = useState({ floor: '', paint: '', skirting: '' });
   const [shared, setShared] = useState(false);
+  const [qr, setQr] = useState(false);
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const base = `${slug(model.name)}-v${model.version}`;
@@ -102,6 +104,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       history.replaceState(null, '', url);
       await navigator.clipboard.writeText(url).catch(() => undefined);
       setShared(true);
+      setQr(true);
       setTimeout(() => setShared(false), 4000);
     } catch { setErr('Failed'); }
   };
@@ -116,9 +119,10 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
   const anyCost = qRows.some((r) => r[2] !== null);
 
   const files: Array<{ k: string; icon: string; name: string; run: () => void; primary?: boolean }> = [
-    { k: 'pdf', icon: 'download', name: 'PDF', run: printPdf, primary: true },
-    { k: 'sheet', icon: 'file', name: 'Sheet', run: printSheet },
-    { k: 'svg', icon: 'image', name: 'Image', run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
+    { k: 'svg', icon: 'image', name: 'Picture', run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
+  ];
+  const moreFiles: Array<{ k: string; icon: string; name: string; run: () => void }> = [
+    { k: 'pdf', icon: 'download', name: 'Plan PDF', run: printPdf },
     { k: 'glb', icon: 'cube', name: '3D', run: () => void glb() },
     { k: 'json', icon: 'file', name: 'Project', run: () => download(`${base}.json`, json, 'application/json') },
     { k: 'import', icon: 'plus', name: 'Import', run: () => fileRef.current?.click() },
@@ -130,14 +134,14 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
 
   return (
     <div className="export">
-      <section className="export-block" aria-label="Share">
-        <h3>Share</h3>
+      <section className="export-block" aria-label="Send">
+        <h3>Send</h3>
         <div className="export-grid">
-          <button className="export-file" onClick={() => void share()} aria-label="Copy link" title="Copy link">
-            <Icon name={shared ? 'check' : 'share'} size={18} /><span>Link</span>
+          <button className="export-file" onClick={() => void share()} aria-label="Link" aria-pressed={qr} title="Link">
+            <Icon name={shared ? 'check' : 'share'} size={16} /><span>Link</span>
           </button>
-          <QrShare getLink={() => shareLink(model)} />
           <SharePoll />
+          {qr && <QrShare getLink={() => shareLink(model)} hideButton />}
         </div>
       </section>
 
@@ -145,22 +149,29 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
         <h3>Files</h3>
         <div className="export-grid">
           {files.map((r) => (
-            <button key={r.k} className={`export-file${r.primary ? ' primary' : ''}`} onClick={r.run} title={r.name}>
-              <Icon name={r.icon} size={18} /><span>{r.name}</span>
+            <button key={r.k} className="export-file" onClick={r.run} title={r.name}>
+              <Icon name={r.icon} size={16} /><span>{r.name}</span>
             </button>
           ))}
           <IfcButton model={model} className="export-file" />
           <DxfButton model={model} className="export-file" />
-          <ArButton model={model} className="export-file" label="AR" />
+          <button className="export-file primary" onClick={printSheet} title="PDF sheet">
+            <Icon name="file" size={16} /><span>PDF</span>
+          </button>
         </div>
         <input ref={fileRef} type="file" accept=".json,application/json" hidden
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
         <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
       </section>
 
-      <section className="export-block" aria-label="List">
-        <h3>List</h3>
+      <section className="export-block" aria-label="Plan">
+        <h3>Plan</h3>
         <ShoppingList model={model} />
+        <div className="export-grid">
+          <button className="export-file" onClick={() => useUi.getState().openSection('movein')} aria-label="Move-in" title="Move-in">
+            <Icon name="door" size={16} /><span>Move-in</span>
+          </button>
+        </div>
       </section>
 
       {err && <div className="export-err" role="alert">{err}</div>}
@@ -170,6 +181,14 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       </button>
       {more && (
         <div className="export-section">
+          <div className="export-grid">
+            {moreFiles.map((r) => (
+              <button key={r.k} className="export-file" onClick={r.run} title={r.name}>
+                <Icon name={r.icon} size={16} /><span>{r.name}</span>
+              </button>
+            ))}
+            <ArButton model={model} className="export-file" label="AR" />
+          </div>
           <button type="button" className="btn btn-sm" onClick={() => download(`${base}-schedule.csv`, scheduleCsv(furniture), 'text/csv;charset=utf-8')} title="Schedule CSV"><Icon name="download" size={14} />Schedule CSV</button>
           <div className="export-toggles">
             {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}

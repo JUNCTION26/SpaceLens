@@ -1,13 +1,13 @@
-.export { display: grid; gap: 12px; font-size: 13px; }
+.export { display: grid; gap: var(--s3); font-size: 13px; }
 .export-block { display: grid; gap: 6px; }
-.export-block h3 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.export-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.export-file { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 56px; min-width: 0; padding: 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.export-block h3 { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted); }
+.export-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s2); }
+.export-file { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: var(--s2); height: var(--ctl); min-width: 0; padding: 0 var(--s2); border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .export-file:hover:not(:disabled), .export-file:focus-visible, .export-file[aria-pressed=true] { background: var(--panel-2); }
-.export-file.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.export-file:disabled { opacity: .6; cursor: progress; }
+.export-file.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.export-file:disabled { opacity: .5; cursor: not-allowed; }
 .export-err { color: var(--bad); font-size: 12px; }
-.export-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+.export-preview { background: var(--plan-bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px; }
 .export-preview svg { width: 100%; height: auto; max-height: 160px; display: block; }
 .export-more { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: inherit; font: inherit; opacity: .75; cursor: pointer; justify-self: start; }
 .export-more:hover { opacity: 1; }
