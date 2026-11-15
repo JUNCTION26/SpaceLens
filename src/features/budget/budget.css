@@ -45,3 +45,7 @@
 .budget-moves-bar.good .budget-fill { background: var(--ok); }
 .budget-moves-bar.short .budget-fill { background: var(--bad); }
 .budget-swap input:disabled { opacity: .5; }
+.budget-more > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); }
+.budget-more[open] > summary { color: var(--text); }
+.budget-swap-top b, .budget-ba span { overflow-wrap: anywhere; min-width: 0; }
+.budget-input input { max-width: 40vw; }
