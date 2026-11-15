@@ -91,7 +91,7 @@ function FindCell({ s, name, onFind, cand, onSwap }: { s: Find | undefined; name
   return (
     <>
       {!cand && <button type="button" onClick={onFind} aria-label={`Find ${name}`}>Find</button>}
-      {cur && <span className={cur.heightUnconfirmed ? 'find-ok unsure' : 'find-ok'} role="img" aria-label={cur.heightUnconfirmed ? 'Fits, height unconfirmed' : 'Fits'} title={cur.heightUnconfirmed ? 'Height unconfirmed' : 'Fits'}>✓</span>}
+      {cur?.heightUnconfirmed && <span className="find-ok unsure" role="img" aria-label="Height unconfirmed" title="Height unconfirmed">!</span>}
       {cand && cand.ms.length > 1 && <button type="button" className="swap" onClick={onSwap} aria-label={`Next option for ${name}, ${cand.i + 1} of ${cand.ms.length}`} title={`${cand.i + 1}/${cand.ms.length}`}>⇄</button>}
       {s === 'none' && <span className="find-no" aria-label="No match">–</span>}
     </>
