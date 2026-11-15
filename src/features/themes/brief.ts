@@ -302,7 +302,34 @@ export function rulesBrief(text: string): ThemeBrief {
   else if (fr || (!roomKind(lc) && (motifOf(lc) || THEMED.test(lc)))) b = genericRoom(text, names, fr?.[1] ?? motifOf(lc), fr?.[2]);
   else b = generalRoom(text, names, n, motifOf(lc));
   if (real && !b.realProducts) b = { ...b, realProducts: true, objects: b.objects.map((o) => (o.source === 'catalogue' ? { ...o, source: 'store', query: `${store} ${o.name}` } : o)) };
-  return { ...b, by: 'rules', ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) };
+  return { ...b, objects: withNamePosters(b.objects, names, b.palette), by: 'rules', ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) };
+}
+
+/** A poster with each given name on it, added when no object already prints that name. */
+export function withNamePosters(objects: ThemeObject[], names: string[], palette: string[] = []): ThemeObject[] {
+  const out = [...objects];
+  for (const n of names) {
+    if (out.some((x) => x.text && x.text.toLowerCase() === n.toLowerCase())) continue;
+    const bare = out.find((x) => x.recipe === 'poster' && !x.text);
+    if (bare) { out[out.indexOf(bare)] = { ...bare, text: n.toUpperCase() }; continue; }
+    out.push(custom(`${n} poster`, 'poster', cm(50, 3, 70), { text: n.toUpperCase(), color: palette[1] ?? '#e9dfcf', accent: palette[0] ?? '#3f5b6b' }, 'named poster'));
+  }
+  return out;
+}
+
+/** At most `max` floor pieces (copies count) so layout stays fast; wall decor is kept. */
+export function capFloorItems(objects: ThemeObject[], max = 12): ThemeObject[] {
+  const out = objects.map((o) => ({ ...o }));
+  const isFloor = (o: ThemeObject) => o.mount !== 'wall';
+  const count = () => out.filter(isFloor).reduce((s, o) => s + Math.max(1, o.qty ?? 1), 0);
+  while (count() > max) {
+    const big = out.filter((o) => isFloor(o) && (o.qty ?? 1) > 1).sort((a, b) => (b.qty ?? 1) - (a.qty ?? 1))[0];
+    if (big) { big.qty = (big.qty ?? 1) - 1; if (big.qty <= 1) big.qty = undefined; continue; }
+    const idx = out.map(isFloor).lastIndexOf(true);
+    if (idx <= 0) break;
+    out.splice(idx, 1);
+  }
+  return out;
 }
 
 // ---- model brief ------------------------------------------------------------------------------
@@ -458,7 +485,7 @@ export async function themeBrief(text: string, opts: BriefOpts | AbortSignal = {
   try {
     const res = await ai<unknown>({
       task: 'fast', system: system(), parts: [{ text: `Room idea: """${text}"""${o.room ? `\nRoom: ${o.room}` : ''}` }],
-      schema: BRIEF_SCHEMA, signal: ctrl.signal, temperature: 0.5, budgetMs: 2000, onPartial,
+      schema: BRIEF_SCHEMA, signal: ctrl.signal, temperature: 0.5, budgetMs: 4000, onPartial,
     });
     return cleanBrief(res.data, text, res.ms, res.model);
   } catch (e) {
@@ -472,5 +499,5 @@ export async function themeBrief(text: string, opts: BriefOpts | AbortSignal = {
   }
 }
 
-const BRIEF_LIMIT_MS = 6000;
+const BRIEF_LIMIT_MS = 12000;
 

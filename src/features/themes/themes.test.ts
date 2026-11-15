@@ -143,3 +143,31 @@ describe('designThemedRoom', () => {
     expect(res2.candidates[0].furniture.some((f) => f.custom && textOf(f.custom).includes('GOOD BOY'))).toBe(true);
   });
 });
+
+describe('junk filter and fallback', () => {
+  it('drops layouts with no items or a zero score', async () => {
+    const { dropJunk } = await import('./designThemed');
+    const mk = (id: string, n: number, score: number) => ({ id, name: id, summary: '', parentVersion: 1, furniture: Array.from({ length: n }, (_, i) => ({ id: `${id}${i}` })), metrics: { score }, checks: [], assumptions: [], generator: 'theme' });
+    const r = dropJunk({ candidates: [mk('a', 0, 50), mk('b', 3, 0), mk('c', 3, 60)], reports: [{ candidateId: 'a' }, { candidateId: 'c' }], infeasibility: null, stages: [] } as never);
+    expect(r.candidates.map((c) => c.id)).toEqual(['c']);
+    expect(r.reports).toHaveLength(1);
+  });
+
+  it('caps floor items at 12 and keeps wall decor', async () => {
+    const { capFloorItems } = await import('./brief');
+    const big = rulesBrief('a ramen bar for 30');
+    const capped = capFloorItems([...big.objects, { ...big.objects[0], qty: 12 }]);
+    expect(capped.filter((o) => o.mount !== 'wall').reduce((s, o) => s + (o.qty ?? 1), 0)).toBeLessThanOrEqual(12);
+    expect(capped.filter((o) => o.mount === 'wall').length).toBe(big.objects.filter((o) => o.mount === 'wall').length);
+  });
+
+  it('always has the name poster, and a furnished room when the model brief times out', async () => {
+    expect(rulesBrief('a room for my cat named Gerard').objects.some((o) => o.text === 'GERARD')).toBe(true);
+    expect(rulesBrief('a room for my dog named Rex').objects.some((o) => o.text?.toUpperCase() === 'REX')).toBe(true);
+    aiState.ready = true; // model brief fails (ai mock throws)
+    const res = await designThemedRoom(model, 'a room for my cat named Gerard');
+    expect(res.candidates.length).toBeGreaterThan(0);
+    expect(res.candidates.every((c) => c.furniture.length > 0 && c.metrics.score > 0)).toBe(true);
+    expect(res.brief.objects.some((o) => o.text === 'GERARD')).toBe(true);
+  });
+});

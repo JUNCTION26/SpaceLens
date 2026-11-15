@@ -16,7 +16,7 @@ import { describeLayout, solveProgram } from '../design/solve';
 import type { DesignResult, FullReport, Stage } from '../design/pipeline';
 import { designScore } from '../design/score';
 import { wallElevation } from '../layout/wallItems';
-import { themeBrief, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
+import { capFloorItems, rulesBrief, themeBrief, withNamePosters, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
 import { recipeSpec } from './recipes';
 
 export interface ThemedOpts {
@@ -153,12 +153,12 @@ export function roomLine(model: SpaceModel): string {
   return `${w.toFixed(1)} x ${d.toFixed(1)} m, floor ${Math.abs(a / 2).toFixed(0)} m2, ceiling ${model.ceilingM.toFixed(1)} m, ${n('door')} door, ${n('window')} window`;
 }
 
-export async function designThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
+async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
   if (opts.spaceId && model.spaces.length > 1) {
     const sub = subModelFor(model, opts.spaceId);
     if (sub) {
       const back = <R extends DesignResult>(r: R): R => ({ ...r, candidates: r.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) });
-      const res = await designThemedRoom(sub.model, text, { ...opts, spaceId: undefined, onProgress: opts.onProgress && ((r, ph) => opts.onProgress!(back(r), ph)) });
+      const res = await designThemedCore(sub.model, text, { ...opts, spaceId: undefined, onProgress: opts.onProgress && ((r, ph) => opts.onProgress!(back(r), ph)) });
       return back(res);
     }
   }
@@ -195,7 +195,9 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
     for (let k = 0; k < Math.min(12, Math.max(1, o.qty ?? 1)); k++) draft.push(k ? { ...f, id: `${f.id}-${k}` } : f);
     if (opts.onProgress && !opts.signal?.aborted) opts.onProgress(draftResult(model, draft, text, stages), 'rules');
   };
-  const brief = opts.brief ?? (await themeBrief(text, { signal: opts.signal, room: roomLine(model), onObject: onEarly }));
+  const brief0 = opts.brief ?? (await themeBrief(text, { signal: opts.signal, room: roomLine(model), onObject: onEarly }));
+  // Keep layout fast (12 floor pieces plus wall decor) and the named poster present.
+  const brief: ThemeBrief = { ...brief0, objects: withNamePosters(capFloorItems(brief0.objects), brief0.names) };
   const briefMs = Math.round(now() - t);
   end('brief', t, { label: brief.title, model: brief.by === 'gemini' ? brief.model : 'rules', detail: `${brief.objects.length} pieces` });
   abortIf(opts.signal);
@@ -338,4 +340,30 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
   emit();
   const res = snapshot();
   return { ...res, brief, specs, timings: { briefMs, firstObjectMs, roomMs, totalMs: Math.round(now() - t0), models, fallbacks } };
+}
+
+/** A layout worth showing: it has furniture and a real score. */
+export const usableCandidate = (c: LayoutCandidate) => c.furniture.length > 0 && (c.metrics.score ?? 0) > 0;
+
+/** Drops layouts with no items or a zero score (a timed-out brief can leave one). */
+export function dropJunk<R extends DesignResult>(r: R): R {
+  const keep = r.candidates.filter(usableCandidate).map((c) => c.id);
+  return { ...r, candidates: r.candidates.filter((c) => keep.includes(c.id)), reports: r.reports.filter((x) => keep.includes(x.candidateId)) };
+}
+
+/** Themed room that always ends with a real furnished layout: junk is filtered out, and when nothing
+ *  is left the offline themed kit for the nearest room kind is laid out instead. */
+export async function designThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
+  let res: ThemedResult | undefined;
+  try { res = await designThemedCore(model, text, opts); }
+  catch (e) { if ((e as Error).name === 'AbortError' || opts.signal?.aborted || !model.spaces.length) throw e; }
+  if (res) {
+    const clean = dropJunk(res);
+    if (clean.candidates.length || !model.spaces.length) return clean;
+  }
+  const brief = rulesBrief(text);
+  const kit = await designThemedCore(model, text, { ...opts, brief, onProgress: undefined });
+  const out = dropJunk(kit);
+  out.brief.notes = [...out.brief.notes, 'The model took too long, so this room is the ready-made kit for the closest room type.'];
+  return out;
 }
