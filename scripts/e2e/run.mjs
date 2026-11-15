@@ -196,7 +196,7 @@ async function library(c) {
   const moved = await c.state(`s.model.furniture.find((f) => f.id === '${it.id}')`);
   c.ok(moved && (Math.abs(moved.x - it.x) > 0.05 || Math.abs(moved.y - it.y) > 0.05), `dragging moves it (${it.x.toFixed(2)},${it.y.toFixed(2)} -> ${moved?.x.toFixed(2)},${moved?.y.toFixed(2)})`);
   c.ok(await c.state(`s.selection?.id === '${it.id}'`), 'moved item is selected');
-  c.ok(await c.page.evaluate(`!!document.querySelector('.inspector-sheet')`), 'inspector opens for the selection');
+  c.ok(await c.page.evaluate(`!!document.querySelector('.inspector-section')`), 'inspector opens for the selection');
   await c.shot('inspector');
   await c.page.evaluate(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
   await c.page.key('z', { modifiers: 2 });
@@ -235,15 +235,21 @@ async function walk(c) {
   await c.page.key('Escape');
 }
 
+/** Click the first rendered element matching a selector (optionally with matching text), scrolling it into view first. */
+async function domClick(c, sel, text) {
+  const ok = await c.page.evaluate(`(() => { const re = ${text ? JSON.stringify(text) : 'null'}; const el = [...document.querySelectorAll(${JSON.stringify(sel)})].find((e) => e.getClientRects().length > 0 && (!re || new RegExp(re, 'i').test(e.innerText || e.getAttribute('aria-label') || e.title || ''))); if (!el) return false; el.scrollIntoView({ block: 'center' }); el.click(); return true; })()`);
+  if (!ok) throw new Error(`not found: ${sel}${text ? ` ~ ${text}` : ''}`);
+  await sleep(300);
+}
+
 async function safety(c) {
   await c.open('nav=safety&sample=1');
-  await c.page.waitFor(`!!document.querySelector('.safety-headline')`, 60000).catch(() => {});
-  const side = await c.sideText();
-  c.ok(/exit/i.test(side), 'safety report shows exits');
+  await c.page.waitFor(`!!document.querySelector('.drill-go')`, 60000).catch(() => {});
+  c.ok(await c.page.evaluate(`!!document.querySelector('.drill-go') && !!document.querySelector('.safety-tabs')`), 'safety shows the Drill button and the Fire and Access tabs');
   await c.shot('report');
-  const shows = await c.page.locate('text~Show', { within: '.safety-list' });
+  const shows = await c.page.evaluate(`!!document.querySelector('.safety-list [aria-label="Show"]')`);
   if (shows) {
-    await c.page.click('text~Show', { within: '.safety-list' });
+    await domClick(c, '.safety-list [aria-label="Show"]');
     await sleep(800);
     c.ok(await c.state('s.analysis.highlights.length > 0 || s.selection != null') || true, 'show highlights the finding');
     await c.shot('show');
@@ -261,22 +267,23 @@ async function safety(c) {
     return true;
   })()`));
   await sleep(2500);
-  const fixBtn = await c.page.evaluate(`[...document.querySelectorAll('.safety-actions button')].filter((b) => !/Show/.test(b.innerText)).map((b) => b.innerText.trim())`);
+  const fixBtn = await c.page.evaluate(`[...document.querySelectorAll('.safety-item .btn')].map((b) => b.innerText.trim()).filter(Boolean)`);
   c.ok(fixBtn.length > 0, `blocking the door offers a fix (${fixBtn.join(', ') || 'none'})`);
   await c.shot('blocked');
   if (fixBtn.length) {
     const v0 = await c.state('s.model.version');
-    await c.page.click(`text=${fixBtn[0]}`, { within: '.safety-list' }).catch(() => c.page.click(`text~${fixBtn[0]}`));
+    await domClick(c, '.safety-item .btn', fixBtn[0]);
     await sleep(2000);
     c.ok((await c.state('s.model.version')) > v0, `fix "${fixBtn[0]}" changes the model`);
     await c.shot('fixed');
   }
-  await c.page.click('text~Evacuate');
+  await domClick(c, '.drill-go');
   await sleep(2500);
-  c.ok(/still inside|Everyone out/i.test(await c.sideText()), 'evacuation runs');
+  c.ok(await c.page.evaluate(`!!document.querySelector('.drill-chips .safety-chip')`), 'the drill runs and shows its result');
   await c.shot('evacuate');
   await sleep(4000);
-  await c.page.click('text~Download evacuation plan');
+  await domClick(c, '.safety-more summary');
+  await domClick(c, '.safety-more button', 'Exit plan');
   await sleep(1500);
   const dl = await c.page.evaluate('window.__e2e.downloads.at(-1)');
   c.ok(dl && /evacuation-plan\.svg$/.test(dl.name) && /<svg/.test(dl.head + (dl.text ?? '')), `evacuation plan downloads as SVG (${dl?.name}, ${dl?.size} B)`);
@@ -319,8 +326,11 @@ async function shop(c) {
 
 async function exporting(c) {
   await c.open('nav=export&sample=1');
-  const rows = ['SVG', 'CSV', '3D model', 'Project file'];
-  for (const r of rows) { await c.page.click(`text~${r}`, { within: '.export-list' }); await sleep(900); }
+  await c.page.waitFor(`!!document.querySelector('.export-block[aria-label="Files"] .export-file')`, 40000).catch(() => {});
+  for (const r of ['Image', '3D', 'Project']) { await domClick(c, '.export-block[aria-label="Files"] .export-file', `^${r}$`); await sleep(900); }
+  await domClick(c, '.export-more');
+  await domClick(c, '.export-section button', 'Schedule CSV');
+  await sleep(900);
   await sleep(2000);
   const dls = await c.page.evaluate('window.__e2e.downloads');
   const by = (re) => dls.find((d) => re.test(d.name));
@@ -330,7 +340,7 @@ async function exporting(c) {
   c.ok(glb && glb.magic === 'glTF' && glb.size > 1000, `GLB model (${glb?.magic}, ${glb?.size} B)`);
   let jsonOk = false; try { jsonOk = JSON.parse(json?.text ?? '').spaces.length > 0; } catch { /* bad */ }
   c.ok(jsonOk, `project JSON (${json?.size} B)`);
-  await c.page.click('text~Download PDF');
+  await domClick(c, '.export-block[aria-label="Files"] .export-file', '^PDF$');
   await sleep(800);
   const pdf = await c.page.evaluate('window.__e2e.opened.at(-1)?.html ?? ""');
   c.ok(/<svg/.test(pdf) && /schedule/i.test(pdf), 'PDF print page has the plan and schedule');
@@ -340,7 +350,7 @@ async function exporting(c) {
   // Make the shared model differ from the sample so the round trip proves something.
   await c.page.evaluate(S(`s.dispatch({ type: 'UPDATE_OBJECT', id: s.model.furniture[0].id, patch: { x: s.model.furniture[0].x + 0.3 } })`));
   const moved = await c.state('JSON.stringify({ x: s.model.furniture[0].x, n: s.model.furniture.length })');
-  await c.page.click('text~Share link', { within: '.export-list' });
+  await domClick(c, '.export-block[aria-label="Share"] .export-file[aria-label="Copy link"]');
   await sleep(1500);
   const url = (await c.page.evaluate('window.__e2e.clipboard.at(-1) ?? ""')) || (await c.page.evaluate('location.href'));
   c.ok(/#m=/.test(url), `share link created (${url.length} chars)`);
@@ -600,31 +610,32 @@ async function hoverfix(c) {
 async function settings(c) {
   await c.open('nav=describe&sample=1&open=settings');
   await sleep(800);
-  c.ok(await c.page.locate('[aria-labelledby="settings-title"]'), 'Settings opens from the deep link');
-  const status = () => c.page.evaluate(`[...document.querySelectorAll('.dialog [role=status]')].map((e) => e.innerText).join(' | ')`);
+  c.ok(await c.page.locate('.settings-panel'), 'Settings opens from the deep link as a panel');
+  c.ok(!(await c.page.evaluate(`!!document.querySelector('[role=dialog][aria-labelledby="settings-title"], .dialog')`)), 'Settings is not a dialog');
+  await domClick(c, '.settings-adv summary', '^Advanced');
+  const status = () => c.page.evaluate(`[...document.querySelectorAll('.settings-panel [role=status]')].map((e) => e.innerText).join(' | ')`);
   if (!NOKEY) {
-    const done = await c.page.waitFor(`!/Checking the key/.test([...document.querySelectorAll('.dialog [role=status]')].map((e) => e.innerText).join(' '))`, 60000).catch(() => false);
+    const done = await c.page.waitFor(`!/Checking/.test([...document.querySelectorAll('.settings-panel [role=status]')].map((e) => e.innerText).join(' '))`, 60000).catch(() => false);
     const st = await status();
-    c.ok(done && /Fast decisions|Key works/.test(st), `key is checked and summarised (${st.slice(0, 160)})`);
-    await c.page.click('text=Test speed');
-    await c.page.waitFor(`!/Testing/.test(document.querySelector('.dialog')?.innerText ?? '')`, 90000).catch(() => {});
-    const rows = await c.page.evaluate(`[...document.querySelectorAll('.dialog tbody tr')].map((r) => r.innerText.replace(/\\s+/g, ' '))`);
+    c.ok(done && /Fast decisions|Works/.test(st), `key is checked and summarised (${st.slice(0, 160)})`);
+    await domClick(c, '.settings-panel button', '^Test speed$');
+    await c.page.waitFor(`!/Testing/.test(document.querySelector('.settings-panel')?.innerText ?? '')`, 90000).catch(() => {});
+    const rows = await c.page.evaluate(`[...document.querySelectorAll('.settings-panel tbody tr')].map((r) => r.innerText.replace(/\\s+/g, ' '))`);
     c.ok(rows.length > 0 && rows.some((r) => /OK/.test(r)), `speed test table (${rows.join(' / ').slice(0, 200)})`);
   } else {
-    c.ok(/Saved in this browser only/.test(await status()), 'no key: key field says where it is kept');
-    c.ok(await c.page.evaluate(`[...document.querySelectorAll('.dialog button')].find((b) => /Test speed/.test(b.innerText))?.disabled === true`), 'no key: Test speed is disabled');
+    c.ok(/This browser only|Optional/.test(await status()), 'no key: key field says where it is kept');
+    c.ok(await c.page.evaluate(`[...document.querySelectorAll('.settings-panel button')].find((b) => /Test speed/.test(b.innerText))?.disabled === true`), 'no key: Test speed is disabled');
   }
-  await c.page.click('text~Choose models');
+  await domClick(c, '.settings-panel details.field summary', '^Models$');
   await sleep(300);
-  const opts = await c.page.evaluate(`[...document.querySelectorAll('.dialog details select')].map((s) => s.options.length)`);
+  const opts = await c.page.evaluate(`[...document.querySelectorAll('.settings-panel details select')].map((s) => s.options.length)`);
   c.ok(opts.length === 3 && opts.every((n) => n >= 2), `model choice for each task (${opts.join(',')})`);
-  c.ok(/Gemini use this session/.test(await c.page.text('.dialog')), 'session meter shown');
-  await c.shot('dialog');
+  c.ok(/calls/.test(await c.page.text('.settings-panel')), 'session meter shown');
+  await c.shot('settings');
+  await c.page.evaluate(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
   await c.page.key('Escape');
   await sleep(300);
-  c.ok(!(await c.page.locate('[aria-labelledby="settings-title"]')), 'Esc closes Settings');
-  const chip = await c.page.evaluate(`!!document.querySelector('.topbar .ai-status, [class*=ai-status], [aria-label*="Gemini"]')`);
-  c.warn(chip, 'AI status chip is in the top bar');
+  c.ok(!(await c.page.locate('.settings-panel')), 'Esc closes Settings');
 }
 
 const FLOWS = { home, settings, describe, create, library, walk, safety, shop, export: exporting, agent, phone, themes, building, drawings, hoverfix };
