@@ -9,9 +9,14 @@ All notable changes, grouped by area. The project is at version 0.1.0 and has no
 - DXF export; IFC import of room footprints; IFC export is y-up with an opening void for each door and window.
 - Product finder: IKEA Sweden and Finland candidates are kept only when their product page shows a price and a full size that fits; Find and Find all buttons on the shopping list.
 - Budget plan with swap, drop and keep moves; essential, locked and owned pieces are never dropped.
-- Instant answers about the room in English, Swedish and Finnish, with no model call.
-- Command palette commands for sections, layers, walk and tour, undo, load, import, export and settings.
-- Hands-free tour (`?show=1`), demo buildings (`?demo=villa|office|lshape&furnish=1`), home screen with a describe field.
+- Instant answers about a room and about whole plans in English, Swedish and Finnish, with no model call; follow-up sentences edit the room that is there.
+- One left panel and no pop-ups: messages on one line at the bottom, the inspector at the top, settings and search as panel content, the assistant pinned at the bottom.
+- Rooms resize by typing W, D and H at the top of Space > Measure, by clicking a size on the plan, or by sentence ("make the room 5 by 6").
+- Eye view: W A S D move, arrow keys and mouse drag look, Shift walks faster, Esc leaves.
+- Safety: one Drill with a people count, Fire and Access tabs, equipment suggestions, rule packs and a printable report.
+- Hands-free conversation with the assistant.
+- Export shows a QR code inline; Move in plays the carry-in.
+- The `?show=1` film, demo buildings (`?demo=villa|office|lshape&furnish=1`), home screen with a describe field.
 - Printable fire and access report with measured and required values and rule sources.
 - Finland and Sweden rule packs rebuilt on Finnish decrees 241/2017, 848/2017 and 1008/2017 and Boverket BFS 2024:7 and 2024:12 (see `docs/RULE-SOURCES.md`).
 - Server routes `/v1/image` and `/v1/speech` with allowlists, size limits and their own rate and daily limits.
