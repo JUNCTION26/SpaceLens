@@ -17,7 +17,8 @@ export const camera = (shot: CameraShot, seconds: number) =>
   window.dispatchEvent(new CustomEvent('spacelens:camera', { detail: { shot, seconds } }));
 
 const S = () => useStore.getState();
-const tab = (mode: 'design' | 'experience' | 'deliver', key: string) => { S().setMode(mode); useUi.getState().setTab(mode, key); };
+/** Open a section through the UI store: it also leaves Settings and Search, so the panel shows the section. */
+const tab = (_mode: 'design' | 'experience' | 'deliver', key: string) => { useUi.getState().openSection(key); };
 const until = async (c: SeqCtx, ok: () => boolean, ms: number) => { for (let t = 0; t < ms && !ok(); t += 120) await c.wait(120); };
 /** Resolves to the value, or undefined once ms have passed. */
 const capped = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<undefined>((r) => setTimeout(() => r(undefined), ms))]);
@@ -173,22 +174,31 @@ export function buildShow(ui: ShowUi): SeqStep[] {
           S().toggleLayer('routes', true);
         };
         await c.wait(900);
-        drawRoute();
+        // The panel's own Drill button draws the route and runs the evacuation; the drawn route is the fallback.
+        await until(c, () => !!query('.drill-go'), 1500);
+        const drillBtn = query<HTMLButtonElement>('.drill-go');
+        const drill = !!drillBtn;
+        if (drillBtn) drillBtn.click(); else drawRoute();
         await c.wait(2500);
         const sel = query<HTMLSelectElement>('select[aria-label="Country"]');
         if (sel) setControl(sel, 'FI', 'change');
         await c.wait(700);
-        drawRoute();
+        if (!drill) drawRoute();
       } },
     { id: 'movein', ms: 8000, timeoutMs: 15000, cut: true,
       setup: () => { tab('deliver', 'movein'); S().setView('3d'); },
       run: async (c) => {
         ui.speak('Will it fit through the door?');
-        await until(c, () => !!query('.movein-main'), 2000);
+        await until(c, () => !!query('.movein-bar button[aria-label="Play"], .movein-main'), 2000);
+        camera('door-reveal', 4);
+        // Play first: the whole move-in plays on the plan. Fall back to showing one item's route.
+        const speed = [...document.querySelectorAll<HTMLButtonElement>('.movein-speeds button')].find((b) => b.textContent?.trim() === '2x');
+        speed?.click();
+        const play = query<HTMLButtonElement>('.movein-bar button[aria-label="Play"]');
+        if (play) { play.click(); return; }
         const btns = [...document.querySelectorAll<HTMLButtonElement>('.movein-main')];
         const pick = btns.find((b) => /sofa|couch/i.test(b.getAttribute('aria-label') ?? '')) ?? btns.find((b) => /tree|bed|shelf/i.test(b.getAttribute('aria-label') ?? '')) ?? btns[0];
         if (!pick) throw new Error('nothing to carry');
-        camera('door-reveal', 4);
         pick.click();
       } },
     { id: 'budget', ms: 9000, timeoutMs: 15000, cut: true,
@@ -213,13 +223,15 @@ export function buildShow(ui: ShowUi): SeqStep[] {
       } },
     { id: 'evening', ms: 6500, timeoutMs: 12000, run: async (c) => {
       S().setView('3d');
-      await until(c, () => !!query('.scene3d-sun input[type="range"]'), 1200);
-      const sun = query<HTMLInputElement>('.scene3d-sun input[type="range"]');
-      if (!sun) throw new Error('no sun control');
       ui.speak('And it still feels right at night.');
       camera('orbit', 6);
-      for (let h = Number(sun.value) || 15; h <= 20.5; h += 0.5) {
-        setControl(sun, String(h), 'input');
+      // The slider sits in the 3D view's View menu, which stays closed while the film plays. The view listens for
+      // spacelens:hour (detail.hour, 6 to 23) and sets detail.handled; a slider that is already on screen is driven directly.
+      const sun = query<HTMLInputElement>('.scene3d-sun input[type="range"]');
+      for (let h = 15; h <= 20.5; h += 0.5) {
+        const detail = { hour: h, handled: false };
+        window.dispatchEvent(new CustomEvent('spacelens:hour', { detail }));
+        if (!detail.handled && sun?.isConnected) setControl(sun, String(h), 'input');
         await c.wait(380);
       }
     } },
@@ -267,6 +279,8 @@ export function ShowRunner() {
       };
       const ui: ShowUi = { subtitle: (t) => { if (!ctl.signal.aborted) setSub(t); }, endCard: (v) => { if (!ctl.signal.aborted) setEnd(v); }, speak: say };
       let t0 = Date.now();
+      // Nothing else may be on screen: leave Settings and Search before the first beat.
+      useUi.getState().setSearchOpen(false); useUi.getState().setSettingsOpen(false);
       setOn(true); setBlack(true); setPct(0); setSub(''); setEnd(false);
       requestAnimationFrame(() => setBars(true));
       const tick = setInterval(() => setPct(Math.min(100, ((Date.now() - t0) / SHOW_TOTAL_MS) * 100)), 200);
