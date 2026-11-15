@@ -10,7 +10,7 @@ import type { FurnitureItem, Layers, Opening, SourceKind, Space, Vec2 } from '..
 import { useSketch } from '../agent/sketchStore';
 import { SketchLayer } from '../agent/SketchLayer';
 import { DrillOverlay } from './DrillOverlay';
-import { Icon } from '../../ui/icons';
+import { PROV, setViewPrefs } from '../../ui/ViewFold';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { SPEC_DND, specDrag } from './dnd';
@@ -87,14 +87,6 @@ const aabb = (c: Vec2[]) => bounds(c) as { minX: number; minY: number; maxX: num
 const snap = (n: number, s = SNAP) => Math.round(n / s) * s;
 const pts = (p: Vec2[]) => p.map((q) => `${q.x},${q.y}`).join(' ');
 
-const PROV: Record<SourceKind, string> = {
-  'user-measured': '#2fbf71', 'ar-depth': '#3fa7ff', 'photo-inferred': '#f0a030', 'pdf-annotation': '#a77bff',
-  manual: '#5ed1c9', catalog: '#9aa4b2', generated: '#e86fb0', sample: '#8a8f98',
-};
-const PROV_LABEL: Record<SourceKind, string> = {
-  'user-measured': 'Measured', 'ar-depth': 'Phone scan', 'photo-inferred': 'From photo', 'pdf-annotation': 'From drawing',
-  manual: 'Manual', catalog: 'Catalog', generated: 'Generated', sample: 'Example',
-};
 
 /** Parse "320", "3.2", "3.2m", "320cm". Bare numbers above 10 are centimetres. */
 export function parseLength(raw: string): number | null {
@@ -105,6 +97,29 @@ export function parseLength(raw: string): number | null {
   const u = m[2] ?? (n > 10 ? 'cm' : 'm');
   const v = u === 'cm' ? n / 100 : u === 'mm' ? n / 1000 : n;
   return v > 0.05 && v < 100 ? v : null;
+}
+
+/** Adds a door or window in the middle of the selected wall (used by the inspector in the left panel). */
+export function addOpeningToSelectedWall(kind: 'door' | 'window', widthOverride?: number) {
+  const st = useStore.getState();
+  const sel = st.selection;
+  if (sel?.kind !== 'wall') { notify('Select a wall', { tone: 'info' }); return; }
+  const [sid, i] = splitId(sel.id); const sp = st.model.spaces.find((s) => s.id === sid); if (!sp) return;
+  const L = wallLength(sp, i); const width = widthOverride ?? (kind === 'door' ? 0.9 : 1.2);
+  if (L < width + 0.1) {
+    const fit = Math.floor((L - 0.1) * 20) / 20;
+    notify(`Wall ${Math.round(L * 100)} cm, too short`, {
+      tone: 'warn', actions: fit >= 0.4 ? [{ label: `${Math.round(fit * 100)} cm ${kind}`, primary: true, run: () => addOpeningToSelectedWall(kind, fit) }] : [],
+    });
+    return;
+  }
+  const o: Opening = {
+    id: uid(kind), kind, spaceId: sid, wallIndex: i, offsetM: L / 2, widthM: width,
+    heightM: kind === 'door' ? 2.1 : 1.2, sillM: kind === 'door' ? 0 : 0.9,
+    swing: kind === 'door' ? 'in' : 'none', hinge: 'start', sourceKind: 'manual', status: 'estimated',
+  };
+  st.dispatch({ type: 'ADD_OPENING', opening: o });
+  st.select({ kind: 'opening', id: o.id });
 }
 
 function fitBox(spaces: Space[]): VB {
@@ -121,7 +136,7 @@ export function PlanView() {
   const selection = useStore((s) => s.selection);
   const analysis = useStore((s) => s.analysis);
   const activeCandidateId = useStore((s) => s.activeCandidateId);
-  const { dispatch, select, toggleLayer, applyCandidate, toast } = useStore.getState();
+  const { dispatch, select, applyCandidate, toast } = useStore.getState();
   const storeShown = useShownFurniture();
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -143,10 +158,8 @@ export function PlanView() {
   const multiRef = useRef<string[]>([]);
   const setMulti = (ids: string[]) => { multiRef.current = ids; setMultiState(ids); };
   const [hover, setHover] = useState<{ id: string; sx: number; sy: number } | null>(null);
-  const [menu, setMenu] = useState<{ id: string; sx: number; sy: number } | null>(null);
   const [ghost, setGhost] = useState<{ id: string | null; p: Vec2; spec?: { name: string; w: number; d: number } | null } | null>(null);
   const anim = useRef<number>(0);
-  const [layersOpen, setLayersOpen] = useState(false);
   const sketching = useSketch((s) => s.drawing);
 
   // Keep the group in step with the store selection (other panels can select too).
@@ -308,28 +321,6 @@ export function PlanView() {
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
   const press = useRef<{ timer?: ReturnType<typeof setTimeout>; x: number; y: number }>({ x: 0, y: 0 });
 
-  // Keep a newly selected item clear of the inspector sheet that opens over the stage.
-  useEffect(() => {
-    if (selection?.kind !== 'furniture') return;
-    const id = selection.id;
-    const t = setTimeout(() => {
-      const el = svgRef.current, sheet = document.querySelector('.inspector-sheet');
-      const f = useShownList().find((x) => x.id === id);
-      if (!el || !sheet || !f || dragRef.current) return;
-      const r = el.getBoundingClientRect(), s = sheet.getBoundingClientRect();
-      const b = aabb(itemCorners(f));
-      const toX = (x: number) => r.left + ((x - view.x) / view.w) * r.width;
-      const right = toX(b.maxX), left = toX(b.minX);
-      if (right < s.left - 8 || left > s.right || s.left <= r.left + 80) return;
-      // Shift the view so the item sits in the middle of the uncovered part.
-      const freeMid = (r.left + Math.max(r.left, s.left - 12)) / 2;
-      const dx = ((toX(f.x) - freeMid) / r.width) * view.w;
-      animRef.current({ ...vb, x: vb.x + dx });
-    }, 60);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection?.kind, selection?.id]);
-
   // Other parts of the app can ask the plan to reset its view.
   useEffect(() => {
     const onReset = () => fitAnimated();
@@ -399,7 +390,7 @@ export function PlanView() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const st = useStore.getState(); const sel = st.selection; const A = actions.current;
-      if (e.key === 'Escape') { setCard(null); useProblems.getState().setPreview(null); setLayersOpen(false); st.select(null); setMulti([]); setEditWall(null); setMenu(null); return; }
+      if (e.key === 'Escape') { setCard(null); useProblems.getState().setPreview(null); st.select(null); setMulti([]); setEditWall(null); return; }
       if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -522,8 +513,16 @@ export function PlanView() {
     const target = (e.target as Element).closest('[data-hit]') as HTMLElement | null;
     const hit = target?.getAttribute('data-hit') ?? '';
     const p = toPlan(e.clientX, e.clientY);
-    if (e.button === 1 || holdKeys.current.space) { setMenu(null); setD({ kind: 'pan', start: { x: e.clientX, y: e.clientY }, vb: view, sx: px, sy: px }); return; }
-    if (hit.startsWith('mk:')) { openCard(hit.slice(3), true); return; }
+    if (e.button === 1 || holdKeys.current.space) { setD({ kind: 'pan', start: { x: e.clientX, y: e.clientY }, vb: view, sx: px, sy: px }); return; }
+    if (hit.startsWith('mk:')) {
+      // A problem dot: select what it belongs to and show the checks in the left panel.
+      const key = hit.slice(3);
+      if (key.startsWith('f:')) { setMulti([key.slice(2)]); select({ kind: 'furniture', id: key.slice(2) }); }
+      else if (key.startsWith('o:')) select({ kind: 'opening', id: key.slice(2) });
+      openCard(key, true);
+      window.dispatchEvent(new Event('spacelens:checks'));
+      return;
+    }
     if (card && !hit.startsWith('f:')) closeCard();
     if (hit.startsWith('v:')) {
       const [sid, idx] = splitId(hit.slice(2));
@@ -535,7 +534,7 @@ export function PlanView() {
       if (f && !f.locked) setD({ kind: 'rotate', id, rot: f.rotation });
     } else if (hit.startsWith('f:')) {
       const id = hit.slice(2); const f = furniture.find((x) => x.id === id)!;
-      setMenu(null); setHover(null);
+      setHover(null);
       if (e.shiftKey) {
         const cur = selection?.kind === 'furniture' ? (multiRef.current.length ? multiRef.current : [selection.id]) : [];
         const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
@@ -553,13 +552,11 @@ export function PlanView() {
         setD({ kind: 'item', id, ids, origins, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false, guides: [], wall: null, snap: null, start: { x: e.clientX, y: e.clientY } });
       }
       if (e.pointerType !== 'mouse') {
-        // Long press selects the item and shows its actions.
-        const rr = svgRef.current!.getBoundingClientRect();
+        // Long press selects just this item; its actions are in the inspector.
         press.current = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
           const cur = dragRef.current;
           if (cur && !(cur.kind === 'item' && !cur.moved)) return;
           setD(null); setMulti([id]); select({ kind: 'furniture', id });
-          setMenu({ id, sx: press.current.x - rr.left, sy: press.current.y - rr.top });
           try { navigator.vibrate?.(10); } catch { /* not supported */ }
         }, 480) };
       }
@@ -568,10 +565,8 @@ export function PlanView() {
     } else if (hit.startsWith('w:')) {
       select({ kind: 'wall', id: hit.slice(2) });
     } else if (e.shiftKey) {
-      setMenu(null);
       setD({ kind: 'marquee', a: p, b: p });
     } else {
-      setMenu(null);
       setD({ kind: 'pan', start: { x: e.clientX, y: e.clientY }, vb, sx: px, sy: px });
     }
   };
@@ -690,27 +685,6 @@ export function PlanView() {
     dispatch({ type: 'INSERT_VERTEX', spaceId: sid, afterIndex: i, at: { x: snap(point.x), y: snap(point.y) } });
   };
 
-  const addOpening = (kind: 'door' | 'window', widthOverride?: number) => {
-    const sel = useStore.getState().selection;
-    if (sel?.kind !== 'wall') { notify(`Click a wall on the plan, then add the ${kind}.`, { tone: 'info' }); return; }
-    const [sid, i] = splitId(sel.id); const sp = model.spaces.find((s) => s.id === sid); if (!sp) return;
-    const L = wallLength(sp, i); const width = widthOverride ?? (kind === 'door' ? 0.9 : 1.2);
-    if (L < width + 0.1) {
-      const fit = Math.floor((L - 0.1) * 20) / 20;
-      notify(`This wall is ${Math.round(L * 100)} cm, too short for a ${Math.round(width * 100)} cm ${kind}.`, {
-        tone: 'warn', actions: fit >= 0.4 ? [{ label: `Add a ${Math.round(fit * 100)} cm ${kind}`, primary: true, run: () => addOpening(kind, fit) }] : [],
-      });
-      return;
-    }
-    const o: Opening = {
-      id: uid(kind), kind, spaceId: sid, wallIndex: i, offsetM: L / 2, widthM: width,
-      heightM: kind === 'door' ? 2.1 : 1.2, sillM: kind === 'door' ? 0 : 0.9,
-      swing: kind === 'door' ? 'in' : 'none', hinge: 'start', sourceKind: 'manual', status: 'estimated',
-    };
-    dispatch({ type: 'ADD_OPENING', opening: o });
-    select({ kind: 'opening', id: o.id });
-  };
-
   const commitLength = () => {
     if (!editWall) return;
     const v = parseLength(editWall.value);
@@ -766,7 +740,11 @@ export function PlanView() {
     return m;
   }, [analysis.highlights]);
 
-  const scaleLen = niceLen(view.w * 0.18);
+  // The scale bar lives in the View fold of the left panel; the plan only publishes its size.
+  const scaleLen = niceLen(px * 90);
+  const scalePx = Math.round(scaleLen / px / 2) * 2;
+  useEffect(() => { setViewPrefs({ scale: { m: scaleLen, px: scalePx } }); }, [scaleLen, scalePx]);
+  useEffect(() => () => setViewPrefs({ scale: null }), []);
   const stroke = (k = 1) => k * px;
 
   return (
@@ -806,11 +784,11 @@ export function PlanView() {
         onContextMenu={(e) => {
           const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
           e.preventDefault();
-          if (!hit.startsWith('f:')) { setMenu(null); return; }
+          if (!hit.startsWith('f:')) return;
+          // Right-click selects; the actions are in the inspector.
           const id = hit.slice(2);
           if (!(multiRef.current.includes(id) && selection?.kind === 'furniture')) { setMulti([id]); select({ kind: 'furniture', id }); }
-          const r = svgRef.current!.getBoundingClientRect();
-          setMenu({ id, sx: e.clientX - r.left, sy: e.clientY - r.top }); setHover(null);
+          setHover(null);
         }}
         role="img" aria-label={`Floor plan of ${model.name}`}
       >
@@ -920,7 +898,6 @@ export function PlanView() {
                     onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
                     <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
                     <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>
-                    <title>{`${label} (${status})`}</title>
                   </g>)}
             </g>
           );
@@ -1020,7 +997,6 @@ export function PlanView() {
             <g pointerEvents="none">
               {drag.guides.map((g, i) => <line key={i} x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} className="plan2d-guide" strokeWidth={px} strokeDasharray={`${5 * px} ${4 * px}`} />)}
               {drag.wall && <text x={drag.wall.at.x} y={drag.wall.at.y} fontSize={fs} textAnchor="middle" dominantBaseline="central" className="plan2d-live plan2d-halo">{drag.wall.cm} cm</text>}
-              {over.length > 0 && <text x={f.x} y={b.minY - 10 * px} fontSize={fs} textAnchor="middle" className="plan2d-over plan2d-halo">Overlaps {over.join(', ')}</text>}
             </g>
           );
         })()}
@@ -1037,7 +1013,6 @@ export function PlanView() {
           return (
             <g pointerEvents="none" transform={`translate(${ghost.p.x} ${ghost.p.y})`}>
               <rect x={-w / 2} y={-d / 2} width={w} height={d} className="plan2d-ghost" strokeWidth={1.5 * px} strokeDasharray={`${5 * px} ${3 * px}`} />
-              {e && <text y={d / 2 + fs * 1.2} fontSize={fs} textAnchor="middle" className="plan2d-live plan2d-halo">{e.name}</text>}
             </g>
           );
         })()}
@@ -1065,7 +1040,7 @@ export function PlanView() {
               {p.poses.filter((_, i) => i % step === 0 || i === p.poses.length - 1).map((q, i) => (
                 <polygon key={i} points={pts(itemCorners({ ...item, x: q.x, y: q.y, rotation: q.rotation }))} strokeWidth={stroke(1)} />
               ))}
-              {p.blockedAt && <g className="plan2d-blocked"><circle cx={p.blockedAt.x} cy={p.blockedAt.y} r={8 * px} /><text x={p.blockedAt.x + 10 * px} y={p.blockedAt.y} fontSize={fs}>Blocked</text></g>}
+              {p.blockedAt && <g className="plan2d-blocked"><circle cx={p.blockedAt.x} cy={p.blockedAt.y} r={8 * px} /></g>}
             </g>
           );
         })()}
@@ -1074,12 +1049,6 @@ export function PlanView() {
         {layers.sightlines && analysis.sightlines.map((s, i) => (
           <line key={i} x1={s.a.x} y1={s.a.y} x2={s.b.x} y2={s.b.y} className={`plan2d-sight ${s.visible ? 'is-ok' : 'is-fail'}`} strokeWidth={stroke(1.5)} />
         ))}
-
-        {/* Highlight labels */}
-        {(analysis.highlights ?? []).map((h, i) => {
-          const f = furniture.find((x) => h.ids.includes(x.id)); if (!f) return null;
-          return <text key={i} x={f.x} y={f.y - f.d / 2 - 8 * px} fontSize={fs} fill={h.color} textAnchor="middle" className="plan2d-hl-label">{h.label}</text>;
-        })}
 
         {/* Vertices (top) */}
         {spaces.map((sp) => sp.polygon.map((p, i) => {
@@ -1100,91 +1069,8 @@ export function PlanView() {
         <DrillOverlay />
       </svg>
 
-
-      {hover && !drag && !menu && !card && (() => {
-        const f = furniture.find((x) => x.id === hover.id); if (!f) return null;
-        return <div className="plan2d-tip" style={{ left: hover.sx + 14, top: hover.sy + 14 }}>{f.name} <span className="muted">{Math.round(f.w * 100)}×{Math.round(f.d * 100)} cm</span></div>;
-      })()}
-
-      {menu && (() => {
-        const ids = groupIds().length ? groupIds() : [menu.id];
-        const items = furniture.filter((f) => ids.includes(f.id));
-        const allLocked = items.length > 0 && items.every((f) => f.locked);
-        const run = (fn: () => void) => () => { fn(); setMenu(null); };
-        return (
-          <div className="plan2d-menu card" role="menu" style={{ left: Math.min(menu.sx, size.w - 150), top: Math.min(menu.sy, size.h - 150) }}
-            onPointerDown={(e) => e.stopPropagation()}>
-            <button role="menuitem" onClick={run(() => editGroup(ids, (f) => ({ rotation: normAng(f.rotation + Math.PI / 2) })))}>Rotate<kbd>R</kbd></button>
-            <button role="menuitem" onClick={run(() => duplicateGroup(ids))}>Duplicate<kbd>Ctrl D</kbd></button>
-            <button role="menuitem" onClick={run(() => toggleLock(ids))}>{allLocked ? 'Unlock' : 'Lock'}<kbd>L</kbd></button>
-            <button role="menuitem" className="plan2d-menu-bad" onClick={run(() => deleteGroup(ids))}>Delete<kbd>Del</kbd></button>
-          </div>
-        );
-      })()}
-
-      <div className="plan2d-toolbar" role="toolbar" aria-label="Plan tools">
-        <button className="plan2d-tb" onClick={fitAnimated} aria-label="Fit plan to view" data-tip="Fit to view (F)"><Icon name="maximize" /></button>
-        <div className="plan2d-layers">
-          <button className={`plan2d-tb${layersOpen ? ' is-on' : ''}`} onClick={() => setLayersOpen((v) => !v)} aria-haspopup="menu" aria-expanded={layersOpen} aria-label="Layers" data-tip="Layers"><Icon name="layout" /></button>
-          {layersOpen && (
-            <div className="plan2d-layer-menu" role="menu" onPointerDown={(e) => e.stopPropagation()}>
-              {(['dimensions', 'clearance', 'routes', 'provenance', 'heat'] as const).map((k) => (
-                <label key={k} className="plan2d-layer-row">
-                  <input type="checkbox" checked={layers[k]} onChange={() => toggleLayer(k)} />{LAYER_LABEL[k]}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-        {selection?.kind === 'wall' && (<>
-          <span className="plan2d-sep" />
-          <button className="plan2d-tb" onClick={() => addOpening('door')} aria-label="Add door to selected wall" data-tip="Add door"><Icon name="door" /></button>
-          <button className="plan2d-tb" onClick={() => addOpening('window')} aria-label="Add window to selected wall" data-tip="Add window"><Icon name="window" /></button>
-        </>)}
-        <span className="plan2d-sep" />
-        <span className="plan2d-tb plan2d-help" tabIndex={0} role="note" aria-label="Shortcuts: Shift click or drag to multi-select, arrows nudge, R rotate, L lock, Ctrl D duplicate, F zoom, Alt drag skips snap">
-          ?
-          <span className="plan2d-help-pop" aria-hidden="true">
-            <span><kbd>Shift</kbd>click or drag to multi-select</span><span><kbd>Arrows</kbd>nudge</span><span><kbd>R</kbd>rotate</span>
-            <span><kbd>L</kbd>lock</span><span><kbd>Ctrl D</kbd>duplicate</span><span><kbd>F</kbd>zoom to selection</span><span><kbd>Alt</kbd>drag without snapping</span>
-          </span>
-        </span>
-      </div>
-
-      {activeCandidateId && (
-        <div className="plan2d-preview float">
-          <button className="btn btn-sm btn-primary" onClick={() => useStore.getState().applyCandidate(activeCandidateId)}>Apply</button>
-        </div>
-      )}
-
-      <div className="plan2d-scale">
-        <svg width={scaleLen / px} height={14} aria-hidden="true">
-          <rect x={0} y={4} width={scaleLen / px / 2} height={5} fill="var(--text)" />
-          <rect x={scaleLen / px / 2} y={4} width={scaleLen / px / 2} height={5} fill="none" stroke="var(--text)" />
-        </svg>
-        <span>{scaleLen >= 1 ? `${scaleLen} m` : `${Math.round(scaleLen * 100)} cm`}</span>
-      </div>
-
-      {layers.provenance && (
-        <div className="plan2d-legend panel">
-          {(Object.keys(PROV) as SourceKind[]).filter((k) => usedKinds(model).has(k)).map((k) => (
-            <div key={k} className="plan2d-legend-row"><i style={{ background: PROV[k] }} />{PROV_LABEL[k]}</div>
-          ))}
-        </div>
-      )}
     </div>
   );
-}
-
-const LAYER_LABEL: Record<keyof Layers, string> = {
-  dimensions: 'Sizes', clearance: 'Clearance', routes: 'Routes', provenance: 'Sources', heat: 'Heat', sightlines: 'Views',
-};
-
-function usedKinds(m: { spaces: Space[]; openings: Opening[] }) {
-  const s = new Set<SourceKind>();
-  m.spaces.forEach((sp) => sp.walls.forEach((w) => s.add(w.sourceKind)));
-  m.openings.forEach((o) => s.add(o.sourceKind));
-  return s;
 }
 
 function useShownList(): FurnitureItem[] {
@@ -1271,9 +1157,7 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker
       {sel && !f.locked && (
         <g>
           <line x1={0} y1={d / 2} x2={0} y2={d / 2 + 18 * px} stroke="var(--accent)" strokeWidth={px} pointerEvents="none" />
-          <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={6 * px} className="plan2d-rot" strokeWidth={1.25 * px}>
-            <title>Drag to turn</title>
-          </circle>
+          <circle data-hit={`rot:${f.id}`} cx={0} cy={d / 2 + 18 * px} r={6 * px} className="plan2d-rot" strokeWidth={1.25 * px} />
         </g>
       )}
       </g>
