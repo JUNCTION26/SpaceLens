@@ -28,6 +28,8 @@ export interface SolveProgramOptions {
    * reads the clock to decide when to stop, so the same seed gives the same layouts on any machine.
    */
   timeBudgetMs?: number;
+  /** Hard wall-clock ceiling (default 20 s): past it the search stops expanding and returns the best layout found. */
+  maxWallMs?: number;
   onProgress?: (p: number) => void;
   /** Route targets, route width and budget for the hard checks. */
   req?: Requirements | null;
@@ -985,6 +987,8 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   const effort = Math.max(0.3, Math.min(3, (opts.timeBudgetMs ?? 1500) / 1500));
   const maxBacktracks = Math.round(12 * effort);
   const localEvals = Math.round(140 * effort);
+  const wallMs = opts.maxWallMs ?? 20000;
+  const late = () => now() - t0 > wallMs;
   const variants = Math.max(1, Math.min(6, opts.variants ?? 3));
   const seed = opts.seed ?? 1;
   const space = spaceOf(model, opts.spaceId);
@@ -1049,6 +1053,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     ctx.rejects.clear();
     const gIds = new Set(g.members);
     for (const st of states) {
+      if (next.length && late()) break;
       let specs = slotsFor(ctx, g, st.items);
       const mirrors = hasChoice(ctx, g) ? [false, true] : [false];
       const cands: Array<{ spec: Spec; mirror: boolean; items: FurnitureItem[]; deferred: string[]; q: number; wallKey: string; split: number }> = [];
@@ -1121,7 +1126,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       // Backtrack: resume from the best untried states of the deepest earlier level that has some.
       let j = gi - 1;
       while (j >= 0 && !(spare[j]?.length)) j--;
-      if (j >= 0 && backtracks < maxBacktracks) {
+      if (j >= 0 && backtracks < maxBacktracks && !late()) {
         backtracks++;
         states = spare[j].splice(0, B);
         gi = j;
@@ -1195,7 +1200,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       for (let k = 0; k < cur.placed.length; k++) {
         const p = cur.placed[k];
         if (p.group.fixed || p.spec.kind === 'array') continue;
-        if (evals >= localEvals) return cur;
+        if (evals >= localEvals || late()) return cur;
         if (now() - lastYield > 40) { await tick(); lastYield = now(); }
         const others = cur.placed.filter((_, i) => i !== k).flatMap((q) => q.items);
         const moves: Array<{ spec: Spec; mirror: boolean }> = [];

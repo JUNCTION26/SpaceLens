@@ -20,4 +20,12 @@ describe('solveProgram speed', () => {
     console.log('waiting room ms', ms, 'candidates', res.candidates.length);
     expect(ms).toBeLessThan(5000);
   }, 200000);
+  it('stops at the wall-clock ceiling instead of searching on', async () => {
+    const m = room(rect(4, 5), [opening('door', 'door', 2, 2, 0.9, 'in'), opening('win', 'window', 0, 2, 1.2)]);
+    const items = [...Array.from({ length: 8 }, (_, i) => at('waiting-chair', `c${i}`)), at('reception-desk', 'desk'), at('coffee-table', 'low'), at('plant', 'p1'), at('plant', 'p2')];
+    const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.9 });
+    const t = Date.now();
+    await solveProgram(m, items, defaultProgram(m, items, req), { seed: 3, req, maxWallMs: 50 });
+    expect(Date.now() - t).toBeLessThan(5000);
+  }, 60000);
 });
