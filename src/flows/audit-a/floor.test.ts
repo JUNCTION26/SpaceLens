@@ -35,8 +35,7 @@ async function plan(text: string) {
   return { s, plans, sh };
 }
 
-// Not yet seen green under the shared test queue (runs were cut by its 300 s limit); AUDIT_A=1 runs it.
-describe.skipIf((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.AUDIT_A !== '1')('Floor', () => {
+describe('Floor', () => {
   it('"3-bedroom flat 80 m2" makes plans with three bedrooms; Use puts the rooms in the model', async () => {
     resetStore(sampleRoom());
     const { s, plans } = await sentenceToModel('3-bedroom flat 80 m2');
