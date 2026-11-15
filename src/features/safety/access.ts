@@ -20,7 +20,7 @@ export function assumptionFor(pack: RulePack, key: SafetyKey, cfg: SafetyConfig)
   return { id: g.id, key, value: cfg[key], unit: g.unit, source: 'planning default' };
 }
 
-export type DestKind = 'room' | 'bed' | 'desk' | 'sofa' | 'wc' | 'basin';
+export type DestKind = 'room' | 'bed' | 'desk' | 'sofa' | 'wc' | 'basin' | 'kitchen';
 export type BlockKind = 'door' | 'item' | 'wall';
 export type BlockReason = 'door' | 'width' | 'turn' | 'transfer';
 
@@ -33,6 +33,9 @@ export interface AccessFix {
   dir?: 'up' | 'down' | 'left' | 'right';
   cm?: number;
   toM?: number;
+  /** Width at the blocking point before the change, and after it (metres), when measurable. */
+  beforeM?: number | null;
+  afterM?: number | null;
   ops: Op[];
   /** True when the plan was re-checked with the change and the destination became reachable. */
   verified: boolean;
@@ -68,13 +71,14 @@ export interface AccessReport {
 
 export interface AccessOptions { pack?: RulePack; config?: Partial<SafetyConfig>; exitOverrides?: Record<string, boolean>; skipFixes?: boolean }
 
-const BED = /\bbed\b|bed$|^bed/i, DESK = /desk|workstation/i, SOFA = /sofa|couch/i, WC = /toilet|\bwc\b/i, BASIN = /basin|sink|washbasin/i;
+const KITCHEN = /cooker|stove|hob|oven|kitchen|worktop/i, BED = /\bbed\b|bed$|^bed/i, DESK = /desk|workstation/i, SOFA = /sofa|couch/i, WC = /toilet|\bwc\b/i, BASIN = /basin|sink|washbasin/i;
 const SKIP = /night|side|crib|bunk|sofa ?bed/i;
 
 function kindOf(f: FurnitureItem): { kind: Exclude<DestKind, 'room'>; label: string } | null {
   const t = `${f.category} ${f.name}`;
   if (SKIP.test(t) && !/sofa/i.test(f.category)) return null;
   if (WC.test(t)) return { kind: 'wc', label: 'WC' };
+  if (KITCHEN.test(t)) return { kind: 'kitchen', label: 'Kitchen' };
   if (BASIN.test(t)) return { kind: 'basin', label: 'Basin' };
   if (BED.test(f.category) || /\bbed\b/i.test(f.name)) return { kind: 'bed', label: 'Bed side' };
   if (DESK.test(t)) return { kind: 'desk', label: 'Desk' };
@@ -204,7 +208,7 @@ function findBlocker(ctx: Ctx, chk: Check, furniture: FurnitureItem[], dest: Des
 const DIRS: Array<{ v: Vec2 }> = [{ v: { x: 0, y: -1 } }, { v: { x: 0, y: 1 } }, { v: { x: -1, y: 0 } }, { v: { x: 1, y: 0 } }];
 const wordOf = (v: Vec2) => DIR_WORD(v) as 'up' | 'down' | 'left' | 'right';
 
-function searchMove(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfig, overrides: Record<string, boolean>, dest: Dest, item: FurnitureItem, budget: { n: number }): AccessFix | undefined {
+function searchMove(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfig, overrides: Record<string, boolean>, dest: Dest, item: FurnitureItem, budget: { n: number }, at?: Vec2, beforeM?: number | null): AccessFix | undefined {
   if (item.locked) return undefined;
   const doors = buildSafetyGrid(model, [], overrides, 0.25).doors;
   const zones: Vec2[][] = [];
@@ -219,7 +223,8 @@ function searchMove(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyCo
       const d2: Dest = dest.item?.id === item.id ? { ...dest, item: { ...item, x, y }, at: { x, y } } : dest;
       if (evaluate(ctx, d2).reachable) {
         const cm = Math.round(delta * 100), name = item.name || item.category;
-        return { kind: 'move', label: `${name} ${wordOf(v)} ${cm}cm`, itemId: item.id, dir: wordOf(v), cm, ops: [{ type: 'UPDATE_OBJECT', id: item.id, patch: { x, y } }], verified: true };
+        const afterM = at ? Math.round(widthAt(ctx.g, at).width * 100) / 100 : null;
+        return { kind: 'move', label: `${name} ${wordOf(v)} ${cm}cm`, itemId: item.id, dir: wordOf(v), cm, beforeM: beforeM ?? null, afterM, ops: [{ type: 'UPDATE_OBJECT', id: item.id, patch: { x, y } }], verified: true };
       }
     }
   }
@@ -233,7 +238,8 @@ function widenFix(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConf
   const patched: SpaceModel = { ...model, openings: model.openings.map((x) => (x.id === doorId ? { ...x, widthM: toM } : x)) };
   const ctx = buildCtx(patched, furniture, cfg, overrides);
   const verified = !!ctx && evaluate(ctx, dest).reachable;
-  return { kind: 'widen-door', label: `Widen to ${Math.round(toM * 100)}cm`, doorId, toM, ops: [{ type: 'UPDATE_OPENING', id: doorId, patch: { widthM: toM } }], verified };
+  const beforeM = Math.round(Math.max(0, o.widthM - leaf) * 100) / 100;
+  return { kind: 'widen-door', label: `Widen to ${Math.round(toM * 100)}cm`, doorId, toM, beforeM, afterM: Math.round((toM - leaf) * 100) / 100, ops: [{ type: 'UPDATE_OPENING', id: doorId, patch: { widthM: toM } }], verified };
 }
 
 export function assessAccess(model: SpaceModel, furniture: FurnitureItem[], opts: AccessOptions = {}): AccessReport {
@@ -269,7 +275,7 @@ export function assessAccess(model: SpaceModel, furniture: FurnitureItem[], opts
         res.blocking = { kind: b.kind, id: b.id, at: b.at, reason: b.reason, widthM: b.widthM };
         if (!opts.skipFixes) {
           if (b.kind === 'door' && b.id) res.fix = widenFix(model, furniture, cfg, overrides, b.id, d);
-          else if (b.item) res.fix = searchMove(model, furniture, cfg, overrides, d, b.item, budget);
+          else if (b.item) res.fix = searchMove(model, furniture, cfg, overrides, d, b.item, budget, b.at, b.widthM);
         }
       }
     }

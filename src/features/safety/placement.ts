@@ -113,6 +113,33 @@ export function planPlacement(model: SpaceModel, furniture: FurnitureItem[], opt
     out.push({ id: `sign:${d.id}`, kind: 'exit-sign', label: 'Exit sign', at: sp, spaceId: d.space.id, doorId: d.id, mount: 'wall', elevationM: Math.min(ceil - 0.2, d.opening.heightM + PLACEMENT_ASSUMPTIONS['plan-sign-above'].value), assumptionId: 'plan-sign-above' });
   }
 
+  // Extinguishers beyond the exits: every spot of every room must lie within the travel distance of one.
+  const travel = extRef.value;
+  for (const s of model.spaces) {
+    if (s.polygon.length < 3) continue;
+    const xs = s.polygon.map((p) => p.x), ys = s.polygon.map((p) => p.y);
+    const grid: Vec2[] = [], wallSpots: Vec2[] = [];
+    for (let x = Math.min(...xs); x <= Math.max(...xs); x += 0.5) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 0.5) {
+      const p = { x, y };
+      if (!pointInPolygon(p, s.polygon)) continue;
+      const e = distPointPolygonEdges(p, s.polygon);
+      if (e >= 0.2 && e <= 0.5 && !inFurniture(p, polys, 0.05)) wallSpots.push(p);
+      if (!inFurniture(p, polys)) grid.push(p);
+    }
+    if (!wallSpots.length) continue;
+    const have = () => out.filter((o) => o.kind === 'extinguisher').map((o) => o.at);
+    for (let n = 0; n < 8; n++) {
+      const ex = have();
+      let far: Vec2 | null = null, fd = travel;
+      for (const p of grid) { const d = ex.length ? Math.min(...ex.map((q) => dist(q, p))) : Infinity; if (d > fd) { fd = d; far = p; } }
+      if (!far) break;
+      // Place it against a wall near the uncovered spot, not further than half the travel distance from it.
+      let best = wallSpots[0], bd = Infinity;
+      for (const w of wallSpots) { const d = dist(w, far); if (d < bd) { bd = d; best = w; } }
+      out.push({ id: `ext:${s.id}:${n}`, kind: 'extinguisher', label: 'Extinguisher', at: best, spaceId: s.id, mount: 'wall', elevationM: PLACEMENT_ASSUMPTIONS['plan-ext-height'].value, assumptionId: extRef.id });
+    }
+  }
+
   // Fire blanket near a cooker (or other kitchen item), within arm's reach but not over it.
   const kit = cookers[0] ?? furniture.find((f) => KITCHENISH.test(`${f.category} ${f.name}`));
   if (kit) {
