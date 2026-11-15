@@ -4,3 +4,7 @@
 .shoplist .find-no { opacity: .6; }
 .shoplist-foot button + button, .shoplist-foot button { margin-left: 6px; }
 @media (prefers-reduced-motion: reduce) { .shoplist .find-spin { animation: none; } }
+
+.shoplist .shop-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+.shoplist .find-ok.unsure { opacity: 0.6; }
+.shoplist .swap { margin-left: 4px; }
