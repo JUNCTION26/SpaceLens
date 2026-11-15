@@ -11,6 +11,7 @@ import { CROWD_ASSUMPTIONS, runCrowd } from './crowd';
 import type { CrowdStats } from './crowd';
 import { roomCentroid } from './grid';
 import { Icon } from '../../ui/icons';
+import { toggleWalk, useViewPrefs } from '../../ui/ViewFold';
 import './sim.css';
 
 const EXTRA: PassageItem[] = [
@@ -23,6 +24,8 @@ const LAYERS: Array<[keyof Layers, string]> = [['routes', 'Routes'], ['heat', 'H
 
 export function SimPanel() {
   const model = useStore((s) => s.model);
+  // The button that starts the walk is also the way out of it (and out of a tour).
+  const inside = useViewPrefs((s) => s.cam === 'walk' || s.touring);
   const layers = useStore((s) => s.layers);
   const analysis = useStore((s) => s.analysis);
   const selection = useStore((s) => s.selection);
@@ -115,8 +118,8 @@ export function SimPanel() {
 
   return (
     <div className="sim">
-      <button className="btn btn-primary sim-walk" onClick={() => window.dispatchEvent(new Event('spacelens:walk'))}>
-        <Icon name="walk" size={14} /> Walk
+      <button className="btn btn-primary sim-walk" onClick={() => (inside ? toggleWalk() : window.dispatchEvent(new Event('spacelens:walk')))}>
+        {inside ? <><Icon name="x" size={14} /> Stop</> : <><Icon name="walk" size={14} /> Walk</>}
       </button>
       <div className="sim-actions">
         <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent('spacelens:auto-tour', { detail: { record: false } }))}><Icon name="play" size={14} /> Tour</button>

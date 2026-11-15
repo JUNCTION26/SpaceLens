@@ -57,6 +57,8 @@
 
 /* View fold at the bottom of the left panel */
 .view-fold-row{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.view-fold-chev{flex:none;color:var(--faint);transition:transform var(--dur) var(--ease)}
+.view-fold[open]>summary .view-fold-chev{transform:rotate(90deg)}
 .view-fold-check{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
 .view-fold-check input{margin:0;accent-color:var(--accent)}
 .view-fold-field{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}

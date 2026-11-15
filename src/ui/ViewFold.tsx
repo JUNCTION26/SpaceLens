@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { useStore } from '../core/store';
 import type { Layers, Opening, SourceKind, Space } from '../core/types';
 import type { XRMode } from '../features/xr/xrSupport';
+import { Icon } from './icons';
 
 /** Wall and opening colours on the plan's Sources layer. */
 export const PROV: Record<SourceKind, string> = {
@@ -129,20 +130,19 @@ export function ViewFold() {
   const mode = useStore((s) => s.mode);
   const has3d = mode === 'experience' || view !== '2d';
   const has2d = mode !== 'experience' && view !== '3d';
-  const multi = model.spaces.length > 1;
   const walking = p.cam === 'walk';
   const kinds = layers.provenance ? [...usedKinds(model)] as SourceKind[] : [];
 
   return (
     <details className="settings-group settings-adv view-fold">
-      <summary><h3>View</h3></summary>
+      <summary><h3>View</h3><Icon name="chevronRight" size={14} className="view-fold-chev" /></summary>
       <div className="view-fold-row">
         <button className="btn btn-sm" onClick={() => emit('spacelens:reset-view')}>Fit</button>
         {has3d && (['corner', 'top', 'front'] as ViewAngle[]).map((v) => (
           <button key={v} className="btn btn-sm" onClick={() => emit('spacelens:view-angle', v)}>{v === 'corner' ? 'Corner' : v === 'top' ? 'Top' : 'Front'}</button>
         ))}
       </div>
-      {has3d && multi && !p.touring && (
+      {has3d && !p.touring && (
         <div className="view-fold-row">
           <button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: false })}>Tour</button>
           {CAN_RECORD && <button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: true })}>Record</button>}
