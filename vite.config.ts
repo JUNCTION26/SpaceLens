@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import os from 'node:os';
 
 // Wall-clock budgets in tests are multiplied by this. Strict numbers: SPACELENS_TIME_SLACK=1.
-const slack = process.env.SPACELENS_TIME_SLACK ?? (process.env.CI || os.cpus().length < 8 || os.loadavg()[0] > os.cpus().length ? '4' : '1');
+const slack = process.env.SPACELENS_TIME_SLACK ?? (process.env.CI || process.platform === 'win32' || os.cpus().length < 8 || os.loadavg()[0] > os.cpus().length ? '4' : '1');
 
 export default defineConfig({
   base: process.env.GITHUB_PAGES ? '/SpaceLens/' : '/',

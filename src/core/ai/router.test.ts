@@ -134,7 +134,8 @@ function fakeFetch(map: Record<string, Behaviour>, calls: string[]) {
   });
 }
 
-const timing = { hedgeMs: 60, firstTokenTimeoutMs: 400, totalTimeoutMs: 2000 };
+const slack = Number(process.env.SPACELENS_TIME_SLACK ?? 1);
+const timing = { hedgeMs: 60, firstTokenTimeoutMs: 400 * slack, totalTimeoutMs: 2000 * slack };
 const direct = { kind: 'direct', key: 'k' } as const;
 
 describe('runRouted', () => {

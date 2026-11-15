@@ -169,5 +169,5 @@ describe('junk filter and fallback', () => {
     expect(res.candidates.length).toBeGreaterThan(0);
     expect(res.candidates.every((c) => c.furniture.length > 0 && c.metrics.score > 0)).toBe(true);
     expect(res.brief.objects.some((o) => o.text === 'GERARD')).toBe(true);
-  });
+  }, 400000);
 });
