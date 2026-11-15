@@ -26,7 +26,6 @@ const Glyph = ({ d }: { d: string }) => (
   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
 );
 
-const PHASE_LABEL: Record<Phase, string> = { idle: '', listening: '', thinking: 'Thinking', speaking: '' };
 
 /** Five bars: live mic level while listening, a soft pulse while speaking or thinking. */
 function Wave({ phase, meter }: { phase: Phase; meter: boolean }) {
