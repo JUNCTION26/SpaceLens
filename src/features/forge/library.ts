@@ -6,6 +6,7 @@ import { uid } from '../../core/geometry';
 import { getState } from '../../core/store';
 import type { FurnitureItem, MaterialId, ObjectSpec } from '../../core/types';
 import { findFreeSpot, snapToWall } from '../objects/placement';
+import { CATALOG } from '../furniture/catalog';
 import { editObject, type GenerateOpts } from './generate';
 
 /** Fired by voice commands that built an object, so the forge panel shows it. */
@@ -74,6 +75,20 @@ export function mainMaterial(spec: ObjectSpec): string {
   return [...vol.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]?.replace('-', ' ') ?? '';
 }
 
+/**
+ * Rough price for a made object: the catalogue piece of the same kind closest in size, scaled by
+ * size. A made piece still has to be bought or built, so the budget and the shopping list count it.
+ */
+export function estimatePriceSek(category: string, size: { w: number; d: number; h: number }): number {
+  const vol = (x: { w: number; d: number; h: number }) => Math.max(1e-3, x.w * x.d * x.h);
+  const same = CATALOG.filter((e) => e.category === category && e.priceSek > 0);
+  const pool = same.length ? same : CATALOG.filter((e) => e.priceSek > 0);
+  if (!pool.length) return 0;
+  const v = vol(size);
+  const near = pool.reduce((a, b) => (Math.abs(Math.log(vol(b) / v)) < Math.abs(Math.log(vol(a) / v)) ? b : a));
+  return Math.max(99, Math.round((near.priceSek * Math.sqrt(v / vol(near))) / 10) * 10);
+}
+
 /** Room item for an object at exact size, with clearances from its semantics. */
 export function specToItem(spec: ObjectSpec, at: { x: number; y: number; rotation?: number } = { x: 1, y: 1 }): FurnitureItem {
   const s = spec.semantics;
@@ -84,7 +99,7 @@ export function specToItem(spec: ObjectSpec, at: { x: number; y: number; rotatio
     w: spec.size.w, d: spec.size.d, h: spec.size.h,
     clearance: { front: s.frontClearanceM, back: 0, left: s.sideClearanceM, right: s.sideClearanceM },
     ...(openD ? { unfoldedD: openD } : {}),
-    locked: false, owned: false, priceSek: 0, priceStatus: 'estimated',
+    locked: false, owned: false, priceSek: estimatePriceSek(s.category, spec.size), priceStatus: 'estimated',
     color: dominantColor(spec), material: mainMaterial(spec), sourceKind: 'generated', custom: spec,
   };
 }
