@@ -23,7 +23,7 @@ export function ArButton({ model, item, className, label }: Props) {
   };
   return (
     <button type="button" className={className} onClick={run} disabled={busy} aria-live="polite">
-      {busy ? 'Preparing...' : failed ? 'Could not prepare. Try again' : label ?? (item ? 'See it in your room' : 'See the room in AR')}
+      {busy ? 'Preparing...' : failed ? 'Retry' : label ?? 'View in AR'}
     </button>
   );
 }
