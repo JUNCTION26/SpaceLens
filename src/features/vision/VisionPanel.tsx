@@ -4,9 +4,9 @@ import './vision.css';
 import { useStore, getState } from '../../core/store';
 import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { gemini, fileToInlineData, hasGemini, usage, type GeminiPart } from '../../core/gemini';
-import type { Requirements } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, findByKeyword } from '../../features/furniture/catalog';
 import { findFreeSpot } from '../../features/objects/placement';
+import { InspireTool } from './InspireTool';
 
 interface CallInfo { model: string; ms: number; tokens: number }
 
@@ -90,63 +90,6 @@ function FurnitureFromPhoto() {
   );
 }
 
-// ---------- 2. Style from inspiration ----------
-interface StyleResult { style: string; palette: string[]; materials: string[]; suggestedItems: Array<{ catalogId: string; why: string }> }
-
-const STYLE_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    style: { type: 'STRING' }, palette: { type: 'ARRAY', items: { type: 'STRING' } }, materials: { type: 'ARRAY', items: { type: 'STRING' } },
-    suggestedItems: { type: 'ARRAY', items: { type: 'OBJECT', properties: { catalogId: { type: 'STRING', enum: CATALOG.map((c) => c.id) }, why: { type: 'STRING' } }, required: ['catalogId', 'why'] } },
-  },
-  required: ['style', 'palette', 'materials', 'suggestedItems'],
-};
-
-function blankRequirements(style: string): Requirements {
-  return { purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style, lockedIds: [], notes: [], questions: [], compiledBy: 'gemini' } as Requirements;
-}
-
-function StyleMatch() {
-  const [res, setRes] = useState<StyleResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  const run = async (file: File) => {
-    setBusy(true); setErr(''); setRes(null);
-    try {
-      const img = await fileToInlineData(file);
-      const r = await timed<StyleResult>([img, { text: 'Describe the interior style in a few words, a palette of 4 to 6 hex colours (#rrggbb), main materials, and up to 5 catalog items that fit, each with a short reason.' }], { json: true, schema: STYLE_SCHEMA });
-      r.data.palette = r.data.palette.filter((h) => /^#[0-9a-f]{6}$/i.test(h));
-      setRes(r.data);
-    } catch (e) { setErr(String((e as Error).message)); }
-    setBusy(false);
-  };
-
-  const use = () => {
-    if (!res) return;
-    const s = getState();
-    s.setRequirements(s.requirements ? { ...s.requirements, style: res.style } : blankRequirements(res.style));
-    if (res.palette.length) s.model.furniture.forEach((f, i) => s.dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { color: res.palette[i % res.palette.length] } }));
-    s.toast(`Style set to ${res.style}`, 'ok');
-  };
-
-  return (
-    <div className="vision-body">
-      <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
-      {err && <p className="error small">{err}</p>}
-      {res && (
-        <div>
-          <p><strong>{res.style}</strong></p>
-          <div style={{ display: 'flex', gap: 4 }}>{res.palette.map((h) => <span key={h} title={h} aria-label={h} style={{ width: 28, height: 28, borderRadius: 4, background: h, border: '1px solid #0003' }} />)}</div>
-          {res.materials.length > 0 && <p className="muted small">{res.materials.join(', ')}</p>}
-          <ul className="small">{res.suggestedItems.map((s, i) => <li key={i}><strong>{CATALOG.find((c) => c.id === s.catalogId)?.name ?? s.catalogId}</strong>: {s.why}</li>)}</ul>
-          <button className="btn btn-primary" onClick={use}>Use this style</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------- 3. Room check ----------
 interface Issue { kind: string; detail: string; suggestion: string }
 const CHECK_SCHEMA = {
@@ -197,8 +140,9 @@ export function VisionPanel() {
   useStore((s) => s.settings.geminiKey);
   if (!hasGemini()) {
     return (
-      <div className="panel">
+      <div className="panel vision">
         <NoKeyPrompt />
+        <div className="vision-row on"><InspireTool /></div>
       </div>
     );
   }
@@ -207,7 +151,7 @@ export function VisionPanel() {
 
 const TOOLS: Array<{ id: string; title: string; hint: string; icon: string; body: () => ReactNode }> = [
   { id: 'furniture', title: 'Furniture from photo', hint: 'Measure an item and add it', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
-  { id: 'style', title: 'Style from photo', hint: 'Match a look you like', icon: 'palette', body: () => <StyleMatch /> },
+  { id: 'style', title: 'Inspiration', hint: 'Make the room look like a picture', icon: 'palette', body: () => <InspireTool /> },
   { id: 'check', title: 'Compare with photo', hint: 'Spot differences from the model', icon: 'camera', body: () => <RoomCheck /> },
 ];
 

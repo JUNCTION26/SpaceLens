@@ -9,3 +9,16 @@
 .vision-body ul { margin: 0; padding-left: 18px; }
 .vision-body .btn { align-self: flex-start; }
 .vision-result { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.inspire-card { display: flex; gap: 10px; align-items: center; }
+.inspire-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+.inspire-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.inspire-swatches { display: flex; gap: 4px; }
+.inspire-swatches span { width: 26px; height: 26px; border-radius: 4px; border: 1px solid #0003; }
+.inspire-strength { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.inspire-strength input { flex: 1; }
+.inspire-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.inspire-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+.inspire-chip.on { border-color: var(--accent, currentColor); }
+.inspire-pick { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 0; }
+.inspire-pick img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+.inspire-x { background: none; border: 0; color: inherit; cursor: pointer; opacity: .6; padding: 0 2px; }
