@@ -39,3 +39,25 @@
 .settings-keys dl>div{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
 .settings-keys dd{margin:0;color:var(--muted)}
 .rail-settings.on{color:var(--accent)}
+.icon-btn.on{color:var(--text);background:var(--press)}
+.inspector-add{display:flex;gap:6px;margin-top:var(--s2)}
+.inspector-add .btn{display:inline-flex;align-items:center;gap:6px}
+
+/* The views fill the stage; in Split the 1 px grid gap is the only divider. Full screen covers the stage alone. */
+.stage:fullscreen{width:100vw;height:100vh}
+.stage.is-pseudo{position:fixed;inset:0;z-index:1000;width:100vw;height:100dvh}
+
+/* View fold at the bottom of the left panel */
+.view-fold-row{display:flex;flex-wrap:wrap;gap:6px}
+.view-fold-check{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
+.view-fold-check input{margin:0;accent-color:var(--accent)}
+.view-fold-field{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
+.view-fold-field select,.view-fold-field input[type=range]{flex:1;min-width:0}
+.view-fold-val{font:11px var(--mono);color:var(--muted);min-width:38px}
+.view-fold-layers{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.view-fold-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted)}
+.view-fold-legend span{display:inline-flex;align-items:center;gap:6px}
+.view-fold-legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.view-fold-scale{display:flex;align-items:center;gap:8px;font:11px var(--mono);color:var(--muted)}
+.view-fold-scale rect{fill:currentColor;stroke:currentColor}
+.view-fold-scale rect.hollow{fill:none}

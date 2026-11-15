@@ -391,7 +391,7 @@ export function PlanView() {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const st = useStore.getState(); const sel = st.selection; const A = actions.current;
       if (e.key === 'Escape') { setCard(null); useProblems.getState().setPreview(null); st.select(null); setMulti([]); setEditWall(null); return; }
-      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
+      if ((e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (sel.kind === 'furniture') {

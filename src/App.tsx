@@ -3,7 +3,7 @@ import { useStore } from './core/store';
 import type { Mode } from './core/types';
 import { startProblems } from './features/problems/store';
 import { ErrorBoundary } from './ui/ErrorBoundary';
-import { PlanView } from './features/plan2d/PlanView';
+import { PlanView, addOpeningToSelectedWall } from './features/plan2d/PlanView';
 const SceneView = lazy(() => import('./features/scene3d/SceneView').then((m) => ({ default: m.SceneView })));
 import { CapturePanel } from './features/capture/CapturePanel';
 const DrawingsPanel = lazy(() => import('./features/drawings/DrawingsPanel').then((m) => ({ default: m.DrawingsPanel })));
@@ -28,15 +28,13 @@ import { VisionPanel } from './features/vision/VisionPanel';
 import { VoiceAdd } from './features/voice/VoiceAdd';
 import { AgentDock, OPTIONAL_PANELS } from './ui/sections';
 import { PollOverlay } from './features/vote/VoteUi';
+import { ViewFold, toggleStageFull, useStageFullSync, useViewPrefs } from './ui/ViewFold';
 
 applyDeepLink();
 
 const MODE_KEYS: Mode[] = ['capture', 'design', 'experience', 'deliver'];
 function PanelSkeleton() {
   return <div className="skeleton" aria-busy="true" aria-label="Loading"><i /><i /><i className="short" /></div>;
-}
-function StageSkeleton() {
-  return <div className="skeleton stage-skel" aria-busy="true" aria-label="Loading 3D view"><span>Loading 3D view</span></div>;
 }
 
 /** Always-mounted listeners and full-page views opened by link. Nothing here floats over the workspace. */
@@ -50,7 +48,6 @@ const PANELS: Record<string, React.ComponentType> = {
   furniture: LibraryPanel, checks: ChecksPanel, inspire: VisionPanel, walk: SimPanel, export: ExportPanel,
   ...Object.fromEntries(Object.entries(OPTIONAL_PANELS).filter((e): e is [string, React.ComponentType] => !!e[1])),
 };
-const VIEWS = [['2d', '2D'], ['split', 'Split'], ['3d', '3D']] as const;
 
 /** The selected item, wall, opening or room, shown as the top section of the left panel. */
 function InspectorSection() {
@@ -61,6 +58,12 @@ function InspectorSection() {
     <section className="inspector-section" aria-label="Inspector">
       <button className="icon-btn inspector-x" onClick={() => select(null)} aria-label="Close inspector" title="Close"><Icon name="x" size={14} /></button>
       <ErrorBoundary scope="area" label="Inspector"><InspectorPanel /></ErrorBoundary>
+      {selection.kind === 'wall' && (
+        <div className="row inspector-add">
+          <button className="btn btn-sm" onClick={() => addOpeningToSelectedWall('door')}><Icon name="door" size={14} /> Door</button>
+          <button className="btn btn-sm" onClick={() => addOpeningToSelectedWall('window')}><Icon name="window" size={14} /> Window</button>
+        </div>
+      )}
     </section>
   );
 }
@@ -71,10 +74,11 @@ export function App() {
 
 function Workspace() {
   useTheme();
+  useStageFullSync();
   useEffect(() => { startProblems(); }, []);
   const mode = useStore((s) => s.mode);
   const view = useStore((s) => s.view);
-  const setView = useStore((s) => s.setView);
+  const pseudoFull = useViewPrefs((s) => s.pseudo);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
   const tab = useUi((s) => s.tabByMode);
@@ -96,6 +100,7 @@ function Workspace() {
       }
       if (t?.closest?.('input, textarea, select, [contenteditable]')) return;
       if (!mod && !e.altKey && e.key === '?') { e.preventDefault(); useUi.getState().setSettingsOpen(true); return; }
+      if (!mod && !e.altKey && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); toggleStageFull(); return; }
       if (!mod && !e.altKey && /^[1-4]$/.test(e.key)) { setMode(MODE_KEYS[Number(e.key) - 1]); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
@@ -114,12 +119,6 @@ function Workspace() {
   const shown = exp ? '3d' : view;
   const shellLabel = searchOpen ? 'Search' : settingsOpen ? 'Settings' : active.label;
 
-  const viewSwitch = !exp && (
-    <div className="seg view-seg" role="radiogroup" aria-label="View">
-      {VIEWS.map(([v, l]) => <button key={v} role="radio" aria-checked={v === view} className={v === view ? 'on' : ''} onClick={() => setView(v)}>{l}</button>)}
-    </div>
-  );
-
   return (
     <div className="app">
       <TopBar />
@@ -132,14 +131,14 @@ function Workspace() {
               <header className="panel-col-head"><h1>{active.group}</h1><SectionTabs active={active} /></header>
               <ErrorBoundary scope="area" label={active.label} key={active.key}><Suspense fallback={<PanelSkeleton />}><Panel /></Suspense></ErrorBoundary>
             </>}
+            {!searchOpen && <ViewFold />}
           </div>
           {AgentDock ? <Suspense fallback={null}><AgentDock overlay={false} /></Suspense> : <VoiceAdd />}
           <Toasts />
         </section>
-        <main className={`stage stage-${shown}`}>
+        <main className={`stage stage-${shown}${pseudoFull ? ' is-pseudo' : ''}`}>
           {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><ErrorBoundary scope="area" label="The plan"><PlanView /></ErrorBoundary></section>}
-          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={<StageSkeleton />}><SceneView /></Suspense></ErrorBoundary></section>}
-          {viewSwitch && <div className="stage-tools">{viewSwitch}</div>}
+          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={null}><SceneView /></Suspense></ErrorBoundary></section>}
         </main>
       </div>
       <MobileNav active={active} />

@@ -15,6 +15,14 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Ctrl/Cmd + Y', 'Redo'],
   ['?', 'Settings'],
   ['Esc', 'Close'],
+  ['Shift + F', 'Full screen'],
+  ['F', 'Zoom to selection'],
+  ['0, Home', 'Reset 3D view'],
+  ['R, Q / E', 'Rotate'],
+  ['L', 'Lock'],
+  ['Ctrl/Cmd + D', 'Duplicate'],
+  ['Del', 'Delete'],
+  ['W A S D', 'Walk'],
 ];
 
 /** Settings as the left panel content; the gear or any destination leaves it. */

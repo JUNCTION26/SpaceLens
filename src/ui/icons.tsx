@@ -48,6 +48,7 @@ const PATHS: Record<string, string> = {
   panelRight: 'M3 4h18v16H3zM15 4v16',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   send: 'M4 12 20 4l-6 16-3-7z',
+  headset: 'M3 8h18v9h-6l-3-3-3 3H3zM7.5 12.5h.01M16.5 12.5h.01',
 };
 
 export type IconName = keyof typeof PATHS;

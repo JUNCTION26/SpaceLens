@@ -54,11 +54,6 @@
   .mobile-more-sheet .nav-item { height: 44px; font-size: 15px; }
 
   .demo-caption { left: 50%; top: auto; bottom: calc(132px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
-  .scene3d-hint { display: none; }
-  .plan2d-toolbar { top: 10px; left: 10px; flex-direction: column; }
-  .plan2d-sep { width: 16px; height: 1px; margin: 3px 0; }
-  .plan2d-tb[data-tip]:hover::after { display: none; }
-  .plan2d-layer-menu, .plan2d-help-pop { top: 0; left: calc(100% + 8px); }
 }
 
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {

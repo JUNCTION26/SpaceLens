@@ -1208,7 +1208,7 @@ export function SceneView() {
       if (isField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
       const A = keyActs.current;
-      if (k === 'f' && e.shiftKey) { e.preventDefault(); A.toggleFs(); return; }
+      if (k === 'f' && e.shiftKey) return; // full screen: handled by the app shell
       if (mode === 'walk') return;
       if (k === 'f') { A.frameSelection(); return; }
       if (k === '0' || e.key === 'Home') { e.preventDefault(); A.view('corner'); return; }
