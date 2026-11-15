@@ -31,13 +31,11 @@ export const clip = (t: string, n = 4) => { const w = t.split(/\s+/); return w.l
 
 export const ChecksPanel = memo(function ChecksPanel() {
   const problems = useProblems((s) => s.problems);
-  const checks = useProblems((s) => s.checks);
   const fixingAll = useProblems((s) => s.fixingAll);
   const fixAll = useProblems((s) => s.fixAll);
   const main = problems.filter(counts);
   const tips = problems.filter((p) => !counts(p));
   const auto = main.filter((p) => p.fixes.some((f) => f.safe)).length;
-  const passes = checks.filter((r) => r.result === 'pass');
 
   return (
     <section className="referee" aria-label="Checks">
@@ -54,16 +52,8 @@ export const ChecksPanel = memo(function ChecksPanel() {
       {main.length > 0 && <ul className="referee-list">{main.map((p) => <Row key={p.id} p={p} />)}</ul>}
       {tips.length > 0 && (
         <details className="referee-passes">
-          <summary>{tips.length} {tips.length === 1 ? 'suggestion' : 'suggestions'}</summary>
+          <summary>More</summary>
           <ul className="referee-list">{tips.map((p) => <Row key={p.id} p={p} />)}</ul>
-        </details>
-      )}
-      {passes.length > 0 && (
-        <details className="referee-passes">
-          <summary>{passes.length} passed</summary>
-          <ul className="referee-sentences">
-            {passes.map((r) => <li key={r.id} title={r.details}><span className="referee-rule">{r.rule}</span></li>)}
-          </ul>
         </details>
       )}
     </section>
