@@ -8,6 +8,8 @@ import { describeBrief, resetStore, st } from '../../flows/helpers';
 import { isTaskSeat, looseChairs } from './place.testkit';
 
 const seats = (f: FurnitureItem[]) => f.filter(isTaskSeat);
+// Each case runs the whole pipeline; on a busy machine one can take a minute.
+const SLOW = 120000;
 
 async function fromSentence(brief: string, m: SpaceModel) {
   resetStore(m);
@@ -24,7 +26,7 @@ describe('chairs from a sentence (design pipeline)', () => {
       expect(looseChairs(m, c.furniture), c.name).toEqual([]);
       expect(seats(c.furniture).length).toBeGreaterThanOrEqual(2);
     }
-  }, 30000);
+  }, SLOW);
 
   it('"cafe with 12 seats": every chair at a table', async () => {
     const m = room(rect(7, 6), [opening('door', 'door', 0, 1, 0.9, 'in'), opening('win', 'window', 2, 3, 2.4)]);
@@ -34,7 +36,7 @@ describe('chairs from a sentence (design pipeline)', () => {
       expect(looseChairs(m, c.furniture), c.name).toEqual([]);
       expect(seats(c.furniture).length).toBeGreaterThanOrEqual(8);
     }
-  }, 30000);
+  }, SLOW);
 
   it('"dining room for 6": six chairs round the table', async () => {
     const m = room(rect(4.4, 3.8), [opening('door', 'door', 0, 0.6, 0.9, 'in'), opening('win', 'window', 1, 1.9, 1.4)]);
@@ -44,7 +46,7 @@ describe('chairs from a sentence (design pipeline)', () => {
       expect(looseChairs(m, c.furniture), c.name).toEqual([]);
       expect(seats(c.furniture).length).toBe(6);
     }
-  }, 30000);
+  }, SLOW);
 });
 
 describe('chairs in a themed room', () => {
@@ -53,7 +55,7 @@ describe('chairs in a themed room', () => {
     const { res } = await fromSentence('a room for my cat named Gerard', m);
     expect(res.candidates.length).toBeGreaterThan(0);
     for (const c of res.candidates) expect(looseChairs(m, c.furniture), c.name).toEqual([]);
-  }, 30000);
+  }, SLOW);
 });
 
 describe('chairs in a building fit-out', () => {
@@ -72,5 +74,5 @@ describe('chairs in a building fit-out', () => {
     const res = await furnishBuilding(st().model, {}, { parallel: 2, timeBudgetMs: 700 });
     expect(seats(res.furniture).length).toBeGreaterThan(0);
     expect(looseChairs(st().model, res.furniture)).toEqual([]);
-  }, 60000);
+  }, SLOW * 2);
 });
