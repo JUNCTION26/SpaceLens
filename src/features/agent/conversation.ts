@@ -179,6 +179,24 @@ export function planFor(text: string, goals: Goals): Plan | null {
   return { brief: `${d.trim()}${g ? `. ${g}` : ''}`, purpose: kind.trim().toLowerCase(), checks: checks.length ? checks : ['safety'] };
 }
 
+/** The plan for a turn: a multi-step request, or a design request that states a budget to be checked afterwards. */
+export function planTurn(text: string, goals: Goals): Plan | null {
+  const merged = mergeGoals(goals, parseGoals(text));
+  const p = planFor(text, merged);
+  if (p) return merged.budgetSek != null && !p.checks.includes('budget') ? { ...p, checks: [...p.checks, 'budget'] } : p;
+  if (!DESIGN_RE.test(text.toLowerCase()) || merged.budgetSek == null) return null;
+  const g = goalsBrief(merged);
+  return { brief: `${text.trim()}${g ? `. ${g}` : ''}`, purpose: 'room', checks: ['budget'] };
+}
+
+/** One spoken sentence: the cost against the budget, or the cost alone. */
+export function budgetVerdict(lang: Lang, cost: number, budget?: number): string {
+  const c = Math.round(cost);
+  if (budget == null) return tr(lang, 'costPart', { cost: c, budget: '' });
+  if (c > budget) return tr(lang, 'overBudget', { cost: c, x: c - budget });
+  return tr(lang, 'costPart', { cost: c, budget: tr(lang, 'ofBudget', { b: budget }) });
+}
+
 // ---------- changing the room on a copy ----------
 
 export interface WhatIf { axis: 'x' | 'y'; deltaM: number }
@@ -238,3 +256,15 @@ Object.assign(TEMPLATES, {
 });
 
 export const D = tr;
+
+// ---------- comparing a room with its changed copy ----------
+
+export interface RoomFacts { openM2: number; fails: number }
+
+/** One sentence that compares the changed copy with the room as it is. */
+export function compareFacts(lang: Lang, before: RoomFacts, after: RoomFacts): string {
+  const d = Math.round((after.openM2 - before.openM2) * 10) / 10;
+  const open = Math.abs(d) < 0.1 ? tr(lang, 'sameOpen') : tr(lang, d > 0 ? 'moreOpen' : 'lessOpen', { a: Math.abs(d) });
+  const fails = after.fails !== before.fails ? tr(lang, 'failsDiff', { n: after.fails, m: before.fails }) : null;
+  return sayParts([open.replace(/^./, (c) => c.toUpperCase()), fails, tr(lang, 'unchanged').replace(/^./, (c) => c.toUpperCase())]);
+}
