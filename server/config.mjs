@@ -23,6 +23,13 @@ export const DEFAULT_MODELS = [
   'gemini-4-hydrogen',
 ];
 
+/**
+ * Per-address text limits. One themed room is a brief, a dozen object specs, a critic pass and a
+ * few retries, all within seconds, so a single visitor needs a burst of several dozen calls.
+ * The daily allowance is the shared cost ceiling for everyone together.
+ */
+export const DEFAULT_RATE_LIMIT = Object.freeze({ burst: 90, perMinute: 240, dailyBudget: 20_000 });
+
 import { DEFAULT_IMAGE_MODELS, DEFAULT_TTS_MODELS } from './media.mjs';
 
 export class ConfigError extends Error {
@@ -93,9 +100,9 @@ export function loadConfig(env = process.env) {
     modelAllowlist: [...new Set(models)],
     requireOrigin: bool('REQUIRE_ORIGIN', true),
     rateLimit: {
-      burst: int('RATE_LIMIT_BURST', 20, 1, 10_000),
-      perMinute: int('RATE_LIMIT_PER_MINUTE', 30, 1, 100_000),
-      dailyBudget: int('RATE_LIMIT_DAILY', 3000, 1, 10_000_000),
+      burst: int('RATE_LIMIT_BURST', DEFAULT_RATE_LIMIT.burst, 1, 10_000),
+      perMinute: int('RATE_LIMIT_PER_MINUTE', DEFAULT_RATE_LIMIT.perMinute, 1, 100_000),
+      dailyBudget: int('RATE_LIMIT_DAILY', DEFAULT_RATE_LIMIT.dailyBudget, 1, 10_000_000),
     },
     media: {
       imageModels: [...new Set(imageModels)],

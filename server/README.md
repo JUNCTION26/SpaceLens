@@ -39,17 +39,25 @@ Request body for both generate routes (anything else is refused with a 400 namin
 
 Image and speech calls are costly, so they have their own rules: a model allowlist per kind (`IMAGE_MODEL_ALLOWLIST`, `TTS_MODEL_ALLOWLIST`), prompt up to 1500 characters, speech text up to 1000, input image PNG, JPEG or WebP up to 5 MB of base64, a smaller body cap (`MEDIA_MAX_BODY_BYTES`), a tighter per-client bucket (`MEDIA_RATE_BURST`, `MEDIA_RATE_PER_MINUTE`, on top of the general one) and a separate daily allowance (`MEDIA_RATE_DAILY`). A reply with no image or audio is a 502 with code `no_media`.
 
-Every error uses one shape, with a stable `code` and a plain message. Upstream error text is never passed on:
+Every error uses one shape, with a stable `code` and a plain message. Upstream error text is never passed on. When waiting helps, the body also carries `retryAfterS`, the same whole seconds as the `Retry-After` header:
 
 ```json
-{ "error": { "code": "rate_limited", "message": "Too many requests. Wait a moment and try again." } }
+{ "error": { "code": "rate_limited", "message": "Too many requests. Wait a moment and try again.", "retryAfterS": 2 } }
 ```
+
+Two 429 codes mean different things, and the app treats them differently:
+
+| Code | Who said no | What the app does |
+|------|-------------|-------------------|
+| `rate_limited` | this server's per-address bucket | waits `retryAfterS` and sends the same call again; the model stays in use |
+| `upstream_quota` | Gemini, for that model | skips that model until its quota resets and tries the next one |
+| `budget_exhausted` | this server's shared daily allowance | stops AI calls until 00:00 UTC and falls back to offline rules |
 
 ## Security
 
 - **Key**: read from the environment only. It is never accepted from a client, never sent back, never logged (tests check every response and log line).
 - **CORS**: only listed origins get `Access-Control-Allow-Origin`; other origins get a 403. Preflights allow `GET`, `POST` and the `Content-Type` and `X-Request-Id` headers only. Generate calls must carry an allowed `Origin`.
-- **Limits**: a token bucket per client address (`RATE_LIMIT_BURST`, refilled at `RATE_LIMIT_PER_MINUTE`) and a shared daily allowance (`RATE_LIMIT_DAILY`, resets at 00:00 UTC). Both answer 429 with `Retry-After`. Only valid requests spend the daily allowance.
+- **Limits**: a token bucket per client address (`RATE_LIMIT_BURST`, refilled at `RATE_LIMIT_PER_MINUTE`) and a shared daily allowance (`RATE_LIMIT_DAILY`, resets at 00:00 UTC). Both answer 429 with `Retry-After` and `retryAfterS`. Only valid requests spend the daily allowance. The defaults are sized for one person designing a themed room: a brief, about a dozen object specs and a critic pass arrive within seconds, so a burst of 90 with 240 a minute leaves room for retries while the app's own queue keeps at most 6 calls in flight.
 - **Input**: body cap (`MAX_BODY_BYTES`, checked against the declared length and while reading), JSON only, model allowlist, strict field-by-field schema; search grounding is the only tool forwarded.
 - **Upstream**: a total timeout (`UPSTREAM_TIMEOUT_MS`), and the Gemini call is aborted as soon as the browser disconnects.
 - **Headers**: `nosniff`, `no-store`, HSTS, `default-src 'none'` CSP, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`.
@@ -84,9 +92,9 @@ curl -N http://localhost:8787/v1/generate/stream \
 | `GEMINI_API_KEY` | (required) | Server-side Gemini key |
 | `ALLOWED_ORIGINS` | Pages origin and local dev ports | Comma-separated origins; `http://localhost:*` allows any port |
 | `MODEL_ALLOWLIST` | fast and mid-size Gemini models | Comma-separated model ids, preferred first |
-| `RATE_LIMIT_BURST` | `20` | Requests a client may send at once |
-| `RATE_LIMIT_PER_MINUTE` | `30` | Refill rate per client |
-| `RATE_LIMIT_DAILY` | `3000` | Model calls per UTC day for everyone together |
+| `RATE_LIMIT_BURST` | `90` | Requests a client may send at once |
+| `RATE_LIMIT_PER_MINUTE` | `240` | Refill rate per client |
+| `RATE_LIMIT_DAILY` | `20000` | Model calls per UTC day for everyone together |
 | `IMAGE_MODEL_ALLOWLIST` | the app's image models | Comma-separated image model ids |
 | `TTS_MODEL_ALLOWLIST` | the app's speech models | Comma-separated speech model ids |
 | `MEDIA_RATE_BURST` | `3` | Image and speech calls a client may send at once |

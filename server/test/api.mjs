@@ -123,10 +123,48 @@ describe('rate limits', () => {
     try {
       for (let i = 0; i < 2; i++) assert.equal((await s.request('/v1/generate/stream', { json: validBody() })).status, 200);
       const res = await s.request('/v1/generate/stream', { json: validBody() });
-      await assertError(res, 429, 'rate_limited');
+      const body = await assertError(res, 429, 'rate_limited');
       assert.equal(res.headers.get('retry-after'), '60');
+      assert.equal(body.error.retryAfterS, 60, 'the wait is also in the body, in seconds');
       assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN, 'the browser can read the 429');
       assert.equal((await s.request('/healthz')).status, 200, 'health checks are not limited');
+    } finally { await s.close(); }
+  });
+
+  test('one visitor designing a themed room in a burst stays under the default limits', async () => {
+    const s = await startServer({ upstream: () => sseResponse([chunk('OK')]) });
+    try {
+      // brief + 12 objects + critic, then the same again with repairs and duplicates: 60 calls at once.
+      const all = await Promise.all(Array.from({ length: 60 }, () => s.request('/v1/generate/stream', { json: validBody() })));
+      assert.deepEqual(all.map((r) => r.status), Array(60).fill(200));
+      await Promise.all(all.map((r) => r.text()));
+      assert.equal(s.app.budget.remaining(), 20_000 - 60);
+    } finally { await s.close(); }
+  });
+
+  test('defaults: burst 90, 240 per minute, 20000 per day; each is configurable', async () => {
+    const { loadConfig } = await import('../config.mjs');
+    const base = { GEMINI_API_KEY: TEST_KEY };
+    assert.deepEqual({ ...loadConfig(base).rateLimit }, { burst: 90, perMinute: 240, dailyBudget: 20_000 });
+    assert.deepEqual({ ...loadConfig({ ...base, RATE_LIMIT_BURST: '5', RATE_LIMIT_PER_MINUTE: '7', RATE_LIMIT_DAILY: '9' }).rateLimit }, { burst: 5, perMinute: 7, dailyBudget: 9 });
+    const media = loadConfig(base).media;
+    assert.deepEqual([media.burst, media.perMinute, media.dailyBudget], [3, 4, 300], 'media limits unchanged');
+  });
+
+  test('our own limit and the model quota have different codes, both with a wait in seconds', async () => {
+    const s = await startServer({
+      env: { RATE_LIMIT_BURST: '1', RATE_LIMIT_PER_MINUTE: '30' },
+      upstream: () => jsonResponse(429, { error: { code: 429, message: 'quota' } }, { 'Retry-After': '17' }),
+    });
+    try {
+      const upstream = await s.request('/v1/generate/stream', { json: validBody() });
+      const a = await assertError(upstream, 429, 'upstream_quota');
+      assert.equal(a.error.retryAfterS, 17);
+      assert.equal(upstream.headers.get('retry-after'), '17');
+      const ours = await s.request('/v1/generate/stream', { json: validBody() });
+      const b = await assertError(ours, 429, 'rate_limited');
+      assert.equal(b.error.retryAfterS, 2);
+      assert.equal(ours.headers.get('retry-after'), '2');
     } finally { await s.close(); }
   });
 

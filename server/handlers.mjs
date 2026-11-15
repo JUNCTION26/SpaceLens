@@ -1,6 +1,6 @@
 /** Route handlers. Each gets a context built by the app: request, response, services and an abort signal. */
 import { once } from 'node:events';
-import { HttpError, envelope, readJson, sendJson } from './http.mjs';
+import { HttpError, envelope, readJson, retryAfterOf, sendJson } from './http.mjs';
 import { validateGenerate } from './schema.mjs';
 import { publicChunk, SseReader, upstreamErrorFrom, mapUpstreamError } from './gemini.mjs';
 
@@ -104,7 +104,7 @@ export async function generateStream(ctx) {
       if (payload?.error) {
         const err = mapUpstreamError(Number(payload.error.code) || 500, payload.error.message, body);
         ctx.meta.streamError = err.code;
-        await send(envelope(err.code, err.message));
+        await send(envelope(err.code, err.message, retryAfterOf(err)));
         return true;
       }
       events += 1;

@@ -21,5 +21,13 @@ services:
       # Render's proxy adds the caller's address to X-Forwarded-For.
       - key: CLIENT_IP_HEADER
         value: x-forwarded-for
-      # Optional, defaults shown in .env.example: MODEL_ALLOWLIST, RATE_LIMIT_BURST,
-      # RATE_LIMIT_PER_MINUTE, RATE_LIMIT_DAILY, MAX_BODY_BYTES, TRUSTED_PROXY_HOPS, LOG_LEVEL.
+      # Text-call limits per client address and per day. A themed room sends about 15 calls
+      # within seconds, so these sit well above that. Values set in the dashboard override these.
+      - key: RATE_LIMIT_BURST
+        value: "90"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "240"
+      - key: RATE_LIMIT_DAILY
+        value: "20000"
+      # Optional, defaults in server/README.md: MODEL_ALLOWLIST, MAX_BODY_BYTES, TRUSTED_PROXY_HOPS,
+      # LOG_LEVEL, and the media limits MEDIA_RATE_BURST, MEDIA_RATE_PER_MINUTE, MEDIA_RATE_DAILY.

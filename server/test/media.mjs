@@ -152,7 +152,7 @@ describe('limits', () => {
       const res = await s.request('/v1/image', { json: imgBody() });
       await code(res, 429, 'budget_exhausted');
       assert.ok(Number(res.headers.get('retry-after')) > 0);
-      assert.equal(s.app.budget.remaining(), 3000, 'text allowance untouched');
+      assert.equal(s.app.budget.remaining(), 20_000, 'text allowance untouched');
       assert.equal(s.calls.length, 2);
       t = Date.UTC(2030, 0, 2, 0, 0, 1);
       assert.equal((await s.request('/v1/image', { json: imgBody() })).status, 200);

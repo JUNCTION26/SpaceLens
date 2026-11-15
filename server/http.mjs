@@ -22,7 +22,16 @@ export class HttpError extends Error {
   }
 }
 
-export const envelope = (code, message) => ({ error: { code, message } });
+/** The error body. `retryAfterS` (whole seconds) is added when waiting will help, matching the Retry-After header. */
+export const envelope = (code, message, retryAfterS) => ({
+  error: { code, message, ...(Number.isInteger(retryAfterS) && retryAfterS > 0 ? { retryAfterS } : {}) },
+});
+
+/** Retry-After of an error as whole seconds, or undefined. */
+export const retryAfterOf = (err) => {
+  const n = Number(err?.headers?.['Retry-After']);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+};
 
 export function sendJson(res, status, body, headers = {}) {
   if (res.headersSent) return;
@@ -32,7 +41,7 @@ export function sendJson(res, status, body, headers = {}) {
 }
 
 export function sendError(res, err) {
-  sendJson(res, err.status, envelope(err.code, err.message), err.headers);
+  sendJson(res, err.status, envelope(err.code, err.message, retryAfterOf(err)), err.headers);
 }
 
 /**
