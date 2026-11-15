@@ -316,7 +316,8 @@ function membersOf(ctx: Ctx, root: string): string[] {
  * the floor. Armchairs keep free poses: rows of waiting chairs and conversation groups stand off the walls.
  */
 const loneSeat = (f: FurnitureItem) => isSeatCategory(f.category);
-const kindOf = (f: FurnitureItem): Group['kind'] => (semanticsOf(f).wallBacked || loneSeat(f) ? 'wall' : 'free');
+/** Lone armchairs try the walls first (back to the wall, a reading corner) and stand free only when no wall takes them. */
+const kindOf = (f: FurnitureItem): Group['kind'] => (semanticsOf(f).wallBacked || loneSeat(f) || f.category === 'armchair' ? 'wall' : 'free');
 
 function buildGroups(ctx: Ctx, items: FurnitureItem[], fixed: Set<string>): Group[] {
   const roots = items.filter((f) => !ctx.parent.has(f.id));
@@ -1146,8 +1147,10 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
       if (pass === 1) {
         // Head to the wall found no spot: try a single bed side-on to a wall.
         const root = ctx.byId.get(g.roots[0])!;
-        if (cands.length || g.kind !== 'wall' || !isSingleBed(root) || narrowFor(ctx, root)) break;
-        specs = daybedSlots(ctx, g);
+        // A lone armchair tried the walls (a reading corner) and found none: it may stand in the floor.
+        if (!cands.length && g.kind === 'wall' && root.category === 'armchair' && g.members.length === 1) { specs = freeSlots(ctx, g); }
+        else if (cands.length || g.kind !== 'wall' || !isSingleBed(root) || narrowFor(ctx, root)) break;
+        else specs = daybedSlots(ctx, g);
       }
       for (const spec of specs) for (const mirror of mirrors) {
         const rootKey = spec.kind === 'array' ? `${spec.x0},${spec.y0},${spec.x1},${spec.y1},${spec.rows},${spec.cols},${spec.rot},${spec.hug ?? 0},${spec.bench ? `${spec.bench.per}${spec.bench.align}` : -1}` : null;
@@ -1270,7 +1273,8 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
       return solveOnce(model, items, program, { ...opts, req: { purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' } });
     }
     // The group that found no spot is the first thing to give up (a dining set, not the nightstand).
-    const unplacedGroup = failedGroup && !failedGroup.fixed ? failedGroup.members.filter((id) => !fixed.has(id)) : undefined;
+    // Only when something more important did fit; a first piece that fits nowhere waits for smaller clearances instead.
+    const unplacedGroup = failedGroup && !failedGroup.fixed && lastPlaced.length ? failedGroup.members.filter((id) => !fixed.has(id)) : undefined;
     return { candidates: [], reports: [], infeasibility: infeasible(ctx, failedGroup, lastPlaced, work, req), unplaced: unplacedGroup?.length ? unplacedGroup : undefined };
   }
 
@@ -1283,13 +1287,16 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
       const saved = ctx.parent.get(id);
       ctx.parent.delete(id);
       let best: { items: FurnitureItem[]; s: number; spec: Spec } | null = null;
-      for (const spec of slotsFor(ctx, g, st.items)) {
-        const res = placeGroup(ctx, st.items, g, spec, false);
-        if ('fail' in res) continue;
-        const all = [...st.items, ...res.items];
-        if (!softRoute && !routeOk(all)) continue;
-        const s = quickScore(ctx, all, new Set([id]));
-        if (!best || s > best.s) best = { items: res.items, s, spec };
+      for (const specs of [slotsFor(ctx, g, st.items), f.category === 'armchair' ? freeSlots(ctx, g) : []]) {
+        if (best) break;
+        for (const spec of specs) {
+          const res = placeGroup(ctx, st.items, g, spec, false);
+          if ('fail' in res) continue;
+          const all = [...st.items, ...res.items];
+          if (!softRoute && !routeOk(all)) continue;
+          const s = quickScore(ctx, all, new Set([id]));
+          if (!best || s > best.s) best = { items: res.items, s, spec };
+        }
       }
       if (saved) ctx.parent.set(id, saved);
       if (best) { st.items = [...st.items, ...best.items]; st.placed.push({ group: g, spec: best.spec, mirror: false, items: best.items }); }
