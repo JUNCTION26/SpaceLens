@@ -42,10 +42,11 @@ export function ForgePreview({ spec, assembling, open }: { spec: ObjectSpec | nu
   const shadow = useMemo(() => Math.max(size.w, size.d) * 2 + 0.6, [size.w, size.d]);
   return (
     <div className="forge-preview" aria-label={spec ? `3D preview of ${spec.name}` : 'Preview'}>
-      <Canvas dpr={[1, 2]} camera={{ fov: 32, near: 0.05, far: 60 }} gl={{ antialias: true, preserveDrawingBuffer: false }}>
+      <Canvas shadows dpr={[1, 2]} camera={{ fov: 32, near: 0.05, far: 60 }} gl={{ antialias: true, preserveDrawingBuffer: false }}>
         <Frame size={size} />
         <hemisphereLight args={['#ffffff', '#8a8580', 0.9]} />
-        <directionalLight position={[3, 5, 4]} intensity={1.6} />
+        <directionalLight position={[3, 5, 4]} intensity={1.6} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-0.0003} shadow-normalBias={0.02}
+          shadow-camera-left={-2} shadow-camera-right={2} shadow-camera-top={2} shadow-camera-bottom={-2} />
         <directionalLight position={[-4, 3, -2]} intensity={0.45} />
         {spec && <GeneratedMesh spec={spec} assembling={assembling} open={openT} />}
         {silhouette && <GeneratedMesh key={`ghost-${spec!.id}`} spec={{ ...spec!, parts: silhouette.map((q) => ({ ...q, material: 'plastic', color: '#8b8b93' })), motions: undefined }} ghost />}
