@@ -6,21 +6,16 @@ export interface ModelSpec { id: string; yaw: number; /** Material names that re
 const m = (id: string, yaw = 0, fabric?: string[]): ModelSpec => ({ id, yaw, fabric });
 const SOFA = m('sofa_02', 0, ['sofa_02']);
 
-const BY_ID: Record<string, ModelSpec> = {
-  'play-table': m('side_table_01'),
-};
+// Only clean, modern scans are used. Aged, worn or antique scans (classic nightstand, drawer cabinet,
+// rustic dining chair and table, old side table) stay on the procedural meshes.
+const BY_ID: Record<string, ModelSpec> = {};
 const BY_CATEGORY: Record<string, ModelSpec> = {
   sofa: SOFA, 'sofa-bed': SOFA,
   armchair: m('modern_arm_chair_01', 0, ['modern_arm_chair_01_pillow']),
-  chair: m('dining_chair_02'),
-  table: m('dining_table'),
   'coffee-table': m('modern_coffee_table_01', Math.PI / 2),
   storage: m('modern_wooden_cabinet'),
   'storage-cabinet': m('modern_wooden_cabinet'),
   'tv-unit': m('modern_wooden_cabinet'),
-  dresser: m('drawer_cabinet'),
-  'filing-cabinet': m('drawer_cabinet'),
-  nightstand: m('ClassicNightstand_01'),
   stool: m('bar_chair_round_01'),
 };
 
