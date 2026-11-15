@@ -63,8 +63,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 const OPEN_KEY = 'spacelens.inspector.open.v2';
 function readOpen(): Record<string, boolean> { try { return JSON.parse(localStorage.getItem(OPEN_KEY) || '{}'); } catch { return {}; } }
-function Section({ id, title, count, defaultOpen = false, children }: {
-  id: string; title: string; count?: number; defaultOpen?: boolean; children: ReactNode;
+function Section({ id, title, defaultOpen = false, children }: {
+  id: string; title: string; defaultOpen?: boolean; children: ReactNode;
 }) {
   const [open, setOpen] = useState<boolean>(() => readOpen()[id] ?? defaultOpen);
   const toggle = () => {
@@ -75,7 +75,6 @@ function Section({ id, title, count, defaultOpen = false, children }: {
     <section className="provenance-section">
       <button className="provenance-head" onClick={toggle} aria-expanded={open}>
         <Icon className="provenance-caret" name={open ? 'chevronDown' : 'chevronRight'} size={12} aria-hidden />{title}
-        {count != null && <span className="provenance-count">{count}</span>}
       </button>
       {open && <div className="provenance-body">{children}</div>}
     </section>
@@ -85,7 +84,6 @@ const EV_ICON: Record<Evidence['kind'], string> = { photo: 'camera', pdf: 'file'
 const cm = (m: number) => Math.round(m * 100);
 
 function DiffCard({ d, title, before, after, onUndo }: { d: Diff; title: string; before?: Snap; after?: Snap; onUndo?: () => void }) {
-  const nothing = !d.invalid.length && !d.fixed.length && Math.abs(d.areaDelta) < 0.005 && !d.costDelta;
   const sign = (v: number) => (v > 0 ? '+' : '');
   return (
     <div className="provenance-diff">
@@ -97,7 +95,6 @@ function DiffCard({ d, title, before, after, onUndo }: { d: Diff; title: string;
           <tr><td>Layouts OK</td><td>{before.ok.size}</td><td className={before.ok.size !== after.ok.size ? 'chg' : ''}>{after.ok.size}</td></tr>
         </tbody></table>
       )}
-      {nothing && <div className="muted">No checks changed.</div>}
       {d.invalid.length > 0 && <div className="bad">Became invalid: {d.invalid.join('; ')}</div>}
       {d.fixed.length > 0 && <div className="ok">Now passes: {d.fixed.join('; ')}</div>}
       {!before && Math.abs(d.areaDelta) >= 0.005 && <div>Area {sign(d.areaDelta)}{d.areaDelta.toFixed(2)} m²</div>}
@@ -136,24 +133,13 @@ function EvidenceThumb({ ev }: { ev: Evidence }) {
   );
 }
 
-const GEO_OPS = ['SET_WALL_LENGTH', 'MOVE_VERTEX', 'INSERT_VERTEX', 'REMOVE_VERTEX', 'UPDATE_OPENING', 'SET_MEASUREMENT'];
-
 function Provenance({ targetId, measurementId, sourceKind, status, valueM }: {
   targetId: string; measurementId?: string; sourceKind: Measurement['sourceKind']; status: Measurement['status']; valueM: number;
 }) {
-  const model = useStore((s) => s.model); const changes = useStore((s) => s.changes);
-  const candidates = useStore((s) => s.candidates); const dispatch = useStore((s) => s.dispatch);
+  const model = useStore((s) => s.model);
+  const dispatch = useStore((s) => s.dispatch);
   const meas = measurementFor(model, targetId, measurementId);
   const evs = meas ? model.evidence.filter((e) => meas.evidenceIds.includes(e.id)) : [];
-  const lastGeo = [...changes].reverse().find((c) => GEO_OPS.includes(c.op));
-  const stale = candidates.filter((c) => lastGeo && c.parentVersion < lastGeo.version);
-  const isWall = !!parseWallId(targetId);
-  const isGeo = isWall || model.openings.some((o) => o.id === targetId);
-  const usedBy: string[] = [];
-  if (isWall) usedBy.push(`Room area (${fmtM2(roomArea(model))})`);
-  if (isGeo) usedBy.push('Route and clearance checks');
-  if (candidates.length) usedBy.push(`${candidates.length} layouts${stale.length ? `, ${stale.length} made before the last edit` : ''}`);
-  if (model.furniture.some((f) => f.id === targetId)) usedBy.push('Total cost');
   const markMeasured = () => {
     const evId = uid('ev');
     dispatch({ type: 'ADD_EVIDENCE', evidence: { id: evId, kind: 'manual', label: 'Marked as measured', createdAt: Date.now() } });
@@ -199,16 +185,15 @@ function Uncertainty() {
   const best = [...res].sort((a, b) => open(b.verdicts) - open(a.verdicts))[0];
   const bestCount = open(best.verdicts);
   return (
-    <Section id="uncertainty" title="Uncertainty" count={res.length}>
+    <Section id="uncertainty" title="Uncertainty">
       {res.map(({ w, verdicts }) => (
         <div key={w.id} className="card">
-          <b>{w.name}</b> {fmtCm(w.len)} ±{cm(w.tol)} cm {!w.calibrated && <span className="chip">heuristic</span>}
+          <b>{w.name}</b> {fmtCm(w.len)} ±{cm(w.tol)} cm
           <ul className="list">{verdicts.map((v) => <li key={v.layout} className={v.holds ? '' : 'muted'}>{v.layout}: {v.text}</li>)}</ul>
-          {!verdicts.length && <div className="muted">No layouts to check yet</div>}
         </div>
       ))}
       {bestCount > 0 && (
-        <div className="row"><span>Measure {best.w.name} next · {bestCount} layouts</span>
+        <div className="row"><span>Measure {best.w.name}</span>
           <button className="btn btn-sm btn-primary" onClick={() => select({ kind: 'wall', id: best.w.id })}>Select</button></div>
       )}
     </Section>
@@ -280,10 +265,10 @@ function History() {
   const changes = useStore((s) => s.changes);
   if (!changes.length) return null;
   return (
-    <Section id="history" title="History" count={changes.length}>
+    <Section id="history" title="History">
       {<ul className="list provenance-hist">{[...changes].reverse().map((c) => {
         const d = changeDiffs.get(c.version);
-        return <li key={`${c.version}-${c.at}`}>v{c.version} {c.label}{d && <DiffCard d={d} title="What changed" />}</li>;
+        return <li key={`${c.version}-${c.at}`}>{c.label}{d && <DiffCard d={d} title="What changed" />}</li>;
       })}</ul>}
     </Section>
   );
@@ -364,7 +349,6 @@ function Selected({ tail }: { tail: ReactNode }) {
             <label><input type="checkbox" checked={f.owned} onChange={(e) => up({ owned: e.target.checked })} /> Owned</label>
           </div>
           {f.material && <Field label="Material"><span>{f.material}</span></Field>}
-          <Field label="Price status"><span className="muted">{f.priceStatus}</span></Field>
           <Provenance targetId={f.id} sourceKind={f.sourceKind} status={f.sourceKind === 'catalog' ? 'estimated' : 'verified'} valueM={f.w} />
           {tail}
         </details>
@@ -372,19 +356,12 @@ function Selected({ tail }: { tail: ReactNode }) {
       </>);
     }
   }
-  const counts = { verified: 0, estimated: 0, unknown: 0, conflicting: 0 };
-  model.spaces.forEach((s) => s.walls.forEach((w) => { counts[w.status]++; }));
   return (<>
     <h3>{model.name}</h3>
     <div className="provenance-sheet">
     <Field label="Area"><span>{fmtM2(roomArea(model))}</span></Field>
     <Field label="Perimeter"><span>{model.spaces.reduce((a, s) => a + perimeter(s.polygon), 0).toFixed(2)} m</span></Field>
     <NumField label="Ceiling" value={cm(model.ceilingM)} onCommit={(v) => dispatch({ type: 'SET_CEILING', heightM: v / 100 })} />
-    <div className="provenance-chips">
-      {(Object.keys(counts) as (keyof typeof counts)[]).filter((k) => counts[k]).map((k) => (
-        <span key={k} className={`chip ${STATUS_CHIP[k]}`}>{counts[k]} {k}</span>
-      ))}
-    </div>
     </div>
     <details className="provenance-more"><summary>More</summary>{tail}</details>
   </>);
