@@ -19,7 +19,7 @@ function Num({ label, value, onChange, unit }: { label: string; value: number; o
   return (
     <label className="field capture-field">
       <span>{label}{unit ? ` (${unit})` : ''}</span>
-      <input type="number" inputMode="decimal" step={unit === 'm' ? 0.01 : 1} value={Number.isFinite(value) ? +(value / k).toFixed(3) : ''} onChange={(e) => onChange(parseFloat(e.target.value) * k)} />
+      <input type="number" inputMode="decimal" min={0} max={unit === 'm' ? 50 : 5000} step={unit === 'm' ? 0.01 : 1} value={Number.isFinite(value) ? +(value / k).toFixed(3) : ''} onChange={(e) => { const n = parseFloat(e.target.value); onChange(Number.isFinite(n) ? Math.min(Math.max(n, 0), unit === 'm' ? 50 : 5000) * k : NaN); }} />
     </label>
   );
 }

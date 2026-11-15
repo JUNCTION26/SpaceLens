@@ -13,7 +13,7 @@
 .capture-prevpoly { fill: color-mix(in srgb, var(--accent) 15%, transparent); stroke: var(--accent); stroke-linejoin: miter; }
 .capture-prevtxt { font-size: 0.22px; fill: var(--text); text-anchor: middle; dominant-baseline: middle; }
 .capture-prevtxt.is-est { fill: var(--warn); }
-.capture-msg { display: block; white-space: normal; }
+.capture-msg { display: block; white-space: normal; height: auto; padding: 8px 10px; line-height: 1.4; border-radius: var(--radius-sm); }
 .capture-video { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; aspect-ratio: 3 / 4; max-height: 60vh; display: grid; place-items: center; }
 .capture-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .capture-video > .btn { position: relative; width: auto; padding: 0 24px; }
