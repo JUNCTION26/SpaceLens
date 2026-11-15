@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../core/store';
 import { centroid, fmtSek } from '../../core/geometry';
-import type { FurnitureItem, ObjectSpec, PriceStatus } from '../../core/types';
+import type { FurnitureItem, ObjectSpec } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, makeOwnItem, variantsFor } from './catalog';
 import type { CatalogEntry } from './catalog';
 import { CATALOG_DND, findFreeSpot } from '../objects/placement';
 import { Icon } from '../../ui/icons';
-import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { SPEC_DND, specDrag } from '../plan2d/dnd';
 
@@ -33,19 +32,11 @@ function Footprint({ e }: { e: Pick<CatalogEntry, 'w' | 'd' | 'category' | 'colo
   );
 }
 
-const STATUS: Record<PriceStatus, { text: string }> = {
-  estimated: { text: 'estimated' },
-  catalog: { text: 'catalog' },
-  user: { text: 'your price' },
-  owned: { text: 'owned' },
-};
-
 export function LibraryPanel() {
   const model = useStore((s) => s.model);
   const dispatch = useStore((s) => s.dispatch);
   const selection = useStore((s) => s.selection);
   const select = useStore((s) => s.select);
-  const toast = useStore((s) => s.toast);
   const budget = useStore((s) => s.requirements?.budgetSek ?? null);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<string | null>(null);
@@ -89,7 +80,6 @@ export function LibraryPanel() {
 
   const sel = selection?.kind === 'furniture' ? model.furniture.find((f) => f.id === selection.id) : undefined;
   const total = model.furniture.reduce((s, f) => s + (f.owned ? 0 : f.priceSek), 0);
-  const ownedN = model.furniture.filter((f) => f.owned).length;
   const groups = useMemo(() => {
     const m = new Map<string, FurnitureItem[]>();
     for (const f of model.furniture) m.set(f.category, [...(m.get(f.category) ?? []), f]);
@@ -107,9 +97,7 @@ export function LibraryPanel() {
       const a = document.createElement('a'); a.href = url; a.download = 'shopping-list.csv'; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
-    if (!navigator.clipboard) { download(); return; }
-    navigator.clipboard.writeText(csv).then(() => toast('Shopping list copied', 'ok'),
-      () => notify('The browser blocked copying.', { tone: 'warn', actions: [{ label: 'Download CSV', primary: true, run: download }] }));
+    download();
   };
   const ownValid = own.name.trim() && [own.w, own.d, own.h].every((v) => Number(v) > 0 && Number(v) < 1000);
 
@@ -119,11 +107,9 @@ export function LibraryPanel() {
     place({ ...it, ...findFreeSpot(model, it) });
     setOwn({ ...own, open: false, name: '', w: '', d: '', h: '' });
   };
-  const setPrice = (f: FurnitureItem) => {
-    const v = window.prompt(`Your price for ${f.name} (kr)`, String(f.priceSek));
-    if (v == null) return;
+  const setPrice = (f: FurnitureItem, v: string) => {
     const n = Number(v.replace(/\s/g, ''));
-    if (Number.isFinite(n) && n >= 0) dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { priceSek: n, priceStatus: 'user', owned: false } });
+    if (v.trim() && Number.isFinite(n) && n >= 0 && n !== f.priceSek) dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { priceSek: n, priceStatus: 'user', owned: false } });
   };
 
   const catValue = fits ? '__fits' : cat ?? '';
@@ -154,7 +140,9 @@ export function LibraryPanel() {
             {sel.material && <span className="muted">{sel.material}</span>}
           </div>
           <div className="furniture-actions">
-            <button className="btn btn-sm" onClick={() => setPrice(sel)}>Set price</button>
+            <input key={sel.id + sel.priceSek} className="field furniture-price-in" inputMode="numeric" defaultValue={sel.priceSek} aria-label={`Price of ${sel.name}, kr`} title="Price, kr"
+              onBlur={(e) => setPrice(sel, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+            <span className="muted">kr</span>
           </div>
         </section>
       )}
@@ -168,11 +156,12 @@ export function LibraryPanel() {
             <div className="furniture-mine-head"><span>My objects</span><button className="furniture-link" onClick={() => useUi.getState().openSection('create')}>Make another</button></div>
             <div className="furniture-grid">
               {shownMine.map((m) => (
-                <button key={m.id} className="furniture-card" draggable title="Drag onto the plan, or click to add"
+                <button key={m.id} className="furniture-card" draggable title={m.name}
                   onClick={() => lib.placeSpec(m)}
                   onDragStart={(ev) => { ev.dataTransfer.setData(SPEC_DND, m.id); ev.dataTransfer.setData('text/plain', m.name); ev.dataTransfer.effectAllowed = 'copy'; specDrag.current = { id: m.id, name: m.name, w: m.size.w, d: m.size.d }; }}>
                   <span className="furniture-swatch" style={{ background: lib.dominantColor(m) }} aria-hidden="true" />
                   <span className="furniture-name">{m.name}</span>
+                  <span className="furniture-size">{cm(m.size.w)}×{cm(m.size.d)} cm</span>
                 </button>
               ))}
             </div>
@@ -187,11 +176,11 @@ export function LibraryPanel() {
             onDragStart={(ev) => { ev.dataTransfer.setData(CATALOG_DND, e.id); ev.dataTransfer.setData('text/plain', e.name); ev.dataTransfer.effectAllowed = 'copy'; }}>
             <Footprint e={e} />
             <span className="furniture-name">{e.name}</span>
+            <span className="furniture-size">{cm(e.w)}×{cm(e.d)} cm</span>
           </button>
         ))}
         {list.length === 0 && (
           <div className="furniture-empty">
-            <p className="muted">No matches.</p>
             <div className="row">
               <button className="btn btn-sm" onClick={() => { setQ(''); setCat(null); setFits(false); }}>Show all</button>
               {q && <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('create')}>Create object</button>}
@@ -224,8 +213,8 @@ export function LibraryPanel() {
         <section className="furniture-bill">
           <button className="furniture-summary" aria-expanded={billOpen} onClick={() => setBillOpen(!billOpen)}>
             <Icon name={billOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-            <span>{model.furniture.length} {model.furniture.length === 1 ? 'item' : 'items'}</span>
-            <span className={`furniture-sum ${tone}`}>{fmtSek(total)}{budget ? ` / ${fmtSek(budget)}` : ''}</span>
+            <span>{model.furniture.length}</span>
+            <span className={`furniture-sum ${tone}`}>{fmtSek(total)}</span>
           </button>
           {budget != null && budget > 0 && (
             <div className="furniture-bar" role="meter" aria-valuemin={0} aria-valuemax={budget} aria-valuenow={total} aria-label="Budget used">
@@ -241,7 +230,6 @@ export function LibraryPanel() {
                     <li key={f.id}>
                       <button className="furniture-line" onClick={() => select({ kind: 'furniture', id: f.id })}>
                         <span>{f.name}{f.locked ? ' (locked)' : ''}</span>
-                        <span className="furniture-status">{STATUS[f.priceStatus].text}</span>
                         <span className="furniture-price">{f.owned ? '0 kr' : fmtSek(f.priceSek)}</span>
                       </button>
                     </li>
@@ -250,8 +238,7 @@ export function LibraryPanel() {
               </div>
             ))}
             <div className="furniture-foot muted">
-              <span>{ownedN} owned · {model.furniture.length - ownedN} to buy</span>
-              <button className="furniture-link" onClick={copyCsv}><Icon name="copy" size={14} />Copy CSV</button>
+              <button className="furniture-link" onClick={copyCsv}><Icon name="copy" size={14} />CSV</button>
             </div>
           </>)}
         </section>

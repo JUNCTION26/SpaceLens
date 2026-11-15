@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { shortModel } from '../../core/ai';
-import { useStore } from '../../core/store';
 import type { ObjectSpec } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { generateObject } from './generate';
@@ -17,10 +15,9 @@ const RecCtor = (): (new () => Rec) | undefined =>
 
 const cm = (m: number) => Math.round(m * 100);
 const dims = (s: ObjectSpec['size']) => `${cm(s.w)} × ${cm(s.d)} × ${cm(s.h)} cm`;
-const timing = (s: ObjectSpec) => `${s.model === 'rules' ? 'Templates' : `Gemini · ${shortModel(s.model)}`} · ${(s.latencyMs / 1000).toFixed(1)} s`;
 
 export function ForgePanel() {
-  const toast = useStore((s) => s.toast);
+  const [failed, setFailed] = useState(false);
   const { items, save, rename, remove } = useForgeLibrary();
   const [prompt, setPrompt] = useState('');
   const [refine, setRefine] = useState('');
@@ -37,7 +34,7 @@ export function ForgePanel() {
     if (!t || (kind === 'refine' && !spec)) return;
     abort.current?.abort();
     const ctl = new AbortController(); abort.current = ctl;
-    setBusy(kind); setOpen(false);
+    setBusy(kind); setOpen(false); setFailed(false);
     if (kind === 'new') setSpec(null);
     const onPartial = (p: ObjectSpec) => { if (!ctl.signal.aborted) setSpec(p); };
     try {
@@ -46,11 +43,11 @@ export function ForgePanel() {
       setSpec(out); save(out);
       if (kind === 'refine') setRefine('');
     } catch {
-      if (!ctl.signal.aborted) toast('Could not build that object', 'error');
+      if (!ctl.signal.aborted) setFailed(true);
     } finally {
       if (abort.current === ctl) { setBusy(null); abort.current = null; }
     }
-  }, [spec, save, toast]);
+  }, [spec, save]);
 
   useEffect(() => {
     const onResult = (e: Event) => { const s = (e as CustomEvent<ObjectSpec>).detail; if (s) { setSpec(s); setOpen(false); } };
@@ -61,19 +58,19 @@ export function ForgePanel() {
   const toggleMic = () => {
     if (rec.current) { rec.current.stop(); return; }
     const C = RecCtor();
-    if (!C) { toast('No voice here', 'warn'); return; }
+    if (!C) return;
     const r = new C();
     r.lang = navigator.language || 'en-US'; r.interimResults = true; r.continuous = false;
     let said = '';
     r.onresult = (e: any) => { said = Array.from(e.results as ArrayLike<any>).map((x: any) => x[0].transcript).join(''); setPrompt(said); };
-    r.onerror = (e: any) => { if (e?.error === 'not-allowed') toast('Microphone access was blocked', 'warn'); };
+    r.onerror = () => { setFailed(true); };
     r.onend = () => { rec.current = null; setListening(false); if (said.trim()) void run('new', said); };
     rec.current = r;
     try { r.start(); setListening(true); } catch { rec.current = null; }
   };
 
   const submit = (e: FormEvent) => { e.preventDefault(); void run('new', prompt); };
-  const place = (s: ObjectSpec) => { placeSpec(s); toast(`Placed ${s.name}`, 'ok'); };
+  const place = (s: ObjectSpec) => { placeSpec(s); };
   const done = spec && !busy;
 
   return (
@@ -98,11 +95,10 @@ export function ForgePanel() {
           <>
             <div className="forge-title">
               <strong>{spec.name}</strong>
-              {busy && <span className="forge-dims">{dims(spec.size)}</span>}
+              <span className="forge-dims">{dims(spec.size)}</span>
             </div>
-            {busy && <div className="muted">Building…</div>}
           </>
-        ) : busy ? <div className="muted">Building…</div> : null}
+        ) : failed ? <div className="muted">Failed</div> : null}
       </div>
 
       {done && (
@@ -114,8 +110,9 @@ export function ForgePanel() {
             )}
           </div>
           <form className="forge-ask" onSubmit={(e) => { e.preventDefault(); void run('refine', refine); }}>
-            <input value={refine} onChange={(e) => setRefine(e.target.value)} placeholder="Refine…" aria-label="Refine this object, e.g. 20 cm wider or in walnut" autoComplete="off" />
+            <input value={refine} onChange={(e) => setRefine(e.target.value)} placeholder="Size, colour" aria-label="Refine this object, e.g. 20 cm wider or in walnut" autoComplete="off" />
             <button type="submit" className="icon-btn" disabled={!refine.trim()} aria-label="Apply change"><Icon name="sparkles" /></button>
+            <button type="button" className="icon-btn" onClick={() => void run('new', spec.prompt || prompt)} aria-label="Regenerate" title="Regenerate"><Icon name="rotate" /></button>
           </form>
         </>
       )}

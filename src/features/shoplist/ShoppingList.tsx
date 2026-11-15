@@ -58,18 +58,17 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
   };
   const anyBusy = Object.values(state).includes('busy');
   const canFind = !!model.spaces && model.ceilingM !== undefined;
-  if (!list.lines.length) return <div className="shoplist muted">Nothing to buy</div>;
+  if (!list.lines.length) return null;
   const money = (n: number, c: string): string => `${Math.round(n).toLocaleString('en')} ${c}`;
   return (
     <div className="shoplist">
       <table>
-        <thead><tr><th>Item</th><th>Size cm</th><th>Qty</th><th>Price</th><th><span className="sr-only">Link</span></th><th><span className="sr-only">Find</span></th></tr></thead>
+        <thead className="sr-only"><tr><th>Item</th><th>Size cm</th><th>Price</th><th>Link</th><th>Find</th></tr></thead>
         <tbody>
           {list.lines.map((l, i) => (
             <tr key={i}>
-              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shop-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{l.name}</td>
-              <td>{l.wCm} x {l.dCm} x {l.hCm}</td>
-              <td>{l.qty}</td>
+              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shop-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</td>
+              <td className="shop-dim">{l.wCm}×{l.dCm}×{l.hCm} cm</td>
               <td>{l.unitPrice != null && l.currency ? money(l.unitPrice * l.qty, l.currency) : '-'}</td>
               <td><a href={l.link} target="_blank" rel="noreferrer noopener" aria-label={l.listed ? `Open ${l.name}` : `Search ${l.name}`} title={l.listed ? 'Open' : 'Search'}>{l.listed ? '↗' : '⌕'}</a></td>
               <td>{(l.unitPrice == null || cands[lineKey(l)]) && canFind && <FindCell s={state[lineKey(l)]} name={l.name} onFind={() => void find(l)} cand={cands[lineKey(l)]} onSwap={() => swap(l)} />}</td>
@@ -78,8 +77,7 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
         </tbody>
       </table>
       <div className="shoplist-foot">
-        <strong>Total {Object.entries(list.totals).map(([c, n]) => money(n, c)).join(' + ') || '-'}</strong>
-        {list.unpriced > 0 && <span className="muted">No price {list.unpriced}</span>}
+        <strong>{Object.entries(list.totals).map(([c, n]) => money(n, c)).join(' + ') || '-'}</strong>
         {canFind && list.unpriced > 0 && <button type="button" disabled={anyBusy} onClick={() => void findAll()}>Find all</button>}
         <button type="button" onClick={() => download(toCsv(list))}>CSV</button>
       </div>

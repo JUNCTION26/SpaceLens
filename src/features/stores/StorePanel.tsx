@@ -6,7 +6,7 @@ import { compareListings, negotiationNotes, type Comparison } from './advise';
 import { addToRoom, listingToItem, missingDims, MissingDimensionsError } from './convert';
 import { rateToSek, toSek, type Rate } from './fx';
 import { fmtDims, fmtMoney, timeAgo } from './parse';
-import { blobToDataUrl, loadImageBlob, READER_NOTE, readListing, readListingImage } from './read';
+import { blobToDataUrl, loadImageBlob, readListing, readListingImage } from './read';
 import { searchProducts, type ShopListing } from './search';
 import './stores.css';
 
@@ -33,7 +33,6 @@ let seq = 0;
 const keyed = (l: ShopListing): Card => ({ ...l, key: `c${++seq}` });
 
 export function StorePanel() {
-  const toast = useStore((s) => s.toast);
   const budget = useStore((s) => s.requirements?.budgetSek ?? null);
   const [query, setQuery] = useState('');
   const [link, setLink] = useState('');
@@ -79,28 +78,28 @@ export function StorePanel() {
           return [...next, ...others];
         }),
       });
-      if (!done.length) setStatus('No products found.');
+      if (!done.length) setStatus('–');
     } catch (e) {
       if (!ctrl.signal.aborted) setStatus(e instanceof Error ? e.message : 'Search failed.');
     } finally { setBusy(null); }
   }
 
-  async function runLink() {
-    const url = link.trim();
+  async function runLink(u?: string) {
+    const url = (u ?? link).trim();
     if (!url || busy) return;
-    setBusy('link'); setStatus('Reading the page…');
+    setBusy('link'); setStatus('');
     try {
       const l = await readListing(url);
       setCards((prev) => [keyed({ ...l, issues: [] }), ...prev]);
-      setLink(''); setStatus('');
+      setLink(''); setQuery(''); setStatus('');
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Could not read that page.');
     } finally { setBusy(null); }
   }
 
   async function runPhoto(file: File) {
-    if (!file.type.startsWith('image/')) { setStatus('Drop a screenshot'); return; }
-    setBusy('photo'); setStatus('Reading your picture…');
+    if (!file.type.startsWith('image/')) return;
+    setBusy('photo'); setStatus('');
     try {
       const dataUrl = await blobToDataUrl(file);
       const l = await readListingImage(dataUrl);
@@ -158,7 +157,6 @@ export function StorePanel() {
       if (item.custom) patchAdd(key, { spec: item.custom });
       addToRoom(item);
       patchAdd(key, { stage: 'done' });
-      toast(`${item.name} added, ${fmtDims(item)}.`, 'ok');
     } catch (e) {
       if (e instanceof MissingDimensionsError) patchAdd(key, { stage: 'size', message: e.message });
       else patchAdd(key, { stage: 'error', message: e instanceof Error ? e.message : 'Could not build it.' });
@@ -176,40 +174,28 @@ export function StorePanel() {
     } finally { setComparing(false); }
   }
 
+  const go = () => { if (/^(https?:\/\/|www\.)\S+$/i.test(query.trim())) void runLink(query.trim()); else void runSearch(); };
   const togglePick = (key: string) => setPicked((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]));
 
   return (
     <div className="shop">
-      <form className="shop-row" onSubmit={(e) => { e.preventDefault(); void runSearch(); }}>
-        <label className="shop-input">
-          <Icon name="search" size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="grey 3-seat sofa under 6 000 kr" aria-label="Search products" />
-        </label>
-        <button className="btn btn-primary btn-sm" disabled={!query.trim() || !!busy}>{busy === 'search' ? 'Searching…' : 'Search'}</button>
-      </form>
-
-      <form className="shop-row" onSubmit={(e) => { e.preventDefault(); void runLink(); }}>
-        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Paste a product link" aria-label="Product link" inputMode="url" />
-        <button className="btn btn-sm" disabled={!link.trim() || !!busy}>{busy === 'link' ? 'Reading…' : 'Read'}</button>
-      </form>
-
-      <div
-        className={`shop-drop${dragOver ? ' over' : ''}`} role="button" tabIndex={0}
-        onClick={() => fileRef.current?.click()} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
+      <form className="shop-row" onSubmit={(e) => { e.preventDefault(); go(); }}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={(e) => onDrop(e)}
-        onPaste={(e) => { const f = e.clipboardData.files?.[0]; if (f) void runPhoto(f); }}
-      >
-        <Icon name="image" size={16} />
-        <span>{busy === 'photo' ? 'Reading picture…' : 'Drop a listing screenshot'}</span>
+        onPaste={(e) => { const f = e.clipboardData.files?.[0]; if (f) void runPhoto(f); }}>
+        <label className={`shop-input${dragOver ? ' over' : ''}`}>
+          <Icon name="search" size={14} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Link or search" aria-label="Product link or search" />
+        </label>
+        <button type="button" className="icon-btn" onClick={() => fileRef.current?.click()} aria-label="Screenshot" title="Screenshot"><Icon name="image" size={16} /></button>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void runPhoto(f); e.target.value = ''; }} />
-      </div>
-
-      <p className="shop-fine">Prices as read <abbr title={READER_NOTE} tabIndex={0}>Details</abbr></p>
-      {status && <p className="shop-status" role="status">{(busy === 'search' || busy === 'link') && <span className="shop-spin" aria-hidden="true" />}{status}</p>}
+        <button className="icon-btn" disabled={!query.trim() || !!busy} aria-label="Go" title="Go"><Icon name="send" size={16} /></button>
+      </form>
+      {busy && <span className="shop-spin" role="status" aria-label="Working" />}
+      {!busy && status && <span className="muted" role="status">{status}</span>}
 
       {picked.length >= 2 && (
         <button className="btn btn-sm shop-compare" onClick={() => void runCompare()} disabled={comparing}>
-          {comparing ? 'Comparing…' : `Compare ${picked.length}`}
+          Compare {picked.length}
         </button>
       )}
 
@@ -219,18 +205,16 @@ export function StorePanel() {
         return (
           <section className="shop-verdict" aria-label="Comparison">
             <div className="shop-verdict-head">
-              <span className="chip chip-ok">Pick</span>
+              <Icon name="check" size={14} />
               <strong>{pickCard?.title ?? comparison.result.pick?.title}</strong>
               <button className="btn btn-ghost btn-sm" onClick={() => setComparison(null)} aria-label="Close comparison"><Icon name="x" size={14} /></button>
             </div>
             <ul>{comparison.result.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
             {comparison.result.tradeoffs.length > 0 && <>
-              <h4>Tradeoffs</h4>
               <ul>{comparison.result.tradeoffs.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </>}
             {deal && <details>
-              <summary>Ask for a better price</summary>
-              <p className="shop-fine">{deal.label}</p>
+              <summary>More</summary>
               <ul>{deal.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </details>}
           </section>
@@ -252,10 +236,7 @@ export function StorePanel() {
                 {editable
                   ? <input className="shop-edit" value={c.title} placeholder="Product title" aria-label="Title" onChange={(e) => updateCard(c.key, { title: e.target.value })} />
                   : <span className="shop-title" title={c.title}>{c.title}</span>}
-                <span className="shop-meta">
-                  {editable ? <input className="shop-edit shop-edit-sm" value={c.store} placeholder="Store" aria-label="Store" onChange={(e) => updateCard(c.key, { store: e.target.value })} /> : c.store}
-                  {' · '}{c.pending ? 'reading…' : `read ${timeAgo(c.fetchedAt)}`}
-                </span>
+                {editable && <input className="shop-edit shop-edit-sm" value={c.store} placeholder="Store" aria-label="Store" onChange={(e) => updateCard(c.key, { store: e.target.value })} />}
                 <span className="shop-price">
                   {editable
                     ? <>
@@ -270,23 +251,21 @@ export function StorePanel() {
                 </span>
                 {rate && c.price !== null && (
                   <label className="shop-rate">
-                    ≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')} <span className="chip chip-warn">Converted</span>
-                    <span className="muted">1 {c.currency} =</span>
+                    ≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')}
+                    <span className="muted">{c.currency}</span>
                     <input inputMode="decimal" value={rate.rate} aria-label={`SEK per ${c.currency}`}
                       onChange={(e) => { const n = parseFloat(e.target.value.replace(',', '.')); if (Number.isFinite(n) && n > 0) setRates((m) => ({ ...m, [c.currency]: { rate: n, source: 'your rate' } })); }} />
-                    <span className="muted">kr</span>
                   </label>
                 )}
                 {(c.issues.length > 0 || c.note) && (
                   <span className="shop-notes">
-                    {c.issues.length > 0 && <span className="chip chip-warn" title={[...c.issues, c.note].filter(Boolean).join('. ')}>{c.issues.length} {c.issues.length === 1 ? 'issue' : 'issues'}</span>}
+                    {c.issues.length > 0 && <span className="chip chip-warn" title={[...c.issues, c.note].filter(Boolean).join('. ')}>{c.issues.length}</span>}
                     
                   </span>
                 )}
 
                 {st?.stage === 'size' && (
                   <div className="shop-size-form">
-                    <small>{st.message ?? 'Size (cm)'}</small>
                     <div className="shop-dims">
                       {(['w', 'd', 'h'] as const).map((k) => (
                         <label key={k}><span>{k.toUpperCase()}</span>
@@ -298,8 +277,7 @@ export function StorePanel() {
                   </div>
                 )}
                 {st?.stage === 'image' && (
-                  <div className="shop-size-form" role="note">
-                    <small>Photo blocked. Drop it here, or:</small>
+                  <div className="shop-size-form">
                     <button className="btn btn-sm" onClick={() => void build(c.key)}>Build from title</button>
                   </div>
                 )}
@@ -307,25 +285,27 @@ export function StorePanel() {
                   <div className="shop-build">
                     {ForgePreview
                       ? <Suspense fallback={<span className="shop-spin" />}><div className="shop-preview"><ForgePreview spec={st.spec} assembling /></div></Suspense>
-                      : <span className="shop-status"><span className="shop-spin" aria-hidden="true" />Building…</span>}
-                    {st.message && <small className="muted">{st.message}</small>}
+                      : <span className="shop-spin" role="status" aria-label="Building" />}
                   </div>
                 )}
                 {st?.stage === 'error' && <small className="shop-err">{st.message}</small>}
 
                 <div className="shop-actions">
                   {st?.stage === 'done'
-                    ? <span className="chip chip-ok"><Icon name="check" size={12} /> In the room</span>
-                    : <button className="btn btn-primary btn-sm" disabled={c.pending || st?.stage === 'building'} onClick={() => void (st?.stage === 'size' ? (missingDims(c, { w: cmNum(st.dims.w), d: cmNum(st.dims.d), h: cmNum(st.dims.h) }).length ? patchAdd(c.key, { message: 'Fill in all three sides.' }) : startAdd(c)) : startAdd(c))}>
-                        <Icon name="plus" size={14} /> {st?.stage === 'size' ? 'Add at this size' : 'Add to room'}
+                    ? <span className="chip chip-ok" role="img" aria-label="In the room"><Icon name="check" size={12} /></span>
+                    : <button className="btn btn-sm" disabled={c.pending || st?.stage === 'building'} onClick={() => void (st?.stage === 'size' ? (missingDims(c, { w: cmNum(st.dims.w), d: cmNum(st.dims.d), h: cmNum(st.dims.h) }).length ? patchAdd(c.key, { message: 'Fill in all three sides.' }) : startAdd(c)) : startAdd(c))}>
+                        <Icon name="plus" size={14} /> Add
                       </button>}
-                  {c.url && <a className="btn btn-ghost btn-sm" href={c.url} target="_blank" rel="noopener noreferrer">Open <Icon name="share" size={12} /></a>}
-                  <label className="shop-pick"><input type="checkbox" checked={picked.includes(c.key)} onChange={() => togglePick(c.key)} /> Compare</label>
-                  <button className="btn btn-ghost btn-sm" aria-expanded={tips === c.key} onClick={() => setTips(tips === c.key ? null : c.key)}>Deal tips</button>
+                  {c.url && <a className="icon-btn" href={c.url} target="_blank" rel="noopener noreferrer" aria-label="Open" title="Open"><Icon name="share" size={14} /></a>}
+                  {!c.issues.length && c.price !== null && <span className="find-ok" role="img" aria-label="Fits" title="Fits"><Icon name="check" size={14} /></span>}
+                  <details className="shop-more"><summary>More</summary>
+                    <label className="shop-pick"><input type="checkbox" checked={picked.includes(c.key)} onChange={() => togglePick(c.key)} /> Compare</label>
+                    <button className="btn btn-ghost btn-sm" aria-expanded={tips === c.key} onClick={() => setTips(tips === c.key ? null : c.key)}>Deals</button>
+                  </details>
                 </div>
                 {tips === c.key && (() => {
                   const n = negotiationNotes(c, cards, rateMap());
-                  return <details className="shop-tips"><summary className="shop-fine">{n.label}</summary><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></details>;
+                  return <details className="shop-tips"><summary className="shop-fine">More</summary><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></details>;
                 })()}
               </div>
             </li>

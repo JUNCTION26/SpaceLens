@@ -59,10 +59,9 @@ export function MovesBlock({ model, target, onApply }: Props) {
           return (
             <li key={m.id} className={`budget-swap${!keep && !on.has(m.id) ? ' off' : ''}`}>
               <label>
-                <input type="checkbox" checked={keep ? true : on.has(m.id)} disabled={keep} onChange={() => toggle(m)} aria-label={`${VERB[m.kind]} ${m.name}`} />
+                <input type="checkbox" checked={keep ? true : on.has(m.id)} disabled={keep} onChange={() => toggle(m)} aria-label={`${VERB[m.kind]} ${m.name}`} title={m.tag} />
                 <span className="budget-swap-body">
                   <span className="budget-swap-top"><b>{VERB[m.kind]} {m.name}</b>{!keep && <span className="ok">{`−${kr(m.savingSek)}`}</span>}</span>
-                  <span className="budget-tag">{m.tag}</span>
                 </span>
               </label>
             </li>

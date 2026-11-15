@@ -3,7 +3,7 @@ import { useStore } from '../../core/store';
 import { aiReady } from '../../core/ai';
 import { Icon } from '../../ui/icons';
 import { argueItems, polishArguments, type Argument } from './argue';
-import { costOf, kr, totalOf } from './money';
+import { kr, totalOf } from './money';
 import { applySwaps, newFailures, optimiseBudget, type BudgetPlan } from './optimise';
 import { planPhases } from './phases';
 import { MovesBlock } from './MovesBlock';
@@ -24,7 +24,6 @@ export function BudgetPanel() {
   const model = useStore((s) => s.model);
   const requirements = useStore((s) => s.requirements);
   const dispatch = useStore((s) => s.dispatch);
-  const toast = useStore((s) => s.toast);
   const furniture = model.furniture;
 
   const [saved, setSaved] = useState<Saved>(loadSaved);
@@ -51,12 +50,6 @@ export function BudgetPanel() {
   const broken = useMemo(() => (chosen.length ? newFailures(model, furniture, after, requirements) : []), [chosen, model, furniture, after, requirements]);
 
   const shown = result ? after : furniture;
-  const shownTotal = result ? afterTotal : buyNow;
-  const owned = furniture.filter((f) => f.owned || f.priceStatus === 'owned').length;
-  const fromListing = furniture.filter((f) => costOf(f) > 0 && f.listing && f.listing.price != null).length;
-  const estimates = furniture.filter((f) => costOf(f) > 0).length - fromListing;
-  const over = Math.max(0, shownTotal - target);
-  const scale = Math.max(target, shownTotal, 1);
 
   const run = () => {
     setBusy(true); setArgs(null);
@@ -78,9 +71,6 @@ export function BudgetPanel() {
   const polish = async () => { setPolishing(true); try { setArgs(await polishArguments(argueItems(furniture, chosen))); } finally { setPolishing(false); } };
 
   const max = Math.max(10000, Math.ceil((buyNow * 1.5) / 1000) * 1000);
-  const status = !result ? null : result.feasible ? 'ok' : 'bad';
-
-  if (!furniture.length) return <div className="budget"><p className="budget-note muted">No furniture yet</p></div>;
 
   return (
     <div className="budget">
@@ -90,22 +80,16 @@ export function BudgetPanel() {
           <span className="budget-input"><input id="budget-target" inputMode="numeric" value={String(target)} onChange={(e) => setTarget(num(e.target.value))} /><span>kr</span></span>
         </div>
         <input type="range" aria-label="Budget" min={0} max={max} step={100} value={Math.min(target, max)} onChange={(e) => setTarget(num(e.target.value))} />
-        <div className="budget-bar" role="img" aria-label={`${kr(shownTotal)} to buy against a budget of ${kr(target)}${over ? `, ${kr(over)} over` : ''}`}>
-          <i className="budget-fill" style={{ width: `${(Math.min(shownTotal, target) / scale) * 100}%` }} />
-          {over > 0 && <i className="budget-over" style={{ width: `${(over / scale) * 100}%` }} />}
-          <b className="budget-mark" style={{ left: `${(target / scale) * 100}%` }} />
-        </div>
-        <div className="budget-legend">
-          <span><i className="dot fill" />To buy {kr(shownTotal)}</span>
-          {over > 0 && <span className="bad"><i className="dot over" />Over {kr(over)}</span>}
-          {owned > 0 && <span><i className="dot owned" />{owned} owned</span>}
-        </div>
-        <button type="button" className="btn btn-primary budget-wide" onClick={run} disabled={busy}>
-          <Icon name="sparkles" />{busy ? 'Working' : result ? 'Optimise again' : 'Optimise'}
-        </button>
       </section>
 
-      <MovesBlock model={model} target={target} onApply={(items, n) => dispatch({ type: 'SET_FURNITURE', items, label: `Applied budget moves (${n})` })} />
+      {furniture.length > 0 && <MovesBlock model={model} target={target} onApply={(items, n) => dispatch({ type: 'SET_FURNITURE', items, label: `Applied budget moves (${n})` })} />}
+
+      {furniture.length > 0 && (
+      <details className="budget-block budget-more">
+        <summary>More</summary>
+        <button type="button" className="btn budget-wide" onClick={run} disabled={busy}>
+          <Icon name="sparkles" />{busy ? 'Working' : 'Optimise'}
+        </button>
 
       {result && (
         <section className="budget-block" aria-label="Plan" aria-live="polite">
@@ -130,7 +114,7 @@ export function BudgetPanel() {
           )}
           {chosen.length > 0 && (
             <p className={`budget-note ${broken.length ? 'bad' : 'muted'}`}>
-              {broken.length ? <span title={broken[0].details}>Fails a check</span> : `Score ${result.scoreBefore} → ${result.scoreAfter}`}
+              {broken.length ? <span title={broken[0].details}>Fails a check</span> : `${result.scoreBefore} → ${result.scoreAfter}`}
             </p>
           )}
           {result.plan.length > 0 && (
@@ -141,8 +125,8 @@ export function BudgetPanel() {
         </section>
       )}
 
-      <details className="budget-block" aria-label="Phases">
-        <summary>Phases</summary>
+      <div className="budget-block" aria-label="Phases">
+        <b>Phases</b>
         <div className="budget-row">
           <label htmlFor="budget-monthly" className="budget-label">Per month</label>
           <span className="budget-input"><input id="budget-monthly" inputMode="numeric" placeholder="0" value={saved.monthly ? String(saved.monthly) : ''} onChange={(e) => update({ ...saved, monthly: num(e.target.value) })} /><span>kr</span></span>
@@ -158,15 +142,17 @@ export function BudgetPanel() {
             </li>
           ))}
         </ol>
-      </details>
+      </div>
 
-      <details className="budget-block budget-why">
-        <summary>Why</summary>
+      <div className="budget-block budget-why">
+        <b>Why</b>
         <ul className="budget-list">
           {reasons.map((a) => <li key={a.itemId} className="budget-reason">{a.text}</li>)}
         </ul>
         {aiReady() && <button type="button" className="btn btn-sm" onClick={polish} disabled={polishing}>{polishing ? 'Rewording' : 'Reword'}</button>}
+      </div>
       </details>
+      )}
     </div>
   );
 }
