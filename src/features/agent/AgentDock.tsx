@@ -9,6 +9,7 @@ import { interrupt, runTurn } from './brain';
 import { applyVoicePreference, neuralVoiceWanted } from './neuralVoice';
 import { preloadMods } from './mods';
 import { SketchOverlay } from './SketchLayer';
+import { Conversation, type ConvState } from '../voice/converse';
 import { useSketch } from './sketchStore';
 import { currentSpeech, Ear, isEcho, isSpeaking, onSpeech, recognitionSupported, setMuted, stopSpeaking } from './speech';
 import { apiBase } from '../../core/ai/transport';
@@ -19,6 +20,7 @@ const GLYPH: Record<string, string> = {
   speaker: 'M4 9h4l5-4v14l-5-4H4zM16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11',
   speakerOff: 'M4 9h4l5-4v14l-5-4H4zM17 10l4 4M21 10l-4 4',
   eraser: 'M8 20h12M5 15l8-8 5 5-6 6H8z',
+  micOff: 'M3 3l18 18M9 9v-3a3 3 0 0 1 5.1-2.1M15 11v1a3 3 0 0 1-.5 1.7M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3',
 };
 const Glyph = ({ d }: { d: string }) => (
   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>
@@ -64,6 +66,35 @@ function Wave({ phase, meter }: { phase: Phase; meter: boolean }) {
   );
 }
 
+/** Writes the microphone level (0..1) to `--lvl` on the dock while a conversation is listening. */
+function useMicLevel(active: boolean, el: React.RefObject<HTMLElement>) {
+  useEffect(() => {
+    const node = el.current;
+    if (!active || !node || !navigator.mediaDevices?.getUserMedia) return;
+    let stream: MediaStream | null = null, ctx: AudioContext | null = null, raf = 0, stopped = false, lvl = 0;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then((st) => {
+      if (stopped) { st.getTracks().forEach((t) => t.stop()); return; }
+      stream = st; ctx = new AudioContext();
+      const an = ctx.createAnalyser(); an.fftSize = 256;
+      ctx.createMediaStreamSource(st).connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount);
+      const tick = () => {
+        an.getByteFrequencyData(buf);
+        let sum = 0; for (let i = 2; i < 40; i++) sum += buf[i];
+        const v = Math.min(1, (sum / 38 / 255) * 2.2);
+        lvl += (v - lvl) * 0.35;
+        node.style.setProperty('--lvl', lvl.toFixed(3));
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    }).catch(() => { /* the breathing ring still shows */ });
+    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach((t) => t.stop()); void ctx?.close(); node.style.removeProperty('--lvl'); };
+  }, [active, el]);
+}
+
+/** The last few words, for the one-line caption. */
+const lastWords = (t: string, n = 7) => { const w = t.trim().split(/\s+/).filter(Boolean); return (w.length > n ? '… ' : '') + w.slice(-n).join(' '); };
+
 function Transcript() {
   const turns = useAgent((s) => s.turns);
   const end = useRef<HTMLDivElement>(null);
@@ -108,29 +139,53 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const ear = useRef<Ear | null>(null);
   const pressAt = useRef(0);
-  const supported = recognitionSupported();
+  const [micBlocked, setMicBlocked] = useState(false);
+  const supported = recognitionSupported() && !micBlocked;
   const phase = phaseOf(s);
+  const [conv, setConv] = useState<ConvState>('off');
+  const [heard, setHeard] = useState('');
+  const [capVisible, setCapVisible] = useState(false);
+  const dockRef = useRef<HTMLDivElement>(null);
+  useMicLevel(conv === 'listening', dockRef);
 
   useEffect(() => { preloadMods(); }, []);
   useEffect(() => setMuted(s.muted), [s.muted]);
-  useEffect(() => onSpeech((speaking) => useAgent.getState().set({ speaking })), []);
+  const talk = useRef<Conversation | null>(null);
+  useEffect(() => onSpeech((speaking, t) => { useAgent.getState().set({ speaking }); talk.current?.setSpeaking(speaking, t); }), []);
 
   const send = useCallback((t: string) => { const v = t.trim(); if (v) void runTurn(v); }, []);
 
   if (!ear.current) {
     ear.current = new Ear({
       onInterim: (t) => {
+        if (talk.current?.on) { talk.current.hearInterim(t); return; }
         // Barge-in: the person talking over the agent stops its voice, unless it is the agent's own echo.
         if (t.trim() && isSpeaking() && !isEcho(t, currentSpeech())) stopSpeaking();
         useAgent.getState().set({ interim: t });
       },
       onFinal: (t) => {
+        if (talk.current?.on) { talk.current.hearFinal(t); return; }
         if (isSpeaking() && isEcho(t, currentSpeech())) return;
         useAgent.getState().set({ interim: '' });
         send(t);
       },
       onState: (listening) => useAgent.getState().set({ listening, ...(listening ? {} : { interim: '' }) }),
-      onError: (error) => useAgent.getState().set({ error, handsFree: false }),
+      onError: (error) => {
+        talk.current?.end();
+        if (/blocked/i.test(error)) setMicBlocked(true);
+        useAgent.getState().set({ error, handsFree: false });
+      },
+    });
+  }
+  if (!talk.current) {
+    talk.current = new Conversation({
+      ear: { start: () => ear.current!.start(true), stop: () => ear.current!.stop(), abort: () => ear.current!.abort() },
+      runTurn: (t) => runTurn(t),
+      stopSpeaking,
+      isEcho,
+      beforeTurn: () => useSketch.getState().clear('agent'),
+      onState: (c) => { setConv(c); useAgent.getState().set({ handsFree: c !== 'off', ...(c === 'off' ? { interim: '' } : {}) }); },
+      onCaption: (t) => { setHeard(t); useAgent.getState().set({ interim: t }); },
     });
   }
 
@@ -143,20 +198,27 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const stopPtt = useCallback(() => { if (!useAgent.getState().handsFree) ear.current!.stop(); }, []);
 
   const toggleHandsFree = useCallback(() => {
-    const on = !useAgent.getState().handsFree;
-    useAgent.getState().set({ handsFree: on, error: null });
+    const c = talk.current!;
     ear.current!.abort();
-    if (on) ear.current!.start(true);
+    if (c.on) { c.end(); return; }
+    useAgent.getState().set({ error: null });
+    interrupt();
+    c.start();
   }, []);
 
   // Mic button: hold to talk, or tap to talk until a pause. In hands-free it turns listening off.
   const micDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     if (s.handsFree) { toggleHandsFree(); return; }
-    if (ear.current!.active) { pressAt.current = 0; stopPtt(); return; }
     pressAt.current = Date.now(); startPtt();
   };
-  const micUp = () => { if (pressAt.current && Date.now() - pressAt.current > 400) stopPtt(); pressAt.current = 0; };
+  // A short tap starts the conversation; holding talks once and sends on release.
+  const micUp = () => {
+    if (!pressAt.current) return;
+    const held = Date.now() - pressAt.current;
+    pressAt.current = 0;
+    if (held > 400) stopPtt(); else { ear.current!.abort(); toggleHandsFree(); }
+  };
 
   // V: hold to talk or tap; Esc: stop the agent talking, or leave drawing.
   useEffect(() => {
@@ -166,32 +228,46 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
     };
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (talk.current?.on) { talk.current.end(); return; }
         if (isSpeaking() || useAgent.getState().thinking) interrupt();
         else if (useSketch.getState().drawing) useSketch.getState().setDrawing(false);
         return;
       }
-      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 'v' || typing(e)) return;
+      const space = e.key === ' ' && !(e.target as HTMLElement | null)?.closest?.('button, a, summary, [role=button]');
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key.toLowerCase() !== 'v' && !space) || typing(e)) return;
       e.preventDefault();
+      if (talk.current?.on) { if (space) stopSpeaking(); return; }
       if (ear.current!.active) { pressAt.current = 0; stopPtt(); } else { pressAt.current = Date.now(); startPtt(); }
     };
-    const up = (e: KeyboardEvent) => { if (e.key.toLowerCase() === 'v' && !typing(e) && pressAt.current && Date.now() - pressAt.current > 400) stopPtt(); };
+    const up = (e: KeyboardEvent) => { if ((e.key.toLowerCase() === 'v' || e.key === ' ') && !typing(e) && pressAt.current && Date.now() - pressAt.current > 400) stopPtt(); };
     const ext = (e: Event) => { const d = (e as CustomEvent<string>).detail; if (typeof d === 'string' && d) send(d); else startPtt(); };
+    const vis = () => talk.current?.setPaused(document.hidden);
     window.addEventListener('keydown', down); window.addEventListener('keyup', up);
-    window.addEventListener('spacelens:agent', ext);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('spacelens:agent', ext); };
+    window.addEventListener('spacelens:agent', ext); document.addEventListener('visibilitychange', vis);
+    return () => { document.removeEventListener('visibilitychange', vis); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('spacelens:agent', ext); };
   }, [startPtt, stopPtt, send]);
 
-  useEffect(() => () => { ear.current?.abort(); stopSpeaking(); }, []);
+  useEffect(() => () => { talk.current?.end(); ear.current?.abort(); stopSpeaking(); }, []);
 
   const caption = s.interim || s.caption;
+  const inConv = conv !== 'off';
+  const line = lastWords(inConv ? (heard || s.caption) : caption);
+  // In a conversation the caption is one small line that fades a few seconds after the last words.
+  useEffect(() => {
+    if (conv === 'off') return;
+    setCapVisible(true);
+    const t = setTimeout(() => setCapVisible(false), 4000);
+    return () => clearTimeout(t);
+  }, [conv, heard, s.caption]);
   const submit = (e: React.FormEvent) => { e.preventDefault(); send(text); setText(''); };
 
   return (
     <>
       {overlay && <SketchOverlay />}
-      <div className={`agent-dock${open ? ' open' : ''}${expanded || drawing || s.handsFree ? '' : ' is-pill'}`}>
+      <div ref={dockRef} className={`agent-dock${open ? ' open' : ''}${expanded || drawing || s.handsFree || !supported ? '' : ' is-pill'}${inConv ? ` in-conv conv-${conv}` : ''}`}>
         {open && <Transcript />}
-        {(caption || s.status || s.error || phase !== 'idle') && (
+        {inConv && <div className={`ad-live${capVisible && line ? ' show' : ''}`} aria-live="polite">{line}</div>}
+        {(!inConv || s.error) && (caption || s.status || s.error || phase !== 'idle') && (
           <div className="ad-caption">
             <Wave phase={phase} meter={s.listening} />
             <div className="ad-caption-text" aria-live="polite">
@@ -212,14 +288,17 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
             title={supported ? 'Hold or tap · V' : 'No voice input in this browser'}
             disabled={!supported}
             onPointerDown={micDown} onPointerUp={micUp} onPointerLeave={micUp}
-            onClick={(e) => { if (e.detail === 0) { if (ear.current!.active) stopPtt(); else startPtt(); } }}
+            onClick={(e) => { if (e.detail === 0) toggleHandsFree(); }}
           >
-            <Icon name="mic" size={20} aria-hidden="true" />
+            {supported
+              ? <Icon name="mic" size={20} aria-hidden="true" />
+              : <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={GLYPH.micOff} /></svg>}
+            {inConv && <span className="ad-orb" aria-hidden="true"><i /><i /><i /></span>}
           </button>
-          {!(expanded || drawing || s.handsFree) && (
+          {!(expanded || drawing || s.handsFree || !supported) && (
             <button type="button" className="ad-ask" onClick={() => { setExpanded(true); setTimeout(() => inputRef.current?.focus(), 0); }}>Ask</button>
           )}
-          {(expanded || drawing || s.handsFree) && <>
+          {(expanded || drawing || s.handsFree || !supported) && <>
           <input
             ref={inputRef}
             className="ad-input" value={text} onChange={(e) => setText(e.target.value)}

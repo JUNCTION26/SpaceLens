@@ -107,3 +107,28 @@
 .ad-ask { height: 32px; padding: 0 14px 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-weight: var(--fw-strong, 560); cursor: pointer; }
 .ad-ask:hover { background: var(--hover); }
 .ad-meta summary { font-size: var(--fs-sm, 12px); }
+
+/* ---- conversation orb: breathes while listening, follows the mic, ripples while the voice speaks ---- */
+.ad-mic { position: relative; }
+.ad-orb { position: absolute; inset: 0; pointer-events: none; }
+.ad-orb i { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--accent); opacity: 0; }
+.in-conv .ad-orb i:first-child { opacity: .55; }
+.conv-listening .ad-orb i:first-child { animation: ad-breathe 3.2s ease-in-out infinite; }
+.conv-listening .ad-orb i:nth-child(2) { opacity: .35; transform: scale(calc(1.1 + var(--lvl, 0) * .7)); transition: transform .08s linear; }
+.conv-thinking .ad-orb i:first-child { animation: ad-breathe 1.2s ease-in-out infinite; opacity: .4; }
+.conv-speaking .ad-orb i { animation: ad-ripple 1.8s ease-out infinite; }
+.conv-speaking .ad-orb i:nth-child(2) { animation-delay: .6s; }
+.conv-speaking .ad-orb i:nth-child(3) { animation-delay: 1.2s; }
+@keyframes ad-breathe { 0%, 100% { transform: scale(1.08); opacity: .35; } 50% { transform: scale(1.32); opacity: .7; } }
+@keyframes ad-ripple { from { transform: scale(1); opacity: .6; } to { transform: scale(2); opacity: 0; } }
+
+.ad-live {
+  align-self: center; max-width: 80%; padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line);
+  color: var(--muted); font-size: var(--fs-sm, 12px); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transition: opacity .6s ease;
+}
+.ad-live.show { opacity: 1; transition-duration: .15s; }
+@media (prefers-reduced-motion: reduce) {
+  .ad-orb i { animation: none !important; }
+  .ad-live { transition: none; }
+}
