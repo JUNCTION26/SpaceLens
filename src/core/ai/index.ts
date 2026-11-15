@@ -1,9 +1,9 @@
 import { usage, type GeminiPart } from '../gemini';
 import { getState } from '../store';
 import { AiError, type StreamOutcome } from './engine';
-import { type AiTask, type ThinkingLevel } from './models';
+import { candidatesFor, type AiTask, type ThinkingLevel } from './models';
 import {
-  hashKey, isProbing, loadServerModels, maybeReprobe, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute,
+  ensureAwake, hashKey, isExhausted, isProbing, loadServerModels, maybeReprobe, onProbeUpdate, probeFresh, probeResults, routeFor, runProbe, runRouted, TIMING, waitForRoute, warmUpWhenIdle,
   type ModelStatus,
 } from './router';
 import { pickTransport, transportId, type Transport } from './transport';
@@ -19,6 +19,7 @@ export { AiError } from './engine';
 export { classify, problemFor, OFFLINE_NOTE, type AiReason, type AiProblem, type AiAction } from './errors';
 export { TASKS, getOverrides, setOverride } from './models';
 export { onProbeUpdate };
+export { warmUp, ensureAwake, isExhausted } from './router';
 export { apiBase, pickTransport, type Transport } from './transport';
 
 export interface AiCall {
@@ -36,6 +37,8 @@ export interface AiCall {
   budgetMs?: number;
   /** Identical calls with the same key return the cached result. */
   cacheKey?: string;
+  /** Skip the automatic 10 minute cache (reads and writes). Calls that stream with onPartial are never auto-cached. */
+  noCache?: boolean;
   temperature?: number;
   /** Gemini tools such as [{ google_search: {} }]. */
   tools?: object[];
@@ -53,6 +56,20 @@ export const currentTransport = (): Transport | null => pickTransport(getState()
 export const aiReady = () => currentTransport() !== null;
 let callSeq = 1;
 
+/** Life of an automatic cache entry. */
+export const CACHE_TTL_MS = 10 * 60_000;
+
+/** Key from task, model family, prompt hash and schema hash. */
+function autoCacheKey(t: Transport, call: AiCall): string {
+  const family = (routeFor(t, call.task)[0] ?? '').replace(/^gemini-/, '').replace(/^\d+(\.\d+)?-?/, '') || 'any';
+  const prompt = hashKey(JSON.stringify([call.system ?? '', call.parts, call.temperature ?? null, call.thinking ?? null, call.json ?? false]));
+  const schema = hashKey(JSON.stringify(call.schema ?? null));
+  return [call.task, family, prompt, schema].join('.');
+}
+
+// Wake the server / warm each ladder head once the app is idle after load.
+warmUpWhenIdle(currentTransport);
+
 /**
  * Runs one Gemini call on the fastest healthy model for the task, streaming, with
  * fall-through on errors/timeouts and hedging on 'fast'. Throws AiError if every model fails,
@@ -63,7 +80,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
   const t0 = performance.now();
   const since = () => Math.round(performance.now() - t0);
 
-  if (call.cacheKey) {
+  if (call.cacheKey && !call.noCache) {
     const hit = cacheGet<AiResult<T>>(call.cacheKey);
     if (hit) {
       emitActivity({ id, task: call.task, phase: 'cached', model: hit.model, ms: 0 });
@@ -74,10 +91,19 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
 
   const t = currentTransport();
   if (!t) throw new AiError('No Gemini key set', 'http', 0, 'no_key');
+  const autoKey = !call.noCache && !call.cacheKey && !call.onPartial && !call.tools?.length ? 'auto.' + autoCacheKey(t, call) : null;
+  if (autoKey) {
+    const hit = cacheGet<{ at: number; result: AiResult<T> }>(autoKey);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+      emitActivity({ id, task: call.task, phase: 'cached', model: hit.result.model, ms: 0 });
+      return { ...hit.result, cached: true };
+    }
+  }
   emitActivity({ id, task: call.task, phase: 'start', ms: 0 });
 
   if (t.kind === 'server') {
     // The server shares one key among everyone: no speed probe, just its model list (loaded once).
+    await ensureAwake(t, call.task);
     await loadServerModels(t);
   } else {
     // First call with this key: probe in the background and route as soon as one model answers.
@@ -88,6 +114,11 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
     maybeReprobe(t, 'age');
   }
   const order = routeFor(t, call.task);
+  if (!order.length && candidatesFor(call.task).some((m) => isExhausted(m))) {
+    const err = new AiError('Daily quota used on every model', 'http', 429, 'quota');
+    emitActivity({ id, task: call.task, phase: 'error', ms: since(), error: err.message, reason: err.reason });
+    throw err;
+  }
   let data: T | undefined;
   let out: StreamOutcome;
   try {
@@ -121,7 +152,8 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
   usage.outputTokens += out.outputTokens;
   emitActivity({ id, task: call.task, phase: 'done', model: out.model, ms });
   const result: AiResult<T> = { data: data as T, model: out.model, ms, inputTokens: out.inputTokens, outputTokens: out.outputTokens, cached: false };
-  if (call.cacheKey) cacheSet(call.cacheKey, result);
+  if (call.cacheKey && !call.noCache) cacheSet(call.cacheKey, result);
+  if (autoKey) cacheSet(autoKey, { at: Date.now(), result });
   return result;
 }
 

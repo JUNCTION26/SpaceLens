@@ -2,6 +2,7 @@ import { AiError, callModel, type ModelRequest, type StreamOutcome } from './eng
 import { acceptsImages, candidatesFor, getOverrides, pickNewModels, setExtraModels, type AiTask } from './models';
 import { dominantReason, type AiReason } from './errors';
 import { modelsRequest, transportId, type Transport } from './transport';
+import { emitActivity } from './telemetry';
 
 export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string; reason?: AiReason }
 
@@ -9,10 +10,49 @@ export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number 
 
 const health = new Map<string, { until: number; reason: string }>();
 
+/** Back-off after an overload answer. */
+export const OVERLOAD_BACKOFF_MS = 60_000;
+
+// Daily quota: a model that answered 429 is skipped until the next UTC midnight, across reloads.
+const LS_EXHAUSTED = 'spacelens.ai.exhausted.v1';
+let exhausted: Record<string, number> | null = null;
+
+/** The next 00:00 UTC after `now`. */
+export const nextUtcMidnight = (now = Date.now()) => Math.floor(now / 86_400_000) * 86_400_000 + 86_400_000;
+
+function exhaustedMap(): Record<string, number> {
+  if (!exhausted) {
+    try { exhausted = JSON.parse(storage()?.getItem(LS_EXHAUSTED) ?? '{}') as Record<string, number>; } catch { exhausted = {}; }
+  }
+  return exhausted;
+}
+function saveExhausted() {
+  try { storage()?.setItem(LS_EXHAUSTED, JSON.stringify(exhaustedMap())); } catch { /* storage blocked */ }
+}
+export function markExhausted(model: string, now = Date.now()) {
+  exhaustedMap()[model] = nextUtcMidnight(now);
+  saveExhausted();
+}
+export function isExhausted(model: string, now = Date.now()) {
+  const until = exhaustedMap()[model];
+  if (until === undefined) return false;
+  if (until > now) return true;
+  delete exhaustedMap()[model];
+  saveExhausted();
+  return false;
+}
+export const resetExhausted = () => { exhausted = {}; saveExhausted(); };
+
+const isQuotaError = (err: unknown) => err instanceof AiError && err.kind === 'http' && (err.status === 429 || /RESOURCE_EXHAUSTED/i.test(err.message));
+const isOverloadError = (err: unknown) => err instanceof AiError && err.kind === 'http' && (err.status === 503 || err.status === 529 || /overloaded/i.test(err.message));
+
 export function markUnhealthy(model: string, reason: string, err?: unknown) {
   const status = err instanceof AiError ? err.status : 0;
-  // Unknown models stay out for the session; quota and timeouts recover after a few minutes.
-  const ms = status === 404 ? 6 * 3600_000 : status === 429 ? 10 * 60_000 : status === 503 ? 90_000 : 5 * 60_000;
+  if (isQuotaError(err) && !(err as AiError).stopAll) { markExhausted(model); return; }
+  // A rejected request (schema, thinking level) says nothing about the model's health.
+  if (status === 400) return;
+  // Unknown models stay out for the session; timeouts recover after a few minutes.
+  const ms = status === 404 ? 6 * 3600_000 : isOverloadError(err) ? OVERLOAD_BACKOFF_MS : status === 429 ? 10 * 60_000 : 5 * 60_000;
   health.set(model, { until: Date.now() + ms, reason });
 }
 export const markHealthy = (model: string) => { health.delete(model); };
@@ -28,13 +68,12 @@ export const resetHealth = () => health.clear();
 export const SLOW_MS = 4000;
 
 /**
- * Orders a task's candidates for one call, by measured latency for every task:
- * - the fastest probed-ok model sets the pace;
- * - smart / vision prefer quality order, but only among models within 2x of the fastest (and under
- *   SLOW_MS unless the fastest itself is slower); everything else follows by measured speed;
- * - fast takes pure speed order;
- * then models not probed yet (in quality order), then models whose probe failed.
- * Models marked unhealthy at runtime go last.
+ * Orders a task's candidates (given in ladder order) for one call:
+ * - probed-ok models that answered within SLOW_MS (or the fastest, if all are slower) come first;
+ *   smart / vision keep ladder order among them, fast takes pure measured speed;
+ * - then the other probed-ok models by speed, then models not probed yet (ladder order), then
+ *   models whose probe failed (slow before broken);
+ * - models marked unhealthy at runtime go last.
  */
 export function rankModels(task: AiTask, candidates: string[], probes: Record<string, ModelStatus | undefined>, healthy: (m: string) => boolean = () => true): string[] {
   const speed = (m: string) => probes[m]?.totalMs ?? probes[m]?.firstTokenMs ?? Infinity;
@@ -46,12 +85,10 @@ export function rankModels(task: AiTask, candidates: string[], probes: Record<st
   if (task === 'fast' || !bySpeed.length) {
     head = bySpeed;
   } else {
-    const f = speed(bySpeed[0]);
-    const limit = Math.max(Math.min(2 * f, SLOW_MS), f);
+    const limit = Math.max(SLOW_MS, speed(bySpeed[0]));
     const quick = ok.filter((m) => speed(m) <= limit);
     head = [...quick, ...bySpeed.filter((m) => !quick.includes(m))];
   }
-  // Failed probes that still produced a first token were slow, not broken: try them before hard failures.
   failed.sort((a, b) => speed(a) - speed(b));
   const order = [...head, ...unknown, ...failed];
   return [...order.filter(healthy), ...order.filter((m) => !healthy(m))];
@@ -137,7 +174,7 @@ export function runProbe(t: Transport, opts: { force?: boolean; keep?: boolean; 
     const s = await probeOne(t, m);
     if (probe !== current) return s;
     current.results[m] = s;
-    if (s.ok) markHealthy(m); else markUnhealthy(m, s.error ?? 'probe failed');
+    if (s.ok) markHealthy(m); else if (s.reason === 'quota') markExhausted(m); else markUnhealthy(m, s.error ?? 'probe failed');
     const snapshot = models.map((x) => current.results[x]).filter(Boolean);
     opts.onUpdate?.(snapshot);
     probeListeners.forEach((cb) => cb());
@@ -166,10 +203,10 @@ export function waitForRoute(t: Transport, task: AiTask, maxMs: number): Promise
 }
 
 export function routeFor(t: Transport, task: AiTask): string[] {
-  const order = rankModels(task, candidatesVia(t, task), probeResults(t), (m) => isHealthy(m));
-  // The person's own choice for this task goes first; the rest stay as fall-through.
+  const order = rankModels(task, candidatesVia(t, task), probeResults(t), (m) => isHealthy(m)).filter((m) => !isExhausted(m));
+  // The person's own choice for this task goes first (unless its quota is spent); the rest stay as fall-through.
   const pick = getOverrides()[task];
-  return pick ? [pick, ...order.filter((m) => m !== pick)] : order;
+  return pick && !isExhausted(pick) ? [pick, ...order.filter((m) => m !== pick)] : order;
 }
 
 // ---------------------------------------------------------------- models per transport
@@ -235,12 +272,14 @@ export interface RouteTiming {
   /** Give up on a model that has sent nothing after this long. */
   firstTokenTimeoutMs: number;
   totalTimeoutMs: number;
+  /** Hard limit for the whole call: after this the caller gets a typed timeout error. */
+  deadlineMs?: number;
 }
 
 export const TIMING: Record<AiTask, RouteTiming> = {
-  fast: { hedgeMs: 4000, firstTokenTimeoutMs: 10_000, totalTimeoutMs: 60_000 },
-  smart: { hedgeMs: 8000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
-  vision: { hedgeMs: 8000, firstTokenTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
+  fast: { hedgeMs: 1500, firstTokenTimeoutMs: 6000, totalTimeoutMs: 20_000, deadlineMs: 12_000 },
+  smart: { hedgeMs: 3000, firstTokenTimeoutMs: 12_000, totalTimeoutMs: 45_000, deadlineMs: 25_000 },
+  vision: { hedgeMs: 5000, firstTokenTimeoutMs: 20_000, totalTimeoutMs: 60_000, deadlineMs: 40_000 },
 };
 
 export interface RouteHooks {
@@ -267,11 +306,13 @@ export function runRouted(t: Transport, order: string[], req: ModelRequest, timi
     let committed: Attempt | null = null;
     let settled = false;
     let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(hedgeTimer);
+      clearTimeout(deadlineTimer);
       signal?.removeEventListener('abort', onAbort);
       for (const a of live) a.ctrl.abort();
       live.clear();
@@ -280,6 +321,7 @@ export function runRouted(t: Transport, order: string[], req: ModelRequest, timi
     const onAbort = () => finish(() => reject(new AiError('Aborted', 'abort')));
     if (signal?.aborted) return onAbort();
     signal?.addEventListener('abort', onAbort);
+    if (timing.deadlineMs) deadlineTimer = setTimeout(() => finish(() => reject(new AiError('Gemini took too long to answer', 'timeout'))), timing.deadlineMs);
 
     const scheduleHedge = () => {
       clearTimeout(hedgeTimer);
@@ -345,4 +387,66 @@ function shortError(err: AiError): string {
   if (err.status === 404) return 'not available';
   if (err.kind === 'timeout') return 'timed out';
   return err.message.replace(/^[^:]+:\s*/, '').slice(0, 80);
+}
+
+// ---------------------------------------------------------------- warm-up and waking
+
+/** How long a server stays "awake" after it answered its health route. */
+export const AWAKE_MS = 10 * 60_000;
+/** A free server can need about a minute to wake. */
+export const WAKE_CAP_MS = 65_000;
+/** The 'waking' state only shows if the health route is still pending after this long. */
+export const WAKING_SHOW_MS = 1200;
+
+const awake = new Map<string, { until: number }>();
+const waking = new Map<string, Promise<void>>();
+let wakeSeq = -1;
+
+/**
+ * Server path: calls its health route so a sleeping server starts, and reports a 'waking' activity
+ * (then 'awake') while that takes long. Resolves when the server answered or the cap passed; never throws.
+ */
+export function ensureAwake(t: Transport, task: AiTask = 'fast'): Promise<void> {
+  if (t.kind !== 'server') return Promise.resolve();
+  if ((awake.get(t.base)?.until ?? 0) > Date.now()) return Promise.resolve();
+  const known = waking.get(t.base);
+  if (known) return known;
+  const id = wakeSeq--;
+  const t0 = Date.now();
+  let shown = false;
+  const timer = setTimeout(() => { shown = true; emitActivity({ id, task, phase: 'waking', ms: Date.now() - t0 }); }, WAKING_SHOW_MS);
+  const p = (async () => {
+    try {
+      const res = await fetch(`${t.base}/healthz`, { signal: AbortSignal.timeout(WAKE_CAP_MS) });
+      if (res.ok) awake.set(t.base, { until: Date.now() + AWAKE_MS });
+    } catch { /* offline or still asleep: the real call decides */ }
+  })().finally(() => {
+    clearTimeout(timer);
+    waking.delete(t.base);
+    if (shown) emitActivity({ id, task, phase: 'awake', ms: Date.now() - t0 });
+  });
+  waking.set(t.base, p);
+  return p;
+}
+export const resetAwake = () => { awake.clear(); waking.clear(); };
+
+/**
+ * One tiny request to the head of each task ladder, so the first real call does not pay the cold
+ * start. On the server path it wakes the server instead.
+ */
+export async function warmUp(t: Transport): Promise<void> {
+  if (t.kind === 'server') { await ensureAwake(t); await loadServerModels(t); }
+  const heads = [...new Set((['fast', 'smart', 'vision'] as AiTask[]).map((k) => routeFor(t, k)[0]).filter(Boolean))];
+  await Promise.all(heads.map((m) => probeOne(t, m, 6000).then((s) => { if (s.reason === 'quota') markExhausted(m); })));
+}
+
+let warmed = false;
+/** Schedules warmUp for when the browser is idle after load. Runs once. */
+export function warmUpWhenIdle(getTransport: () => Transport | null) {
+  if (warmed || typeof window === 'undefined') return;
+  warmed = true;
+  const run = () => { const t = getTransport(); if (t) void warmUp(t).catch(() => undefined); };
+  const ric = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  const start = () => (ric ? ric(run, { timeout: 4000 }) : setTimeout(run, 1500));
+  if (document.readyState === 'complete') start(); else window.addEventListener('load', start, { once: true });
 }

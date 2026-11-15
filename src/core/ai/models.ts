@@ -4,12 +4,20 @@ export type AiTask = 'fast' | 'smart' | 'vision';
 export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 /**
- * Candidate models per task, best first. Which one actually runs is decided at call time
- * from measured latency and health, so a key with more quota simply unlocks the earlier ones.
+ * Task ladders, first choice first. Which rungs actually run is decided at call time: only models
+ * the probe found available, minus models whose daily quota is spent. A key with more quota
+ * simply gets its earlier rungs back.
  */
+export const LADDERS: Record<AiTask, string[]> = {
+  fast: ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-4-hydrogen', 'gemini-3.8-flash'],
+  smart: ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite'],
+  vision: ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite'],
+};
+
+/** Models worth probing and routing to, per text task. Kept for callers that list candidates. */
 export const CANDIDATES: Record<'fast' | 'smart', string[]> = {
-  fast: ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'],
-  smart: ['gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'],
+  fast: LADDERS.fast,
+  smart: [...LADDERS.smart, 'gemini-4-carbon', 'gemini-4-argon', 'gemini-3.7-flash'],
 };
 
 export const TASKS: AiTask[] = ['fast', 'smart', 'vision'];
@@ -29,7 +37,7 @@ export function setExtraModels(list: string[]) {
   try { storage()?.setItem(LS_EXTRAS, JSON.stringify(list)); } catch { /* storage blocked */ }
 }
 
-const known = () => new Set([...CANDIDATES.fast, ...CANDIDATES.smart]);
+const known = () => new Set([...CANDIDATES.fast, ...CANDIDATES.smart, ...LADDERS.vision]);
 
 /**
  * From a ListModels response: the newest text models (flash, flash-lite, pro) that no list names yet.
@@ -59,8 +67,8 @@ export function setOverride(task: AiTask, model: string) {
 }
 
 export function candidatesFor(task: AiTask): string[] {
-  if (task === 'vision') return [...CANDIDATES.smart, ...extraModels()].filter(acceptsImages);
-  return [...CANDIDATES[task], ...extraModels()];
+  const list = task === 'vision' ? [...LADDERS.vision, ...extraModels()].filter(acceptsImages) : [...LADDERS[task], ...extraModels()];
+  return [...new Set(list)];
 }
 
 /** Every model any task may use, deduplicated, in first-seen order. */

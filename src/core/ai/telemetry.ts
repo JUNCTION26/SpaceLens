@@ -56,7 +56,7 @@ export interface AiActivity {
   /** Same id for every event of one ai() call. */
   id: number;
   task: AiTask;
-  phase: 'start' | 'model' | 'streaming' | 'done' | 'cached' | 'error';
+  phase: 'start' | 'model' | 'streaming' | 'done' | 'cached' | 'error' | 'waking' | 'awake';
   model?: string;
   /** Milliseconds since the call started. */
   ms: number;
@@ -79,7 +79,7 @@ export function emitActivity(e: Omit<AiActivity, 'label'>) {
   if (e.model) parts.push(shortModel(e.model));
   if (e.phase === 'cached') parts.push('cached');
   else if (e.phase === 'error') parts.push('failed');
-  else if (e.phase === 'start' || e.phase === 'model') parts.push('…');
+  else if (e.phase === 'start' || e.phase === 'model' || e.phase === 'waking') parts.push('…');
   else parts.push(`${(e.ms / 1000).toFixed(1)} s`);
   const full: AiActivity = { ...e, label: parts.join(' · ') };
   listeners.forEach((cb) => { try { cb(full); } catch { /* a listener must not break the call */ } });
