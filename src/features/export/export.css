@@ -22,7 +22,10 @@
 .export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; }
 .export-rates input { width: 100%; }
 
-.export-ifc button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line, #3334); background: transparent; color: inherit; cursor: pointer; }
+.export-ifc button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-weight: var(--fw-strong); font-size: var(--fs-sm); white-space: nowrap; cursor: pointer; }
+.export-ifc button:hover { background: var(--panel-2); }
+.export .row { flex-wrap: wrap; }
+.export-table td { overflow-wrap: anywhere; }
 .shoplist { font-size: 12px; overflow-x: auto; }
 .shoplist table { width: 100%; border-collapse: collapse; }
 .shoplist th, .shoplist td { text-align: left; padding: 3px 6px; white-space: nowrap; }

@@ -49,7 +49,7 @@ export function ExportPanel() {
 
   const openPrint = (title: string, body: string, css: string) => {
     const w = window.open('', '_blank');
-    if (!w) { toast('Allow pop-ups to print', 'warn'); return; }
+    if (!w) { toast('Allow pop-ups', 'warn'); return; }
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:12px Helvetica,Arial,sans-serif;color:#111}${css}
 td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collapse:collapse;width:100%}h3{margin:6mm 0 2mm;font-size:13px}</style></head>
 <body>${body}<script>window.onload=function(){window.print()}</script></body></html>`);
@@ -80,7 +80,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
   };
 
   const glb = async () => {
-    try { download(`${base}.glb`, await exportGlb(model, furniture)); } catch { toast('3D export failed', 'error'); }
+    try { download(`${base}.glb`, await exportGlb(model, furniture)); } catch { toast('Export failed', 'error'); }
   };
 
   const importJson = async (file: File) => {
@@ -101,7 +101,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       setShared(true);
       toast('Link copied', 'ok');
       setTimeout(() => setShared(false), 4000);
-    } catch { toast('Could not create link', 'error'); }
+    } catch { toast('Link failed', 'error'); }
   };
 
   const num = (s: string) => (s.trim() === '' ? null : Number(s));
