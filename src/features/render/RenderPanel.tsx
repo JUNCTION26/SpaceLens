@@ -87,8 +87,8 @@ export function RenderPanel() {
         {shot && <button className="chip" onClick={download}>Download</button>}
       </div>
       {error && (
-        <div className="msg" role="alert">
-          {error.message}{' '}
+        <div className="msg" role="alert" aria-label={error.message}>
+          <span title={error.message}>Failed</span>{' '}
           <button className="chip" onClick={() => void run()}>Retry</button>{' '}
           <button className="chip" onClick={openSettings}>Settings</button>
         </div>
