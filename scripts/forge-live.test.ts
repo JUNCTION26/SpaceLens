@@ -67,8 +67,9 @@ describe.skipIf(!live)('forge live', () => {
       const off = onAiActivity((e) => events.push({ id: e.id, phase: e.phase, model: e.model, ms: e.ms }));
       const before = aiStats();
       const t0 = performance.now();
-      let firstPartsMs: number | null = null, firstPartsN = 0, partials = 0;
+      let firstPartsMs: number | null = null, firstPartsN = 0, partials = 0, draftParts: number | null = null;
       const spec = await generateObject(prompt, {
+        detail: penv.FORGE_DETAIL !== '0', onDraft: (d) => { draftParts = d.parts.length; },
         onPartial: (s) => { partials++; if (firstPartsMs === null && s.parts.length) { firstPartsMs = Math.round(performance.now() - t0); firstPartsN = s.parts.length; } },
       });
       const totalMs = Math.round(performance.now() - t0);
@@ -86,7 +87,7 @@ describe.skipIf(!live)('forge live', () => {
         i, prompt, slug: `${String(i).padStart(2, '0')}-${slug(prompt)}`, model: spec.model, name: spec.name,
         firstTokenMs: firstToken?.ms ?? null, firstPartsMs, firstPartsN, totalMs, parts: spec.parts.length,
         motions: spec.motions?.length ?? 0, calls, inTok, outTok, partials,
-        size: spec.size, issuesAfter: v.issues.length, tier: gen.tier, items: gen.items, passes: gen.passes, fixes: gen.fixes,
+        size: spec.size, issuesAfter: v.issues.length, draftMs: gen.draftMs ?? null, detailMs: gen.detailMs ?? null, detailModel: gen.detailModel ?? null, draftParts,  tier: gen.tier, items: gen.items, passes: gen.passes, fixes: gen.fixes,
         stages: events.filter((e) => e.phase === 'done' || e.phase === 'error').map((e) => `${e.id}:${e.phase}:${e.model ?? ''}:${e.ms}`),
       };
       writeFileSync(join(out, `${row.slug}.json`), JSON.stringify(spec, null, 1));
