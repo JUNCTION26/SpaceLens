@@ -2,7 +2,7 @@ import { gemini, hasGemini } from '../../core/gemini';
 import { area, wallLength } from '../../core/geometry';
 import type { RequirementItem, Requirements, SpaceModel } from '../../core/types';
 import { CATALOG, type CatalogEntry } from '../furniture/catalog';
-import { isThemedRequest, rulesBrief } from '../themes/brief';
+import { isThemedRequest, roomKind, rulesBrief, unknownWords } from '../themes/brief';
 
 /** Find the best catalog entry for a keyword list (first keyword that matches wins). */
 export function matchCatalog(keywords: string[]): CatalogEntry | undefined {
@@ -308,8 +308,23 @@ export function compileThemed(text: string, model: SpaceModel): Requirements {
   };
 }
 
+/**
+ * True when the words describe a particular kind of room ("a ramen bar for 10", "a Viking hall")
+ * rather than a plain catalogue list: those are planned as a whole idea with custom pieces and
+ * decor. With a key the model plans any such idea; offline only kinds the rules know go that way.
+ */
+export function wantsBrief(text: string, model: SpaceModel): boolean {
+  if (isThemedRequest(text)) return true;
+  if (!unknownWords(text).length) return false;
+  if (hasGemini()) return true;
+  const r = compileRules(text, model);
+  if (!r.purpose || !r.items.length) return true;
+  const kind = roomKind(text);
+  return kind === 'service' || kind === 'bar' || kind === 'movement' || kind === 'nursery' || (kind === 'cafe' && r.purpose !== 'cafe');
+}
+
 export async function compileIntent(text: string, model: SpaceModel): Promise<Requirements> {
-  if (isThemedRequest(text)) return compileThemed(text, model);
+  if (wantsBrief(text, model)) return compileThemed(text, model);
   if (hasGemini()) {
     try {
       const catalog = CATALOG.map((c) => `${c.id}: ${c.name} ${Math.round(c.w * 100)}x${Math.round(c.d * 100)} cm`).join('\n');

@@ -96,6 +96,63 @@ async function attachListing(f: FurnitureItem, o: ThemeObject, signal?: AbortSig
   } catch { /* stand-in stays, labelled as such */ }
 }
 
+/**
+ * Quick poses while a room assembles: floor pieces side by side along the walls facing in, wall
+ * pieces along the walls at their height, rugs in the middle. Overlaps are possible; the solver
+ * settles everything a moment later.
+ */
+export function draftPoses(model: SpaceModel, items: FurnitureItem[]): FurnitureItem[] {
+  const poly = model.spaces[0]?.polygon ?? [];
+  if (poly.length < 3) return items;
+  let area2 = 0;
+  poly.forEach((p, i) => { const q = poly[(i + 1) % poly.length]; area2 += p.x * q.y - q.x * p.y; });
+  const sign = area2 >= 0 ? 1 : -1;
+  const xs = poly.map((p) => p.x), ys = poly.map((p) => p.y);
+  const mid = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  const cursor = { floor: { edge: 0, at: 0.1 }, wall: { edge: 0, at: 0.1 } };
+  return items.map((f) => {
+    if (f.category === 'rug') return { ...f, x: mid.x, y: mid.y, rotation: 0 };
+    const c = f.mount === 'wall' ? cursor.wall : cursor.floor;
+    for (let guard = 0; guard < poly.length * 2; guard++) {
+      const p = poly[c.edge % poly.length], q = poly[(c.edge + 1) % poly.length];
+      const len = Math.hypot(q.x - p.x, q.y - p.y);
+      if (c.at + f.w <= len - 0.1 || guard === poly.length * 2 - 1) {
+        const ux = (q.x - p.x) / len, uy = (q.y - p.y) / len;
+        const nx = -uy * sign, ny = ux * sign;
+        const along = c.at + f.w / 2, inset = f.d / 2 + 0.02;
+        c.at += f.w + 0.15;
+        return { ...f, x: p.x + ux * along + nx * inset, y: p.y + uy * along + ny * inset, rotation: Math.atan2(uy * sign, ux * sign) };
+      }
+      c.edge++; c.at = 0.1;
+    }
+    return { ...f, x: mid.x, y: mid.y };
+  });
+}
+
+function draftResult(model: SpaceModel, items: FurnitureItem[], text: string, stages: Stage[]): DesignResult {
+  const furniture = draftPoses(model, items);
+  return {
+    candidates: [{
+      id: 'draft', name: 'Assembling the room', summary: `Pieces arriving for "${text.slice(0, 60)}"`, parentVersion: model.version, furniture,
+      metrics: { openAreaM2: 0, costSek: furniture.reduce((s, f) => s + (f.priceSek || 0), 0), minClearanceM: null, routeLenM: null, score: 0 },
+      checks: [], assumptions: ['Draft placement while the layout is being solved.'], generator: 'theme',
+    }],
+    reports: [], infeasibility: null, stages: stages.map((s) => ({ ...s })),
+  };
+}
+
+/** One line about the room for the brief, so the plan fits it. */
+export function roomLine(model: SpaceModel): string {
+  const s = model.spaces[0];
+  if (!s) return '';
+  const xs = s.polygon.map((p) => p.x), ys = s.polygon.map((p) => p.y);
+  const w = Math.max(...xs) - Math.min(...xs), d = Math.max(...ys) - Math.min(...ys);
+  let a = 0;
+  s.polygon.forEach((p, i) => { const q = s.polygon[(i + 1) % s.polygon.length]; a += p.x * q.y - q.x * p.y; });
+  const n = (k: string) => model.openings.filter((o) => o.spaceId === s.id && o.kind === k).length;
+  return `${w.toFixed(1)} x ${d.toFixed(1)} m, floor ${Math.abs(a / 2).toFixed(0)} m2, ceiling ${model.ceilingM.toFixed(1)} m, ${n('door')} door, ${n('window')} window`;
+}
+
 export async function designThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
   if (opts.spaceId && model.spaces.length > 1) {
     const sub = subModelFor(model, opts.spaceId);
@@ -114,7 +171,31 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
 
   // (a) Brief.
   let t = start('brief', 'Reading the idea');
-  const brief = opts.brief ?? (await themeBrief(text, opts.signal));
+  // Model pieces start while the brief is still streaming: each object begins as soon as it is complete.
+  const early = new Map<string, { quick: ObjectSpec; job: Promise<ObjectSpec> }>();
+  let firstObjectMs: number | null = null;
+  // Each streamed object also lands in a draft room right away, so the room assembles piece by
+  // piece while the brief is still being written; the solver's layout then replaces the draft.
+  const draft: FurnitureItem[] = [];
+  const onEarly = (o: ThemeObject, i: number) => {
+    let f: FurnitureItem;
+    if (o.source !== 'custom') f = catalogueItem(o);
+    else if (o.recipe) f = itemFor(recipeSpec(o, []) ?? rulesObject(o.prompt ?? o.name), o, model.ceilingM);
+    else {
+      const quick = early.get(o.name)?.quick ?? rulesObject(o.prompt ?? o.name);
+      if (!early.has(o.name) && !opts.reuse?.has(objectKey(o))) {
+        const job = generateObject(o.prompt ?? o.name, { signal: opts.signal });
+        job.catch(() => undefined);
+        early.set(o.name, { quick, job });
+      }
+      f = itemFor(quick, o, model.ceilingM);
+      opts.onObject?.(quick, o, i);
+    }
+    firstObjectMs ??= Math.round(now() - t0);
+    for (let k = 0; k < Math.min(12, Math.max(1, o.qty ?? 1)); k++) draft.push(k ? { ...f, id: `${f.id}-${k}` } : f);
+    if (opts.onProgress && !opts.signal?.aborted) opts.onProgress(draftResult(model, draft, text, stages), 'rules');
+  };
+  const brief = opts.brief ?? (await themeBrief(text, { signal: opts.signal, room: roomLine(model), onObject: onEarly }));
   const briefMs = Math.round(now() - t);
   end('brief', t, { label: brief.title, model: brief.by === 'gemini' ? brief.model : 'rules', detail: `${brief.objects.length} pieces` });
   abortIf(opts.signal);
@@ -125,7 +206,7 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
   const entries: Array<{ f: FurnitureItem; o: ThemeObject; key: string; idx: number }> = [];
   const specs = new Map<string, ObjectSpec>();
   const pending: Array<Promise<void>> = [];
-  let firstObjectMs: number | null = null, models = 0, fallbacks = 0;
+  let models = 0, fallbacks = 0;
   const shared = new Map<string, Promise<ObjectSpec>>();
   let cands: LayoutCandidate[] = [];
   const reports: FullReport[] = [];
@@ -139,7 +220,8 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
         continue;
       }
       const reused = opts.reuse?.get(key);
-      const quick = reused ?? recipeSpec(o, brief.palette) ?? rulesObject(o.prompt ?? o.name);
+      const pre = early.get(o.name);
+      const quick = reused ?? pre?.quick ?? recipeSpec(o, brief.palette) ?? rulesObject(o.prompt ?? o.name);
       const f = itemFor(quick, o, model.ceilingM);
       specs.set(key, quick);
       entries.push({ f, o, key, idx: i });
@@ -148,7 +230,7 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
       // Pieces with a recipe are finished in code (exact words, instant); the model makes the rest.
       if (reused || !online || o.recipe) continue;
       // One model call per distinct object; copies (two gaming chairs) share it.
-      const job = shared.get(o.name) ?? generateObject(o.prompt ?? o.name, { signal: opts.signal });
+      const job = shared.get(o.name) ?? pre?.job ?? generateObject(o.prompt ?? o.name, { signal: opts.signal });
       shared.set(o.name, job);
       models += k === 0 ? 1 : 0;
       pending.push(job.then((spec) => {
@@ -178,7 +260,7 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
     return c;
   };
   let concept = conceptFor(items);
-  let solved = await solveProgram(model, items, concept, { variants: 2, seed: model.version * 31 + 7, signal: opts.signal, req, timeBudgetMs: 1200 });
+  let solved = await solveProgram(model, items, concept, { variants: 1, seed: model.version * 31 + 7, signal: opts.signal, req, timeBudgetMs: 900 });
   // Too much for the room: leave out plain catalogue pieces first, then the bulkiest extras.
   for (let tries = 0; !solved.candidates.length && tries < 4; tries++) {
     const floor = entries.filter((e) => items.includes(e.f) && e.f.mount !== 'wall' && e.f.category !== 'rug' && e.idx > 0);
@@ -187,20 +269,51 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
     left.push(drop.f.name);
     items = items.filter((f) => f !== drop.f);
     concept = conceptFor(items);
-    solved = await solveProgram(model, items, concept, { variants: 2, seed: model.version * 31 + 7 + tries, signal: opts.signal, req, timeBudgetMs: 1200 });
+    solved = await solveProgram(model, items, concept, { variants: 1, seed: model.version * 31 + 7 + tries, signal: opts.signal, req, timeBudgetMs: 700 });
   }
   if (left.length && solved.candidates.length) brief.notes.push(`Left out to fit the room: ${left.join(', ')}.`);
   abortIf(opts.signal);
-  // Pieces that landed while solving: same size and id, so only their look changes.
-  const byId = new Map(entries.map((e) => [e.f.id, e.f]));
-  cands = solved.candidates.map((c, k) => ({
-    ...c, name: k === 0 ? brief.title : `${brief.title} ${k + 1}`,
-    furniture: c.furniture.map((g) => { const f = byId.get(g.id); return f && f.custom !== g.custom ? { ...g, custom: f.custom, name: f.name, color: f.color, material: f.material } : g; }),
-  }));
   const score = (c: LayoutCandidate) => { const v = evaluateRules(model, c.furniture, req); const ds = Math.round(Math.min(100, Math.max(0, Number(designScore(v)) || 0))); return { v, ds }; };
-  for (const c of cands) {
-    const { v, ds } = score(c);
-    reports.push({ candidateId: c.id, program: solved.reports.find((r) => r.candidateId === c.id)?.program ?? concept, verdicts: v, designScore: ds, finalScore: ds, conceptName: brief.title, idea: concept.idea });
+  /** Take a solve's layouts as the current ones; pieces that already landed keep their look (same size and id). */
+  const adopt = (s: typeof solved) => {
+    const byId = new Map(entries.map((e) => [e.f.id, e.f]));
+    cands = s.candidates.map((c, k) => ({
+      ...c, name: k === 0 ? brief.title : `${brief.title} ${k + 1}`,
+      furniture: c.furniture.map((g) => { const f = byId.get(g.id); return f && f.custom !== g.custom ? { ...g, custom: f.custom, name: f.name, color: f.color, material: f.material } : g; }),
+    }));
+    reports.length = 0;
+    for (const c of cands) {
+      const { v, ds } = score(c);
+      reports.push({ candidateId: c.id, program: s.reports.find((r) => r.candidateId === c.id)?.program ?? concept, verdicts: v, designScore: ds, finalScore: ds, conceptName: brief.title, idea: concept.idea });
+    }
+  };
+  adopt(solved);
+  // Checks still failing (walkways, reach, room to open): leave out the least needed piece the
+  // failures name and solve again, keeping a round only when it fails fewer checks. Runs while
+  // the model pieces are still being made, after the first layout is already on screen.
+  const failing = (c: LayoutCandidate) => evaluateRules(model, c.furniture, req).filter((v) => !v.pass && v.severity !== 'preference');
+  const failsOf = (s: typeof solved) => Math.min(Infinity, ...s.candidates.map((c) => failing(c).length));
+  async function clearChecks() {
+    const tClear = now();
+    const cleared: string[] = [];
+    for (let round = 0; solved.candidates.length && failsOf(solved) > 0 && round < 3 && now() - tClear < 3000; round++) {
+      const worst = solved.candidates.map(failing).sort((a, b) => a.length - b.length)[0];
+      const blamed = new Map<string, number>();
+      for (const v of worst) for (const id of v.itemIds) blamed.set(id, (blamed.get(id) ?? 0) + 1);
+      const rank = (e: (typeof entries)[number]) => (blamed.get(e.f.id) ?? 0) * 2 + (e.key.endsWith('#0') ? 0 : 3) + (e.o.source === 'custom' ? 0 : 2)
+        + (/plant|lamp|decor|lighting/.test(e.f.category) ? 2 : 0);
+      const pool = entries.filter((e) => items.some((f) => f.id === e.f.id) && e.f.mount !== 'wall' && e.f.category !== 'rug' && !(e.idx === 0 && e.key.endsWith('#0')));
+      const drop = pool.filter((e) => blamed.has(e.f.id) || !e.key.endsWith('#0')).sort((a, b) => rank(b) - rank(a))[0];
+      if (!drop) break;
+      const next = items.filter((f) => f.id !== drop.f.id);
+      const again = await solveProgram(model, next, conceptFor(next), { variants: 1, seed: model.version * 31 + 41 + round, signal: opts.signal, req, timeBudgetMs: 900 });
+      if (!again.candidates.length || failsOf(again) >= failsOf(solved)) break;
+      items = next; solved = again; concept = conceptFor(next); cleared.push(drop.f.name);
+    }
+    if (!cleared.length) return;
+    brief.notes.push(`Left out to keep walkways clear: ${cleared.join(', ')}.`);
+    adopt(solved);
+    opts.onProgress?.(snapshot(), 'concepts');
   }
   const roomMs = cands.length ? Math.round(now() - t0) : null;
   end('solve', t, { detail: `${cands.length} layout${cands.length === 1 ? '' : 's'}` });
@@ -214,8 +327,8 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
   }
   if (cands.length) opts.onProgress?.(snapshot(), 'rules');
 
-  // (d) Wait for the model pieces (each already swapped in as it landed).
-  await Promise.all(pending);
+  // (d) Wait for the model pieces (each already swapped in as it landed) and the check clearing.
+  await Promise.all([...pending, cands.length ? clearChecks().catch((e) => { if ((e as Error).name === 'AbortError') throw e; }) : undefined]);
   abortIf(opts.signal);
   const objStage = stages.find((s) => s.id === 'objects');
   if (objStage) Object.assign(objStage, { status: 'done', ms: Math.round(now() - t0), detail: online ? `${models - fallbacks} made by the model${fallbacks ? `, ${fallbacks} from templates` : ''}` : 'made from templates' });

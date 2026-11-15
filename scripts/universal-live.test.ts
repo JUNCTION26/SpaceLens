@@ -115,6 +115,53 @@ describe.skipIf(!live || part !== 'sites')('call sites live', () => {
   }, 600_000);
 });
 
+/** A 5.5 x 6.5 m empty room with one door and one window. */
+async function testRoom() {
+  const { sampleRoom } = await import('../src/core/sample');
+  const r = sampleRoom();
+  r.spaces[0].polygon = [{ x: 0, y: 0 }, { x: 5.5, y: 0 }, { x: 5.5, y: 6.5 }, { x: 0, y: 6.5 }];
+  r.furniture = [];
+  return r;
+}
+
+describe.skipIf(!live || part !== 'rooms')('rooms live', () => {
+  it('plans a sensible room for any sentence', async () => {
+    await setup();
+    const { probeModels } = await import('../src/core/ai');
+    await probeModels({ force: true });
+    const { compileIntent } = await import('../src/features/intent/compile');
+    const { designRoom } = await import('../src/features/design/pipeline');
+    const { lastThemed } = await import('../src/features/themes/session');
+    const rows: unknown[] = [];
+    for (const [i, text] of ROOMS.entries()) {
+      if (only && !only.has(i)) continue;
+      const room = await testRoom();
+      const t0 = performance.now();
+      let firstRoomMs: number | null = null, firstDraftMs: number | null = null;
+      const req = await compileIntent(text, room);
+      const res = await designRoom(room, req, { brief: text, variants: 2, onProgress: (p) => {
+        const ms = Math.round(performance.now() - t0);
+        if (p.candidates[0]?.id === 'draft') firstDraftMs ??= ms; else if (p.candidates.length) firstRoomMs ??= ms;
+      } });
+      const totalMs = Math.round(performance.now() - t0);
+      const best = res.candidates[0];
+      const rep = res.reports[0];
+      const fails = rep?.verdicts.filter((v) => !v.pass && v.severity !== 'preference').map((v) => `${v.name}: ${v.message}`) ?? [];
+      const brief = req.style === 'theme' ? lastThemed()?.result.brief : undefined;
+      const row = {
+        i, text, path: req.style === 'theme' ? `brief:${brief?.by}:${brief?.model ?? ''}` : `plain:${req.compiledBy}`,
+        title: brief?.title ?? req.purpose, briefMs: brief?.ms, firstDraftMs, firstRoomMs, totalMs, stages: res.stages.map((s) => `${s.id}:${s.ms}`).join(' '),
+        objects: brief?.objects.map((o) => `${o.qty ? `${o.qty}x ` : ''}${o.name}${o.source === 'catalogue' ? ` [${o.catalogId}]` : o.sizeCm ? ` (${o.sizeCm.join('x')})` : ''}${o.text ? ` "${o.text}"` : ''}`) ?? req.items.map((x) => `${x.qty}x ${x.catalogId}`),
+        placed: best?.furniture.length ?? 0, made: best?.furniture.filter((f) => f.custom && f.custom.model !== 'rules').length ?? 0,
+        fails, notes: brief?.notes ?? req.notes, infeasible: res.infeasibility?.reasons,
+      };
+      rows.push(row);
+      console.log(JSON.stringify(row));
+    }
+    writeFileSync(join(out, 'rooms.json'), JSON.stringify(rows, null, 1));
+  }, 1_200_000);
+});
+
 describe.skipIf(!live || part !== 'schemas')('schemas live', () => {
   it('every responseSchema is accepted', async () => {
     const key = await setup();
