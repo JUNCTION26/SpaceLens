@@ -199,6 +199,68 @@ function besideCost(item: FurnitureItem, ref: FurnitureItem, here: Vec2, gap = 0
     return Math.abs(g - gap) * 3 + inFront + 0.03 * dist(p, here);
   };
 }
+// ---- Chairs belong to a desk or table ----------------------------------------------------------
+
+const SEATS = new Set(['chair', 'office-chair']);
+const ANCHORS = new Set(['desk', 'table', 'cafe-table']);
+/** The desk or table a chair belongs to: the nearest one within 1 m of the chair's footprint. */
+function anchorOf(list: FurnitureItem[], chair: FurnitureItem): FurnitureItem | null {
+  let best: FurnitureItem | null = null, bg = 1;
+  for (const a of list) {
+    if (!ANCHORS.has(a.category)) continue;
+    const g = gapBetween(chair, a);
+    if (g <= bg) { bg = g; best = a; }
+  }
+  return best;
+}
+const chairsOf = (list: FurnitureItem[], anchor: FurnitureItem) => list.filter((f) => SEATS.has(f.category) && anchorOf(list, f)?.id === anchor.id);
+/** Items a piece drags along when it moves: a desk or table takes its chairs. */
+const followersOf = (list: FurnitureItem[], f: FurnitureItem) => (ANCHORS.has(f.category) ? chairsOf(list, f).filter((c) => !c.locked) : []);
+
+/**
+ * Where a chair sits at an anchor: its free front slot first, then the sides, facing the anchor and
+ * tucked 0.35 to 0.45 m from its edge. Null when every slot is taken.
+ */
+function seatSlot(ctx: Ctx, list: FurnitureItem[], anchor: FurnitureItem, chair: FurnitureItem): Pose | null {
+  const f = forwardOf(anchor.rotation);
+  const r = { x: f.y, y: -f.x };
+  const sides: Array<{ n: Vec2; half: number; lateral: number[] }> = [{ n: f, half: anchor.d / 2, lateral: [0, 0.15, -0.15] }];
+  if (anchor.category !== 'desk') sides.push({ n: { x: -f.x, y: -f.y }, half: anchor.d / 2, lateral: [0, 0.15, -0.15] });
+  sides.push({ n: r, half: anchor.w / 2, lateral: [0] }, { n: { x: -r.x, y: -r.y }, half: anchor.w / 2, lateral: [0] });
+  for (const sd of sides) for (const off of [0.4, 0.35, 0.45]) for (const lat of sd.lateral) {
+    const t = { x: -sd.n.y, y: sd.n.x };
+    const pose = { x: anchor.x + sd.n.x * (sd.half + off) + t.x * lat, y: anchor.y + sd.n.y * (sd.half + off) + t.y * lat, rotation: rotationFacing({ x: -sd.n.x, y: -sd.n.y }) };
+    if (fitsAt(ctx, chair, pose, list)) return pose;
+  }
+  return null;
+}
+
+/** A new chair: at the desk or table with the fewest seats, else with its back to a wall. */
+function placeChair(model: SpaceModel, list: FurnitureItem[], chair: FurnitureItem, prefer?: FurnitureItem): Pose | null {
+  const ctx = ctxOf(model);
+  const anchors = prefer ? [prefer] : list.filter((a) => ANCHORS.has(a.category)).sort((a, b) => chairsOf(list, a).length - chairsOf(list, b).length);
+  for (const a of anchors) { const p = seatSlot(ctx, list, a, chair); if (p) return p; }
+  return searchPose(ctx, chair, list, (q) => dist(q, centreOf(model)));
+}
+
+/** Move an item and carry its chairs with it, keeping their pose relative to it. */
+function moveWithChairs(model: SpaceModel, list: FurnitureItem[], id: string, pose: Pose): FurnitureItem[] {
+  const old = list.find((f) => f.id === id)!;
+  const chairs = followersOf(list, old);
+  let out = setPose(list, id, pose);
+  if (!chairs.length) return out;
+  const dr = pose.rotation - old.rotation;
+  const ctx = ctxOf(model);
+  for (const c of chairs) {
+    const rel = rot2({ x: c.x - old.x, y: c.y - old.y }, dr);
+    const np = { x: pose.x + rel.x, y: pose.y + rel.y, rotation: c.rotation + dr };
+    const others = out.filter((f) => f.id !== c.id);
+    const moved = fitsAt(ctx, c, np, others) ? np : seatSlot(ctx, others, out.find((f) => f.id === id)!, c);
+    out = setPose(out, c.id, moved ?? np);
+  }
+  return out;
+}
+
 /** Pronouns that point back at the last piece talked about. */
 const PRONOUN = /^(?:it|that|this|that one|this one|them|those|den|det|dem|den där|se|sitä|sen|ne)$/;
 const ORDINALS: Record<string, number> = { first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2, fourth: 3, '4th': 3, första: 0, andra: 1, tredje: 2, fjärde: 3, ensimmäinen: 0, toinen: 1, kolmas: 2, neljäs: 3 };
@@ -260,7 +322,8 @@ const moveHandler: Handler = (model, clause, furniture, mem) => {
   const away = /away|further|farther|far from|bort|längre|långt|kauemmas|kauas|poispäin/.test(m[2]);
   const tgt = classifyTarget(m[3]);
   const ctx = ctxOf(model);
-  const others = furniture.filter((f) => f.id !== item.id);
+  const carried = new Set(followersOf(furniture, item).map((c) => c.id));
+  const others = furniture.filter((f) => f.id !== item.id && !carried.has(f.id));
   const here = { x: item.x, y: item.y };
   let pose: Pose | null = null;
   let label = 'Moved';
@@ -300,7 +363,7 @@ const moveHandler: Handler = (model, clause, furniture, mem) => {
     label = `${away ? 'Away from' : 'Next to'} ${r.category}`;
   }
   if (!pose) return cannot('No free spot there', 'Try another wall');
-  return { furniture: setPose(furniture, item.id, pose), label: words3(label), notes: [], focus: [item.id] };
+  return { furniture: moveWithChairs(model, furniture, item.id, pose), label: words3(label), notes: [], focus: [item.id, ...carried] };
 };
 
 // "move it a bit left", "shift the sofa 30 cm right". Plan directions: left = -x, up/back = -y.
@@ -316,13 +379,14 @@ const nudgeHandler: Handler = (model, clause, furniture, mem) => {
   const dir = DIRS.find(([re]) => re.test(m[5]))![1];
   const want = m[3] ? numOf(m[3]) / (m[4] === 'cm' ? 100 : 1) : m[2] ? 0.3 : 0.5;
   const ctx = ctxOf(model);
-  const others = furniture.filter((f) => f.id !== item.id);
+  const carried = new Set(followersOf(furniture, item).map((c) => c.id));
+  const others = furniture.filter((f) => f.id !== item.id && !carried.has(f.id));
   // Go as far as asked; when a wall, a door swing or another piece is in the way, stop at the last free step.
   for (let s = want; s > 0.019; s -= 0.02) {
     const p = { x: item.x + dir.x * s, y: item.y + dir.y * s, rotation: item.rotation };
     if (fitsAt(ctx, item, p, others)) {
       const short = want - s > 0.03;
-      return { furniture: setPose(furniture, item.id, p), label: words3(`Nudged ${item.category}`), notes: short ? [`Only ${Math.round(s * 100)} cm free`] : [], focus: [item.id], compromises: short ? [`moved ${Math.round(s * 100)} of ${Math.round(want * 100)} cm`] : [] };
+      return { furniture: moveWithChairs(model, furniture, item.id, p), label: words3(`Nudged ${item.category}`), notes: short ? [`Only ${Math.round(s * 100)} cm free`] : [], focus: [item.id], compromises: short ? [`moved ${Math.round(s * 100)} of ${Math.round(want * 100)} cm`] : [] };
     }
   }
   return cannot(`No free space ${m[5]} of the ${item.category}`, 'Try the other side');
@@ -512,7 +576,7 @@ const removeHandler: Handler = (_m, clause, furniture, mem) => {
 };
 
 const ROTATE_RE = /^(?:rotate|turn|spin|flip|vrid|rotera|vänd|käännä|kierrä)\s+(.+?)(?:\s+(?:by\s+)?(\d{1,3})\s*(?:°|deg(?:rees)?|grader|astetta)?|\s+(around|backwards|the other way|runt|ympäri))?$/;
-const rotateHandler: Handler = (_m, clause, furniture) => {
+const rotateHandler: Handler = (model, clause, furniture) => {
   const m = ROTATE_RE.exec(clause);
   if (!m) return null;
   const items = findItems(furniture, m[1]);
@@ -522,7 +586,7 @@ const rotateHandler: Handler = (_m, clause, furniture) => {
   const deg = m[3] ? 180 : m[2] ? Number(m[2]) : 90;
   const left = /\b(left|counter|vänster|vasen)\b/.test(clause);
   const rot = item.rotation + (left ? -1 : 1) * (deg * Math.PI) / 180;
-  return { furniture: setPose(furniture, item.id, { rotation: rot }), label: words3(`Rotated ${item.category}`), notes: [] };
+  return { furniture: moveWithChairs(model, furniture, item.id, { x: item.x, y: item.y, rotation: rot }), label: words3(`Rotated ${item.category}`), notes: [] };
 };
 
 const ADD_RE = /^(?:please |can you )?(?:add|include|put in|place|get|buy|need|want|lägg till|lägg in|sätt in|lisää|hanki)\s+(?:in\s+)?(\d+|one|two|three|four|five|six|another|a|an|some|en|ett|två|tre|fyra|yksi|kaksi|kolme|neljä)?\s*(.+)$/;
@@ -549,7 +613,8 @@ const addHandler: Handler = (model, clause, furniture) => {
   for (let i = 0; i < Math.min(qty, 10); i++) {
     const it = makeItem(e.id);
     let p: Pose | null = null;
-    if (ref) p = searchPose(ctx, it, list, besideCost(it, ref, ref), { grid: true });
+    if (SEATS.has(e.category)) p = placeChair(model, list, it, ref && ANCHORS.has(ref.category) ? ref : undefined);
+    else if (ref) p = searchPose(ctx, it, list, besideCost(it, ref, ref), { grid: true });
     else if (where && where.kind !== 'item') {
       const pts = where.kind === 'window' || where.kind === 'door' ? openingPoints(model, where.kind)
         : where.kind === 'corner' ? model.spaces.flatMap((s) => s.polygon) : [centreOf(model)];
@@ -583,9 +648,10 @@ function pushToWalls(model: SpaceModel, furniture: FurnitureItem[]): FurnitureIt
     const cur = list.find((x) => x.id === f.id)!;
     const sp = spaceAt(model, cur);
     if (sp && distPointPolygonEdges({ x: cur.x, y: cur.y }, sp.polygon) < Math.max(cur.w, cur.d) / 2 + 0.25) continue;
-    const others = list.filter((x) => x.id !== f.id);
+    const carried = new Set(followersOf(list, cur).map((c) => c.id));
+    const others = list.filter((x) => x.id !== f.id && !carried.has(x.id));
     const p = searchPose(ctx, cur, others, (q) => dist(q, cur));
-    if (p) list = setPose(list, f.id, p);
+    if (p) list = moveWithChairs(model, list, f.id, p);
   }
   return list;
 }
@@ -673,7 +739,7 @@ const twoHandler: Handler = (model, _c, furniture) => {
   }
   const tryAdd = (id: string, label: string, wall = false) => {
     const it = makeItem(id);
-    const p = wall ? searchPose(ctx, it, list, (q) => dist(q, centreOf(model))) : findFreeSpot(model, it, list);
+    const p = wall ? searchPose(ctx, it, list, (q) => dist(q, centreOf(model))) : SEATS.has(it.category) ? placeChair(model, list, it) : findFreeSpot(model, it, list);
     if (p && fitsAt(ctx, it, p, list)) { list = [...list, { ...it, ...p }]; done.push(label); return true; }
     return false;
   };
@@ -757,7 +823,7 @@ const wfhHandler: Handler = (model, _c, furniture) => {
   if (hasCat(list, 'desk') && !hasCat(list, 'chair', 'office-chair')) {
     const d = list.find((f) => f.category === 'desk')!;
     const it = makeItem('office-chair');
-    const p = searchPose(ctx, it, list, (q) => Math.abs(dist(q, d) - 0.9), { grid: true, walls: false });
+    const p = placeChair(model, list, it, d);
     if (p) { list = [...list, { ...it, ...p }]; done.push('chair'); }
   }
   if (!hasCat(list, 'bookshelf', 'storage-cabinet')) {
@@ -841,7 +907,12 @@ const colourHandler: Handler = (_m, clause, furniture) => {
 // ---- Dispatch ----------------------------------------------------------------------------------
 
 interface Intent { re: RegExp; run: Handler }
-const VERBS: Handler[] = [lineupHandler, nudgeHandler, exchangeHandler, centreHandler, faceHandler, moveHandler, swapHandler, removeHandler, rotateHandler];
+// "push everything to the walls": every wall-bound piece goes to its nearest wall, chairs with their desk.
+const wallsHandler: Handler = (model, clause, furniture) => {
+  if (!/^(?:please )?(?:push|move|put|place|shove|slide)\s+(?:everything|all (?:the |of the )?furniture|the furniture|all)\s+(?:to|against|onto|towards)\s+the\s+walls?$/.test(clause)) return null;
+  return { furniture: pushToWalls(model, furniture), label: 'To walls', notes: [] };
+};
+const VERBS: Handler[] = [wallsHandler, lineupHandler, nudgeHandler, exchangeHandler, centreHandler, faceHandler, moveHandler, swapHandler, removeHandler, rotateHandler];
 const INTENTS: Intent[] = [
   { re: /wheelchair|accessib|step.?free|rollator|rullstol|tillgänglig|pyörätuoli|esteetön/, run: wheelHandler },
   { re: /kid.?safe|child.?safe|baby.?proof|child.?proof|toddler|kid.?friendly|barnsäker|barnvänlig|lapsiturvallinen|lapsiystävällinen/, run: kidHandler },
