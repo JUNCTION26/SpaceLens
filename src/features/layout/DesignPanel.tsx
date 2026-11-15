@@ -16,7 +16,6 @@ import { DecisionsPanel } from '../design/DecisionsPanel';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from './progress';
-import { SharePoll } from '../vote/VoteUi';
 import { TastePanel } from '../taste/TastePanel';
 import './layout.css';
 
@@ -97,7 +96,7 @@ export function DesignPanel() {
       <div className="panel layout-panel">
         {infeasibility ? (
           <div className="layout-infeasible">
-            <strong>Does not fit</strong>
+            <strong>No fit</strong>
             {req && (
               <div className="layout-actions">
                 {infeasibility.relaxations.slice(0, 3).map((r, i) => (
@@ -140,11 +139,9 @@ export function DesignPanel() {
         </div>
       )}
       <div className="layout-toolbar">
-        <span />
         {(current || busy) && <span className="layout-progress" role="status" aria-label="Working"><i aria-hidden="true" /></span>}
         {failed && <button className="btn btn-sm btn-ghost" onClick={() => void regenerate()}>Retry</button>}
         <button className="btn btn-sm btn-ghost icon-btn" aria-pressed={compare} aria-label="Compare" title="Compare" onClick={() => { setCompare((c) => !c); setPins([]); }}><Icon name="panelLeft" size={14} /></button>
-        <SharePoll />
       </div>
       {compare && (
         <div className="layout-combine muted">
@@ -178,7 +175,7 @@ export function DesignPanel() {
                 <div className="layout-foot">
                   <span>{fmtSek(c.metrics.costSek)}</span>
                   {compare && (
-                    <button className="btn btn-sm btn-ghost" aria-label="Pick" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
+                    <button className="btn btn-sm btn-ghost icon-btn" aria-label="Pick" title="Pick" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
                       <Icon name="check" size={14} />
                     </button>
                   )}
