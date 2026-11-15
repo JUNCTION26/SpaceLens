@@ -64,3 +64,11 @@
 .bld-cards { gap: 8px; }
 .bld-stats { gap: 8px; }
 .bld-err { align-self: flex-start; }
+
+/* One control height, focus and disabled states */
+.bld-brief input, .bld .btn, .bld select:not(.fl-use) { min-height: var(--ctl); }
+.bld-table input:not([type='checkbox']), .bld-table select { min-height: var(--ctl); }
+.fl-chip { min-height: var(--ctl); }
+.bld :focus-visible { outline: var(--focus-ring-width, 2px) solid var(--focus-ring, var(--accent)); outline-offset: 1px; }
+.bld .btn:disabled, .fl-use:disabled { opacity: 0.5; cursor: not-allowed; }
+.bld-thumb, .bld-opt svg { background: var(--bg); }
