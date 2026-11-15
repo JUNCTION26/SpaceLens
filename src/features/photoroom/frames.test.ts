@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitSize, frameTimes } from './frames';
+import { evenPick, fitSize, frameTimes } from './frames';
 
 describe('video frames', () => {
   it('spreads five times evenly inside the clip', () => {
@@ -16,6 +16,10 @@ describe('video frames', () => {
     expect(frameTimes(Infinity)).toEqual([]);
     expect(frameTimes(4, 1)).toEqual([2]);
     expect(frameTimes(4, 0)).toEqual([]);
+  });
+  it('thins a list evenly', () => {
+    expect(evenPick([1, 2, 3], 6)).toEqual([1, 2, 3]);
+    expect(evenPick([1, 2, 3, 4, 5, 6, 7, 8], 4)).toEqual([2, 4, 6, 8]);
   });
   it('caps the long side at 1024 without enlarging', () => {
     expect(fitSize(1920, 1080)).toEqual({ w: 1024, h: 576 });

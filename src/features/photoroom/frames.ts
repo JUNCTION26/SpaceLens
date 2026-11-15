@@ -46,3 +46,19 @@ export async function extractFrames(file: Blob, n = FRAME_COUNT): Promise<Blob[]
     return out;
   } finally { v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url); }
 }
+
+/** At most `max` items, evenly spread, order kept. */
+export function evenPick<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items;
+  return Array.from({ length: max }, (_, i) => items[Math.floor(((i + 0.5) / max) * items.length)]);
+}
+
+/** Photos stay as they are; every video becomes its frames; the lot is thinned to `max` images. */
+export async function gatherImages(files: File[], max: number): Promise<Blob[]> {
+  const images: Blob[] = [];
+  for (const f of files) {
+    if (f.type.startsWith('video/')) images.push(...await extractFrames(f));
+    else if (f.type.startsWith('image/')) images.push(f);
+  }
+  return evenPick(images, max);
+}

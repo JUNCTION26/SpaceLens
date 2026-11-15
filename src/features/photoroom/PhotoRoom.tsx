@@ -4,7 +4,8 @@ import { useStore } from '../../core/store';
 import type { SpaceModel } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { useUi } from '../../ui/uiStore';
-import { forgeUnknowns, photoToRoom } from './pipeline';
+import { gatherImages } from './frames';
+import { forgeUnknowns, MAX_PHOTOS, photoToRoom } from './pipeline';
 import { rescaleRoom, WALL_INDEX, WALL_LABEL, type PhotoRoomEstimate, type WallName } from './room';
 import './photoroom.css';
 
@@ -18,7 +19,7 @@ export function PhotoRoom() {
   const model = useStore((s) => s.model);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [result, setResult] = useState<{ est: PhotoRoomEstimate; photo: string; modelId: string } | null>(null);
+  const [result, setResult] = useState<{ est: PhotoRoomEstimate; photos: string[]; modelId: string } | null>(null);
   const [wall, setWall] = useState<WallName>('back');
   const [cm, setCm] = useState('');
 
@@ -30,13 +31,13 @@ export function PhotoRoom() {
     );
   }
 
-  const run = async (file: File) => {
+  const run = async (files: File[]) => {
     setBusy(true); setFailed(false); setResult(null);
     try {
-      const r = await photoToRoom(file);
+      const r = await photoToRoom(await gatherImages(files, MAX_PHOTOS));
       dispatch({ type: 'REPLACE_MODEL', model: r.model });
       setView('3d');
-      setResult({ est: r.estimate, photo: r.photo, modelId: r.model.id });
+      setResult({ est: r.estimate, photos: r.photos, modelId: r.model.id });
       setCm('');
       void forgeUnknowns(r.model);
     } catch {
@@ -61,15 +62,17 @@ export function PhotoRoom() {
   return (
     <div className="proom">
       <label className={`btn ${result ? '' : 'btn-primary '}proom-big proom-upload`} aria-busy={busy}>
-        {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name="image" size={16} /> {result ? 'Another photo' : 'Room photo'}</>}
-        <input type="file" accept="image/*" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void run(f); e.target.value = ''; }} />
+        {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name="image" size={16} /> {result ? 'More' : 'Photos or video'}</>}
+        <input type="file" accept="image/*,video/*" multiple disabled={busy} aria-label="Room photos or video" onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) void run(f); e.target.value = ''; }} />
       </label>
 
       {failed && <span className="chip chip-warn proom-fail"><Icon name="alert" size={12} /> No room found</span>}
 
       {result && live && space && (
         <>
-          <img className="proom-photo" src={result.photo} alt="Room photo" />
+          <div className="proom-strip">
+            {result.photos.map((p, i) => <img key={i} src={p} alt={`Photo ${i + 1}`} />)}
+          </div>
           <div className="proom-stats">
             <div><b>{len(live, 'back').toFixed(1)} × {len(live, 'left').toFixed(1)} m</b><span>Size</span></div>
             <div><b>{live.ceilingM.toFixed(1)} m</b><span>Ceiling</span></div>
