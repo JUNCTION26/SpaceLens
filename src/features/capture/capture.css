@@ -33,8 +33,6 @@
 .capture-dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--accent); border: 2px solid #fff; pointer-events: none; display: inline-block; }
 .capture-dot.is-ref { background: var(--warn); }
 .capture-dot.is-ai { background: var(--accent-2); }
-.capture-legend { display: inline-flex; gap: 6px; align-items: center; }
-.capture-legend .capture-dot { position: static; margin: 0; width: 10px; height: 10px; }
 .capture-loupe { position: absolute; width: 110px; height: 110px; margin: -150px 0 0 -55px; border-radius: 50%; border: 3px solid var(--accent); background-size: 500%; background-repeat: no-repeat; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); z-index: 2; }
 .capture-loupe::after { content: ''; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; border: 2px solid #fff; }
 .capture-wall { gap: 10px; align-items: center; min-height: 40px; }
@@ -60,7 +58,6 @@
 .il-num { font-size: 6px; fill: #fff; text-anchor: middle; dominant-baseline: middle; font-weight: 560; }
 .il-arrow { stroke: var(--warn); stroke-width: 1.2; fill: none; }
 .il-head { fill: var(--warn); }
-.chip-ai { background: color-mix(in srgb, var(--accent-2) 18%, transparent); color: var(--text); border-color: var(--accent-2); }
 .capture-small { font-size: 0.85rem; }
 .capture-ai-open { position: absolute; transform: translate(-50%, -120%); padding: 2px 6px; border-radius: 6px; background: var(--accent-2); color: #fff; font-size: 0.7rem; line-height: 1.3; white-space: nowrap; pointer-events: none; }
 .capture-dot.is-ai { width: 18px; height: 18px; margin: -9px 0 0 -9px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 40%, transparent); }

@@ -95,7 +95,7 @@ interface GeminiFloor { corners: Pt[]; a4?: Pt[]; openings?: { kind: string; x: 
 const PT = { type: 'OBJECT', properties: { x: { type: 'NUMBER' }, y: { type: 'NUMBER' } }, required: ['x', 'y'] };
 const inBox = (p: Pt) => p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
 
-interface Summary { areaM2: number; measured: number; estimated: number; errCm: number | null; openings: number }
+interface Summary { areaM2: number }
 
 function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => void; onAgain: () => void }) {
   return (
@@ -128,13 +128,12 @@ export function CapturePanel() {
 
   useEffect(() => { if (kind === 'scan' || kind === 'photos' || kind === 'draw') setSub(kind); }, [kind]);
 
-  const create = (draft: RoomDraft, source: string, errCm: number | null = null) => {
+  const create = (draft: RoomDraft, source: string) => {
     const keep = addRoom && hasRooms ? model : undefined;
     const next = buildModel([draft], { name: 'My room', ceilingM: ceilingCm / 100, sourceLabel: source, keep });
     dispatch({ type: 'REPLACE_MODEL', model: next });
     
-    const measured = draft.walls.filter((w) => w.status === 'verified').length;
-    setSummary({ areaM2: Math.abs(signedArea(draft.polygon)), measured, estimated: draft.walls.length - measured, errCm, openings: draft.openings.length });
+    setSummary({ areaM2: Math.abs(signedArea(draft.polygon)) });
   };
 
   const onFiles = async (files: FileList | null) => {
@@ -246,7 +245,7 @@ export function CapturePanel() {
             aiOpenings={ai?.key === calKey ? ai.openings : undefined}
             aiSlot={aiBox}
             onBack={() => setStage('photo')}
-            onDone={(d, info) => create(d, sub === 'scan' ? 'Phone scan' : 'Photos', info.errCm)} />
+            onDone={(d) => create(d, sub === 'scan' ? 'Phone scan' : 'Photos')} />
           <label className="field capture-field"><span>Ceiling cm</span><input type="number" value={ceilingCm} onChange={(e) => setCeilingCm(+e.target.value)} /></label>
         </>
       )}
