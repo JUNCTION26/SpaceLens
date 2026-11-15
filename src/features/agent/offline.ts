@@ -4,6 +4,7 @@ import { parseSpoken, type SpokenCommand } from '../voice/parse';
 import type { Action, AgentReply } from './actions';
 import { refersToSketch } from './deixis';
 import { isThemedRequest, roomKind } from '../themes/brief';
+import { answerFromModel, type AnswerState } from './answer';
 
 const WALL_WORD: Record<string, string> = { north: 'north', south: 'south', east: 'east', west: 'west', window: 'window', door: 'door' };
 
@@ -13,11 +14,13 @@ function place(cmd: SpokenCommand | null, text: string, hasSketch: boolean): str
 }
 
 /** Rule-based reply for one utterance. `hasSketch`: the person has drawn something recently. */
-export function offlineReply(text: string, hasSketch: boolean, inRoom: (category: string) => boolean = () => false): AgentReply {
+export function offlineReply(text: string, hasSketch: boolean, inRoom: (category: string) => boolean = () => false, room?: AnswerState): AgentReply {
   const t = text.toLowerCase().trim();
   const reply = (say: string, actions: Action[] = []): AgentReply => ({ say, sketch: [], actions });
 
   if (!t) return reply('');
+  const known = room ? answerFromModel(text, room) : null;
+  if (known) return reply(known);
   if (/\b(undo|ångra|take that back)\b/.test(t)) return reply('Undone.', [{ type: 'undo' }]);
   if (/\b(walk|walkthrough|walk through|first person)\b/.test(t) && /\b(show|let|go|start|view|me)\b/.test(t)) return reply('Walking you through it.', [{ type: 'set_view', view: 'walk' }]);
   const view = t.match(/\b(2d|3d|two d|three d|plan view|split)\b/);

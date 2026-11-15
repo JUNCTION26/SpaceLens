@@ -12,6 +12,7 @@ import { ACTION_TYPES, cleanReply, cleanSay, cleanSketch, execute, sketchMarks, 
 import { useAgent } from './agentStore';
 import { describeMark, refersToSketch } from './deixis';
 import { loadMod, loadedMod } from './mods';
+import { answerFromModel } from './answer';
 import { offlineReply } from './offline';
 import { latestMark, useSketch } from './sketchStore';
 import { speak, stopSpeaking, takeSentences } from './speech';
@@ -188,11 +189,15 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
   const recentSketch = marks.some((m) => m.by === 'you' && Date.now() - m.createdAt < 10 * 60_000);
   const inRoom = (cat: string) => st.model.furniture.some((f) => f.category === cat || f.name.toLowerCase().includes(cat));
   const rules = () => {
-    const r = offlineReply(words, recentSketch, inRoom);
+    const r = offlineReply(words, recentSketch, inRoom, st);
     return stream.finish(r);
   };
 
-  if (aiReady() && !opts.offline) {
+  const instant = answerFromModel(words, st);
+  if (instant) {
+    reply = stream.finish({ say: instant, sketch: [], actions: [] });
+    meta = `Instant · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
+  } else if (aiReady() && !opts.offline) {
     try {
       const sid = st.activeCandidateId ?? st.candidates[0]?.id;
       const report = (sid && loadedMod('reports')?.useReports.getState().reports[sid]) || null;
