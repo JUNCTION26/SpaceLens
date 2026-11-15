@@ -201,9 +201,21 @@ export function entranceSpawn(model: SpaceModel, inset = 0.8): Spawn {
     const pos = add(seg.c, mul(seg.inward, inset));
     if (pointInPolygon(pos, s.polygon)) return { pos, yaw: yawFor(seg.inward), spaceId: s.id };
   }
-  const first = model.spaces[0];
+  const first = model.spaces.find((x) => !isOutdoor(x)) ?? model.spaces[0];
   if (!first) return { pos: { x: 0, y: 0 }, yaw: 0, spaceId: null };
-  return { pos: centroid(first.polygon), yaw: 0, spaceId: first.id };
+  // no door: stand in the corner farthest from the windows, looking at the middle of the room
+  const mid = centroid(first.polygon);
+  const wins = model.openings.filter((o) => o.kind === 'window' && o.spaceId === first.id && o.wallIndex < first.polygon.length).map((o) => openingSegment(first, o).c);
+  let best: { pos: Vec2; score: number } | null = null;
+  for (const c of first.polygon) {
+    const dx = mid.x - c.x, dy = mid.y - c.y, l = Math.hypot(dx, dy) || 1;
+    const pos = { x: c.x + (dx / l) * Math.min(inset, l * 0.5), y: c.y + (dy / l) * Math.min(inset, l * 0.5) };
+    if (!pointInPolygon(pos, first.polygon)) continue;
+    const score = wins.length ? Math.min(...wins.map((w) => Math.hypot(w.x - pos.x, w.y - pos.y))) : 0;
+    if (!best || score > best.score) best = { pos, score };
+  }
+  if (!best) return { pos: mid, yaw: 0, spaceId: first.id };
+  return { pos: best.pos, yaw: yawFor({ x: mid.x - best.pos.x, y: mid.y - best.pos.y }), spaceId: first.id };
 }
 
 /** True when a body of radius r standing at p is clear of every solid wall piece. */
