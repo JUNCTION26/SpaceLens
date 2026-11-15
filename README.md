@@ -20,6 +20,10 @@ Built at Junction 2026 (Espoo) for the Stoa "Make Blueprints Talk" challenge.
 - **Blueprints that answer.** Ask a question in plain language and get the answer with the evidence highlighted on the page. On the Stoa questions it is right 99.5% of the time it chooses to answer, and it abstains otherwise ([numbers](#the-stoa-benchmark)).
 - **Furnish a whole building.** Furnish every room, walk through the doors, take an automatic tour. Layouts come with their reasons, the measured numbers, and a verdict from an independent checker.
 - **Create any object, find real ones.** Describe a piece and it is generated to your exact dimensions, or search real shops for products that fit the room, the door and the budget.
+- **Photo to room.** Take one photo of a real room and get an editable model with the furniture in it, then measure one wall to fix the scale.
+- **Plan the move-in.** Check that every piece can be carried through the entrance and each door on the way to its room, and get an order for it to arrive.
+- **Share and vote.** Send two to four layouts to the people you live with and see which one wins.
+- **Learns your taste.** Layouts lean toward what you keep, skip and move, and you can see and clear what it learned.
 - **Test the result.** Walk it, test routes against body profiles, check exits and wheelchair reach, simulate an evacuation, and export plans, a schedule, a 3D model and a printable evacuation plan.
 
 An agent you can talk to sits over all of it: say "add a pink princess bed" and it sketches what it means on the plan, then makes the change.
@@ -59,6 +63,11 @@ Read these plainly. The 98.7% figure relies on room outlines that are drawn in t
 - Phone camera capture with floor-plane calibration from an A4 sheet, and a manual measured drawing for when a photo is not practical.
 - Every measurement keeps its source (measured, read from a drawing, typed, or estimated) and an uncertainty.
 
+**Photo to room**
+- One photo of a room is read by a Gemini vision model into a rectangular room (width, depth, ceiling height), its doors and windows, and each piece of furniture with its size and position. Each piece starts from the closest catalogue item; anything else becomes a generated custom object at its estimated size.
+- Everything from the photo is marked photo-inferred and estimated, with the model's confidence. Typing the real length of one wall afterwards marks that wall user-measured and rescales the room.
+- Needs a Gemini key (your own or the optional server). Stronger vision models are tried first.
+
 **Drawings**
 - Open PDF or image blueprints and index their text, dimensions, scale and room labels in the browser.
 - Ask about counts, areas, lengths and labels, in several languages. Answers come from the local index first and name their kind: printed on the page, calculated, or inferred. Gemini is a fallback, never the first choice.
@@ -66,6 +75,7 @@ Read these plainly. The 98.7% figure relies on room outlines that are drawn in t
 
 **Blueprint to building**
 - Vector PDF plans become a multi-room model with evidence on every wall; see the benchmark above.
+- ASCII DXF files open in the Drawings panel too: lines, polylines, arcs, circles, block inserts and text are read, units come from the file header (when the file does not say, they are guessed from the drawing's extent and the result is flagged), and rooms are built from the outlines. DXF files are treated as untrusted input and capped at 400 000 entities.
 - Whole buildings can be furnished room by room, walked through doors, and toured automatically.
 
 **Building**
@@ -80,6 +90,12 @@ Read these plainly. The 98.7% figure relies on room outlines that are drawn in t
 - A second-opinion critic judges the major decisions and may propose at most three fixes; fixes go back through the solver and the rules like any other change.
 - Editable, dimensioned 2D plan, a 3D dollhouse, and furniture from the Poly Haven library.
 - Inspire: take a style and palette from a photo.
+- Layout search has a hard wall-clock ceiling (20 s by default). Past it the search stops expanding and returns the best layout found so far.
+
+**Taste**
+- The app learns from what you do: which layouts you apply or skip, what you move, add or remove, colours and materials you pick, and budgets you set. Signals fade with a 21-day half-life.
+- From them it builds a small profile (open floor or full, against the wall or floating, symmetric or relaxed, how much you spend, where desk, bed and sofa sit relative to the window, favourite colours and materials, categories you keep removing). A trait with too little evidence is ignored.
+- The profile nudges the layout solver weights and some design rules and adds short hints to the planner prompt. It is shown in the Layouts and Style panels, can be switched off and cleared, and lives only in your browser storage.
 
 **Create object**
 - Describe any piece in words, or from a photo. The model streams its parts, the object assembles on screen while it is written, and the result is fitted to your exact dimensions.
@@ -95,6 +111,9 @@ Read these plainly. The 98.7% figure relies on room outlines that are drawn in t
 **Budget**
 - Keep the shopping list inside a budget: it suggests swaps, phases the purchase and words the argument for each choice.
 
+**Shopping list**
+- Export has a shopping list built from the furniture in the model: name, size in cm, quantity, unit price and a link to the listing (or an IKEA search when the piece has no listing). Totals are per currency and unpriced pieces are counted. Download it as CSV.
+
 **Walk and test**
 - Dollhouse and first-person walk, with optional WebXR where the device supports it.
 - Routes checked against body profiles, a will-it-fit-through-the-door search over position and rotation, sightlines, and a crowd heatmap.
@@ -103,10 +122,18 @@ Read these plainly. The 98.7% figure relies on room outlines that are drawn in t
 - Escape routes for the whole model: travel distance to an exit, dead ends, a second exit above a set occupancy, door swing, clear zones at exits, wheelchair route widths, turning space and reach.
 - Extinguisher and smoke alarm placement, an evacuation estimate with queueing at doors, small suggested moves, and a printable A4 evacuation plan.
 - Every threshold is a visible, editable default with its reason ([assumptions](docs/SAFETY-ASSUMPTIONS.md)).
+- Finland and Sweden rule packs replace the generic defaults with values read from the official texts (Finnish statutes 241/2017 and 848/2017, Boverket BBR to BFS 2024:5). Each value shows its document, section, link, the date it was read and whether it is a binding requirement, guidance or a rule of thumb. Values and sources are listed in [docs/RULE-SOURCES.md](docs/RULE-SOURCES.md). They are planning guidance: requirements depend on building type, size and permit date, and the app does not check compliance.
+
+**Move in**
+- For each piece of furniture the Move in section follows the route from the entrance to its room and tests the piece through every door on the way. Each piece gets a verdict: fits, tilt it on edge, assemble inside (flat-pack halves each side) or won't fit, with the door that decides it.
+- Pieces are ordered for arrival: those going deepest into the building first, larger ones before smaller.
 
 **Deliver**
 - A Render section asks an image model for a picture of the finished room. It is untested here: the image models had no quota on the key available while building, so treat it as unverified.
 - SVG and PDF plan, CSV schedule and quantities, GLB model, JSON, a share link, and the evacuation plan.
+- IFC4 export: spaces, walls, doors, windows and furniture as an IFC4 file for BIM tools, with stable ids so a re-export keeps them.
+- AR: "View in AR" writes the design (or one piece) as a USDZ file at true scale. On an iPhone it opens in AR Quick Look; other devices download the file.
+- Share a poll: from Layouts, two to four candidates go to a link (`?poll=<id>`) where each person votes once per browser. It needs the optional API server, so the Share button is hidden without one.
 
 **The talking agent**
 - Ask by voice or text, with optional hands-free mode and spoken replies.
@@ -145,7 +172,7 @@ The run rewrites `public/samples/stoa/eval-results.json`.
 ## Security and privacy
 
 - A Content-Security-Policy ships with production builds. The deployed bundle contains no API key; a key you add stays in your browser and goes only to Gemini.
-- An optional API server in `server/` can hold the key instead, with origin checks, per-client and daily limits and a strict request schema.
+- An optional API server in `server/` can hold the key instead, with origin checks, per-client and daily limits and a strict request schema. It also stores layout polls, validating every field and refusing any thumbnail that is not a plain SVG.
 - What is protected, how, and what is not yet: [SECURITY.md](SECURITY.md) and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). What leaves your device and what is stored: [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Tech stack
@@ -181,7 +208,7 @@ The model router picks, per task (fast, smart, vision), the first candidate mode
 Every section can be opened directly, which is how the demo and the screenshots are made:
 
 ```
-?nav=<capture|building|drawings|describe|layouts|furniture|create|shop|inspire|walk|safety|export>
+?nav=<capture|drawings|building|describe|layouts|inspire|furniture|create|shop|budget|walk|safety|export|movein|render>
  &sample=1          load the sample room
  &view=<2d|split|3d>
  &theme=<dark|light>
@@ -199,9 +226,17 @@ src/
     ai/              streaming engine, model candidates, health and latency routing
   features/
     capture/         phone camera, A4 calibration, manual drawing
-    drawings/        PDF and image reader, text index, evidence answers
+    photoroom/       one photo to an editable room, generated objects for unknown pieces
+    drawings/        PDF, image and DXF reader, text index, evidence answers
+    formats/         DXF reader, IFC4 writer
     building/        shell, programme, partition, connectivity, assembly into a model, whole-building tour
     budget/ render/  budget optimiser and argument, room picture
+    movein/          carry-in check per door, arrival order
+    taste/           signals, profile, solver weights from what you keep
+    vote/            share-a-poll UI and API client
+    jurisdiction/    Finland and Sweden rule packs with sources
+    shoplist/        shopping list and CSV
+    ar/              USDZ export for AR Quick Look
     intent/          request to typed requirements
     design/          planner, relations, solver, rules, critic, pipeline, scoring
     layout/          layout panel and infeasibility explanations
@@ -217,7 +252,8 @@ src/
     plan2d/ scene3d/ xr/   plan editor, 3D scene, WebXR
   ui/                app shell, sidebar, coach, settings, themes
 scripts/             benchmark runners (answers, plan-to-building), object generation checks, rule table generator, headless screenshots
-docs/                architecture, design rules, safety assumptions, demo script
+server/              optional API server: model proxy and in-memory layout polls
+docs/                architecture, design rules, rule sources, safety assumptions, demo script
 public/              sample drawings, Poly Haven models and textures
 ```
 
@@ -228,6 +264,8 @@ flowchart LR
   C[Capture] --> M[(Spatial model)]
   D[Drawings: plan to building] --> M
   B[Building] --> M
+  PH[Photo to room] --> M
+  DX[DXF import] --> M
   F[Create object] --> M
   S[Shop] --> M
   M --> P[Plan 2D]
@@ -237,7 +275,9 @@ flowchart LR
   M --> W[Walk and test]
   M --> Y[Safety]
   M --> I[Inspector]
-  M --> X[Export]
+  M --> X[Export: SVG, PDF, GLB, IFC4, USDZ, CSV]
+  M --> MV[Move in]
+  T[Taste] --> G
   A[Agent] <--> M
 ```
 
@@ -286,7 +326,7 @@ npm run docs:rules   # print the design rule table (docs/DESIGN-RULES.md)
 npm run docs:safety  # print the safety defaults (docs/SAFETY-ASSUMPTIONS.md)
 ```
 
-Tests cover geometry, the store, the design solver and rules (including room scenarios), the critic, the referee, drawings answering, object validation, shop parsing, safety and the agent's pure logic. Tests that need the network or a key are opt-in behind environment flags.
+The suite has 56 test files and 405 test cases, of which 11 are opt-in and skipped by default. Tests cover geometry, the store, the design solver and rules (including room scenarios), the critic, the referee, drawings answering, object validation, shop parsing, safety, rule packs, DXF reading, IFC and USDZ output, the move-in plan, taste learning, the shopping list, poll validation and the agent's pure logic. Server tests run with `npm run test:server`. Tests that need the network or a key are opt-in behind environment flags.
 
 ## Deployment
 
@@ -298,6 +338,12 @@ Tests cover geometry, the store, the design solver and rules (including room sce
 - Single-photo scale needs a reference object, such as an A4 sheet.
 - Door and window counts from the plan-to-building step are weak (49% and 12% exact); room areas depend on outlines drawn in the PDF.
 - The Render section is unverified for lack of image-model quota.
+- AR export has not been tested on a device: the USDZ file is produced and unit-tested, but how it looks in AR Quick Look is unconfirmed.
+- IFC4 walls are extruded solids without opening voids: doors and windows are separate elements placed at the wall, not cut into it.
+- Polls are held in the server's memory (up to 300 polls, 48 hours each) and are lost when the server restarts.
+- Room sizes from a photo are estimates; type the length of one wall to anchor the scale.
+- The Finland and Sweden packs cover the values in `docs/RULE-SOURCES.md` only; the Finnish texts are the original versions as published, with later amendments not checked.
+- DXF import reads ASCII DXF only.
 - The drawings answerer abstains on about half of the Stoa questions and is weakest on areas; it reads text-based PDFs, not scans.
 - Safety and accessibility checks are planning aids on stated defaults, not a code compliance check.
 - Generated floors and rooms are estimates; walls are straight and rectilinear.
