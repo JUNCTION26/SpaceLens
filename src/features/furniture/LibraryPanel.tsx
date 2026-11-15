@@ -4,7 +4,7 @@ import { centroid, fmtSek } from '../../core/geometry';
 import type { FurnitureItem, ObjectSpec } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, makeOwnItem, variantsFor } from './catalog';
 import type { CatalogEntry } from './catalog';
-import { CATALOG_DND, findFreeSpot } from '../objects/placement';
+import { CATALOG_DND, smartAddPose } from '../objects/placement';
 import { Icon } from '../../ui/icons';
 import { useUi } from '../../ui/uiStore';
 import { SPEC_DND, specDrag } from '../plan2d/dnd';
@@ -64,7 +64,7 @@ export function LibraryPanel() {
   }, [model.spaces]);
   const addFromCatalog = (id: string) => {
     const item = makeItem(id, center());
-    place({ ...item, ...findFreeSpot(model, item) });
+    place({ ...item, ...smartAddPose(model, item) });
   };
   const place = (item: FurnitureItem) => {
     dispatch({ type: 'PLACE_OBJECT', item });
@@ -103,7 +103,7 @@ export function LibraryPanel() {
   const addOwn = () => {
     if (!ownValid) return;
     const it = makeOwnItem(own.name.trim(), own.category, Number(own.w) / 100, Number(own.d) / 100, Number(own.h) / 100, center());
-    place({ ...it, ...findFreeSpot(model, it) });
+    place({ ...it, ...smartAddPose(model, it) });
     setOwn({ ...own, open: false, name: '', w: '', d: '', h: '' });
   };
 

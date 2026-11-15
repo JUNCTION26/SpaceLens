@@ -13,7 +13,10 @@ export interface Pose { x: number; y: number; rotation: number }
 type ItemLike = Pick<FurnitureItem, 'x' | 'y' | 'w' | 'd' | 'rotation'> & Partial<FurnitureItem>;
 
 /** Categories that normally stand with their back against a wall. */
-export const WALL_CATEGORIES = new Set(['bed', 'sofa', 'desk', 'bookshelf', 'wardrobe', 'dresser', 'tv']);
+export const WALL_CATEGORIES = new Set([
+  'bed', 'sofa', 'sofa-bed', 'bunk-bed', 'desk', 'bookshelf', 'wardrobe', 'dresser', 'tv', 'tv-unit',
+  'cabinet', 'storage-cabinet', 'sideboard',
+]);
 export const isWallCategory = (category: string) => WALL_CATEGORIES.has(category.toLowerCase());
 
 /** Rotation that makes an item's front (local +y) face direction `n`. */
@@ -134,6 +137,64 @@ export function findFreeSpot(model: SpaceModel, item: FurnitureItem, others: Fur
   }
   const c = centroid((first ?? model.spaces[0])?.polygon ?? [{ x: 0, y: 0 }]);
   return { x: c.x, y: c.y, rotation: item.rotation };
+}
+
+const SEAT_CATEGORIES = new Set(['chair', 'office-chair', 'desk-chair']);
+const SEAT_HOSTS = new Set(['desk', 'table', 'cafe-table', 'dining-table']);
+const front = (rotation: number): Vec2 => ({ x: -Math.sin(rotation), y: Math.cos(rotation) });
+
+/** Pose for one item a person adds: wall pieces back to the longest free wall facing in (a TV unit
+ *  faces the sofa), a chair at a free side of a desk or table facing it, a nightstand beside the bed.
+ *  Everything else, or when no smart pose fits, falls back to `findFreeSpot`. */
+export function smartAddPose(model: SpaceModel, item: FurnitureItem, others: FurnitureItem[] = model.furniture): Pose {
+  const space = preferredSpace(model, item);
+  const cat = item.category.toLowerCase();
+  if (space) {
+    const zones = doorZones(model);
+    const walls = interiorWallBoxes(model);
+    const fits = (p: Pose) => poseFits(space, item, p, others, zones, walls);
+    if (SEAT_CATEGORIES.has(cat)) {
+      for (const host of others.filter((o) => SEAT_HOSTS.has(o.category) && pointInPolygon(o, space.polygon))) {
+        const f = front(host.rotation), r = { x: f.y, y: -f.x };
+        const sides = [{ n: f, half: host.d / 2 }, ...(host.category === 'desk' ? [] : [{ n: mul(f, -1), half: host.d / 2 }]), { n: r, half: host.w / 2 }, { n: mul(r, -1), half: host.w / 2 }];
+        for (const sd of sides) for (const off of [0.4, 0.35, 0.45]) {
+          const pose = { x: host.x + sd.n.x * (sd.half + off), y: host.y + sd.n.y * (sd.half + off), rotation: rotationFacing(mul(sd.n, -1)) };
+          if (fits(pose)) return pose;
+        }
+      }
+    }
+    if (cat === 'nightstand') {
+      for (const bed of others.filter((o) => /bed/.test(o.category) && pointInPolygon(o, space.polygon))) {
+        const f = front(bed.rotation), r = { x: f.y, y: -f.x };
+        for (const s of [1, -1]) {
+          const c = add(add(bed, mul(r, s * (bed.w / 2 + item.w / 2 + 0.05))), mul(f, -(bed.d / 2 - item.d / 2)));
+          const pose = { x: c.x, y: c.y, rotation: bed.rotation };
+          if (fits(pose)) return pose;
+        }
+      }
+    }
+    if (isWallCategory(cat)) {
+      const halves = sharedHalves(model);
+      const target = /^tv/.test(cat) ? others.find((o) => /sofa/.test(o.category)) : undefined;
+      const poses = wallPoses(space, item, 0.1, (i) => halves.get(`${space.id}:${i}`) ?? 0).filter(fits);
+      if (poses.length) {
+        // Prefer the longest walls (poses come centred first per wall), or face the sofa for a TV unit.
+        const lenOf = (p: Pose) => {
+          let best = 0;
+          for (let i = 0; i < space.polygon.length; i++) {
+            const [a, b] = wallSegment(space, i);
+            if (Math.abs(rotationFacing(wallInwardNormal(space, i)) - p.rotation) < 1e-6) best = Math.max(best, dist(a, b));
+          }
+          return best;
+        };
+        const score = (p: Pose) => (target ? dot(front(p.rotation), norm(sub(target, p))) * 10 - dist(p, target) * 0.1 : lenOf(p));
+        let best = poses[0], bs = score(best);
+        for (const p of poses) { const s = score(p); if (s > bs + 1e-6) { best = p; bs = s; } }
+        return best;
+      }
+    }
+  }
+  return findFreeSpot(model, item, others);
 }
 
 export interface WallHit { spaceId: string; wallIndex: number; distanceM: number; inward: Vec2; point: Vec2 }
