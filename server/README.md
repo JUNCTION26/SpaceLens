@@ -19,6 +19,8 @@ The browser picks the route by itself: a personal key set in Settings (or `VITE_
 | GET | `/v1/models` | Allowed models the key can call, in order of preference (cached) |
 | POST | `/v1/generate` | One Gemini `generateContent` call, JSON in and out |
 | POST | `/v1/generate/stream` | Server-sent events, passed through from `streamGenerateContent` chunk by chunk |
+| POST | `/v1/image` | One image-model call: `{ "model", "prompt", "image"?: { "mimeType", "data" } }` returns `{ "model", "mimeType", "data" }` (base64) |
+| POST | `/v1/speech` | One speech-model call: `{ "model", "text", "voice"? }` returns `{ "model", "mimeType", "data" }` (base64 audio, parts joined) |
 | POST | `/v1/votes` | Create a poll from 2 to 4 layouts (name, price, small SVG thumbnail or plan data); returns the poll with its id |
 | GET | `/v1/votes/:id` | The poll with vote counts |
 | POST | `/v1/votes/:id/vote` | `{ "choice": 0, "token": "<browser token>" }`, one vote per token |
@@ -34,6 +36,8 @@ Request body for both generate routes (anything else is refused with a 400 namin
   "tools": [{ "google_search": {} }]
 }
 ```
+
+Image and speech calls are costly, so they have their own rules: a model allowlist per kind (`IMAGE_MODEL_ALLOWLIST`, `TTS_MODEL_ALLOWLIST`), prompt up to 1500 characters, speech text up to 1000, input image PNG, JPEG or WebP up to 5 MB of base64, a smaller body cap (`MEDIA_MAX_BODY_BYTES`), a tighter per-client bucket (`MEDIA_RATE_BURST`, `MEDIA_RATE_PER_MINUTE`, on top of the general one) and a separate daily allowance (`MEDIA_RATE_DAILY`). A reply with no image or audio is a 502 with code `no_media`.
 
 Every error uses one shape, with a stable `code` and a plain message. Upstream error text is never passed on:
 
@@ -83,6 +87,12 @@ curl -N http://localhost:8787/v1/generate/stream \
 | `RATE_LIMIT_BURST` | `20` | Requests a client may send at once |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Refill rate per client |
 | `RATE_LIMIT_DAILY` | `3000` | Model calls per UTC day for everyone together |
+| `IMAGE_MODEL_ALLOWLIST` | the app's image models | Comma-separated image model ids |
+| `TTS_MODEL_ALLOWLIST` | the app's speech models | Comma-separated speech model ids |
+| `MEDIA_RATE_BURST` | `3` | Image and speech calls a client may send at once |
+| `MEDIA_RATE_PER_MINUTE` | `4` | Refill rate per client for image and speech calls |
+| `MEDIA_RATE_DAILY` | `300` | Image and speech calls per UTC day for everyone together |
+| `MEDIA_MAX_BODY_BYTES` | `4000000` | Largest image or speech request body |
 | `MAX_BODY_BYTES` | `8000000` | Largest request body (images travel as base64) |
 | `UPSTREAM_TIMEOUT_MS` | `120000` | Total time allowed for one Gemini call |
 | `MODELS_CACHE_MS` | `600000` | How long the model list is cached |

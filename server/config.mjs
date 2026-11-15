@@ -23,6 +23,8 @@ export const DEFAULT_MODELS = [
   'gemini-4-hydrogen',
 ];
 
+import { DEFAULT_IMAGE_MODELS, DEFAULT_TTS_MODELS } from './media.mjs';
+
 export class ConfigError extends Error {
   constructor(problems) {
     super(`Invalid configuration:\n  - ${problems.join('\n  - ')}`);
@@ -72,6 +74,11 @@ export function loadConfig(env = process.env) {
   for (const m of models) if (!MODEL_ID.test(m)) problems.push(`MODEL_ALLOWLIST entry is not a model id: ${m}`);
   if (!models.length) problems.push('MODEL_ALLOWLIST must name at least one model');
 
+  const imageModels = list('IMAGE_MODEL_ALLOWLIST', DEFAULT_IMAGE_MODELS);
+  for (const m of imageModels) if (!MODEL_ID.test(m)) problems.push(`IMAGE_MODEL_ALLOWLIST entry is not a model id: ${m}`);
+  const ttsModels = list('TTS_MODEL_ALLOWLIST', DEFAULT_TTS_MODELS);
+  for (const m of ttsModels) if (!MODEL_ID.test(m)) problems.push(`TTS_MODEL_ALLOWLIST entry is not a model id: ${m}`);
+
   const logLevel = str('LOG_LEVEL', 'info').toLowerCase();
   if (!LOG_LEVELS.includes(logLevel)) problems.push(`LOG_LEVEL must be one of ${LOG_LEVELS.join(', ')}`);
 
@@ -89,6 +96,14 @@ export function loadConfig(env = process.env) {
       burst: int('RATE_LIMIT_BURST', 20, 1, 10_000),
       perMinute: int('RATE_LIMIT_PER_MINUTE', 30, 1, 100_000),
       dailyBudget: int('RATE_LIMIT_DAILY', 3000, 1, 10_000_000),
+    },
+    media: {
+      imageModels: [...new Set(imageModels)],
+      ttsModels: [...new Set(ttsModels)],
+      burst: int('MEDIA_RATE_BURST', 3, 1, 1000),
+      perMinute: int('MEDIA_RATE_PER_MINUTE', 4, 1, 10_000),
+      dailyBudget: int('MEDIA_RATE_DAILY', 300, 1, 1_000_000),
+      maxBodyBytes: int('MEDIA_MAX_BODY_BYTES', 4_000_000, 1024, 20_000_000),
     },
     maxBodyBytes: int('MAX_BODY_BYTES', 8_000_000, 1024, 20_000_000),
     upstreamTimeoutMs: int('UPSTREAM_TIMEOUT_MS', 120_000, 1000, 600_000),

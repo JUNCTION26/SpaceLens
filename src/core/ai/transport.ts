@@ -58,3 +58,74 @@ export const CODE_STATUS: Record<string, number> = {
   model_unavailable: 404, model_not_allowed: 400, thinking_unsupported: 400, modality_unsupported: 400,
   upstream_rejected: 400, invalid_request: 400,
 };
+
+// ---------------------------------------------------------------- image and speech
+
+/** What an image or speech call returns on either path: base64 data and its mime type. */
+export interface MediaResult { model: string; mimeType: string; data: string }
+
+export class MediaError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string) { super(message); }
+}
+
+interface InlinePart { inlineData?: { mimeType?: string; data?: string }; inline_data?: { mime_type?: string; mimeType?: string; data?: string } }
+
+/** First part of a Gemini reply whose data matches `kind` (image or audio). */
+function firstMedia(json: unknown, kind: 'image' | 'audio', model: string): MediaResult | null {
+  const parts = (json as { candidates?: { content?: { parts?: InlinePart[] } }[] })?.candidates?.[0]?.content?.parts ?? [];
+  for (const p of parts) {
+    const d = p.inlineData ?? p.inline_data;
+    const mime = (d as { mimeType?: string })?.mimeType ?? (d as { mime_type?: string })?.mime_type ?? (kind === 'image' ? 'image/png' : '');
+    if (d?.data && mime.startsWith(`${kind}/`)) return { model, mimeType: mime, data: d.data };
+  }
+  return null;
+}
+
+async function mediaFetch(url: string, init: RequestInit, kind: 'image' | 'audio', model: string, direct: boolean): Promise<MediaResult> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    let code = direct ? `http_${res.status}` : 'error';
+    if (!direct) { try { code = (await res.json())?.error?.code ?? code; } catch { /* keep status code */ } }
+    throw new MediaError(`${kind} ${res.status}`, res.status, code);
+  }
+  const json = await res.json();
+  const out = direct ? firstMedia(json, kind, model) : (json as MediaResult);
+  if (!out?.data || !out.mimeType) throw new MediaError(`no ${kind}`, 502, 'no_media');
+  return { model: out.model ?? model, mimeType: out.mimeType, data: out.data };
+}
+
+/** One image-model call. Direct goes to Google with the key; server sends the small request to /v1/image. */
+export function requestImage(t: Transport, model: string, prompt: string, image: { mimeType: string; data: string } | null, signal?: AbortSignal): Promise<MediaResult> {
+  if (t.kind === 'direct') {
+    const parts: object[] = image ? [{ inlineData: image }] : [];
+    parts.push({ text: prompt });
+    return mediaFetch(`${GOOGLE_API}/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': t.key },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+    }, 'image', model, true);
+  }
+  return mediaFetch(`${t.base}/v1/image`, {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt, ...(image ? { image } : {}) }),
+  }, 'image', model, false);
+}
+
+/** One speech call returning the whole clip as base64 PCM (or whatever mime the model uses). */
+export function requestSpeech(t: Transport, model: string, text: string, voice = 'Kore', signal?: AbortSignal): Promise<MediaResult> {
+  if (t.kind === 'direct') {
+    return mediaFetch(`${GOOGLE_API}/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': t.key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } },
+      }),
+    }, 'audio', model, true);
+  }
+  return mediaFetch(`${t.base}/v1/speech`, {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, text, voice }),
+  }, 'audio', model, false);
+}
+
+/** Server error codes for media calls that make every other model fail too. */
+export const MEDIA_STOP_CODES = new Set([...STOP_ALL_CODES]);

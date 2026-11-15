@@ -9,6 +9,7 @@ import { clientAddress, corsHeaders, createDailyBudget, createRateLimiter, origi
 import { createRouter } from './router.mjs';
 import { createGeminiClient } from './gemini.mjs';
 import { createModelsHandler, generate, generateStream, healthz } from './handlers.mjs';
+import { image, speech } from './media.mjs';
 import { createLogger } from './log.mjs';
 import { createVoteHandlers, createVoteStore } from './votes.mjs';
 
@@ -24,6 +25,8 @@ export function createApp(config, deps = {}) {
   const gemini = createGeminiClient({ apiKey: config.apiKey, fetch: deps.fetch });
   const limiter = createRateLimiter({ burst: config.rateLimit.burst, perMinute: config.rateLimit.perMinute, now });
   const budget = createDailyBudget({ limit: config.rateLimit.dailyBudget, now });
+  const mediaLimiter = createRateLimiter({ burst: config.media.burst, perMinute: config.media.perMinute, now });
+  const mediaBudget = createDailyBudget({ limit: config.media.dailyBudget, now });
   const isAllowedOrigin = originMatcher(config.allowedOrigins);
   const votes = createVoteHandlers(deps.voteStore ?? createVoteStore({ now }));
   const match = createRouter([
@@ -31,6 +34,8 @@ export function createApp(config, deps = {}) {
     { method: 'GET', path: '/v1/models', handler: createModelsHandler({ config, gemini, now }) },
     { method: 'POST', path: '/v1/generate', handler: generate, limited: true },
     { method: 'POST', path: '/v1/generate/stream', handler: generateStream, limited: true },
+    { method: 'POST', path: '/v1/image', handler: image, limited: true, media: true },
+    { method: 'POST', path: '/v1/speech', handler: speech, limited: true, media: true },
     { method: 'POST', path: '/v1/votes', handler: votes.create, limited: true },
     { method: 'GET', path: '/v1/votes/:id', handler: votes.read, limited: true },
     { method: 'POST', path: '/v1/votes/:id/vote', handler: votes.vote, limited: true },
@@ -86,9 +91,13 @@ export function createApp(config, deps = {}) {
         if (config.requireOrigin && origin === undefined) throw new HttpError(403, 'origin_required', 'Requests must come from an allowed site.');
         const take = limiter.take(clientAddress(req, config));
         if (!take.ok) throw new HttpError(429, 'rate_limited', 'Too many requests. Wait a moment and try again.', { 'Retry-After': String(take.retryAfterS) });
+        if (route.media) {
+          const m = mediaLimiter.take(clientAddress(req, config));
+          if (!m.ok) throw new HttpError(429, 'rate_limited', 'Too many image or voice requests. Wait a moment and try again.', { 'Retry-After': String(m.retryAfterS) });
+        }
       }
 
-      await route.handler({ req, res, config, gemini, budget, meta, params, signal: ctrl.signal });
+      await route.handler({ req, res, config, gemini, budget, mediaBudget, meta, params, signal: ctrl.signal });
     } catch (e) {
       if (e instanceof HttpError) {
         meta.error = e.code;
@@ -104,5 +113,5 @@ export function createApp(config, deps = {}) {
     }
   }
 
-  return { handle, budget, limiter };
+  return { handle, budget, limiter, mediaBudget, mediaLimiter };
 }
