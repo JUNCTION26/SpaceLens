@@ -189,6 +189,17 @@ function BuildingShell({ room, selectedWall, cutaway, gesture, onFocus, pickable
   const scale = useRef<number[]>([]);
   const invalidate = useThree((st) => st.invalidate);
   const sides = useMemo(() => data.edges.map((e) => ({ mid: { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 }, out: { x: -e.inward.x, y: -e.inward.y } })), [data]);
+  // When a building is first shown, its walls rise out of the floor plan room by room over about 1.2 s.
+  const rise = useRef<{ start: number; key: string; delay: number[]; span: number } | null>(null);
+  const roomDelay = useMemo(() => {
+    const order = new Map(room.model.spaces.map((sp, k) => [sp.id, k]));
+    const n = Math.max(1, room.model.spaces.length);
+    const gap = Math.min(0.12, 0.6 / n);
+    return data.edges.map((e) => (order.get(e.spaceId) ?? 0) * gap);
+  }, [data, room.model.spaces]);
+  if (!REDUCED && (!rise.current || rise.current.key !== room.key)) {
+    rise.current = { start: -1, key: room.key, delay: roomDelay, span: Math.max(0, ...roomDelay) + 1.2 };
+  } else if (rise.current) rise.current.delay = roomDelay;
 
   useLayoutEffect(() => {
     scale.current = data.edges.map(() => 1);
@@ -198,6 +209,8 @@ function BuildingShell({ room, selectedWall, cutaway, gesture, onFocus, pickable
       data.byMat[m].forEach((bx, i) => writeBox(mesh, i, bx));
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
+      // bounds come from the full height; a building still rising starts flat on the plan
+      if (rise.current && rise.current.start !== -2) data.byMat[m].forEach((bx, i) => writeBox(mesh, i, bx, 0.002));
     }
     invalidate();
   }, [data, invalidate]);
@@ -213,8 +226,30 @@ function BuildingShell({ room, selectedWall, cutaway, gesture, onFocus, pickable
     invalidate();
   }, [data, selectedWall, invalidate]);
 
-  useFrame(({ camera }) => {
+  useFrame(({ camera, clock }) => {
     const sc = scale.current;
+    const r = rise.current;
+    if (r && r.start !== -2) {
+      if (r.start < 0) r.start = clock.elapsedTime;
+      const t = clock.elapsedTime - r.start;
+      const done = t >= r.span;
+      const k = (edge: number) => {
+        if (done) return 1;
+        const d = edge >= 0 ? r.delay[edge] ?? 0 : r.span - 1.2;
+        const u = Math.min(1, Math.max(0, (t - d) / 1.2));
+        return Math.max(0.002, 1 - (1 - u) ** 3);
+      };
+      for (const m of BOX_MATS) {
+        const mesh = meshes.current[m];
+        if (!mesh) continue;
+        data.byMat[m].forEach((bx, j) => writeBox(mesh, j, bx, k(bx.edge) * (bx.edge >= 0 ? sc[bx.edge] ?? 1 : 1)));
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      if (done) r.start = -2;
+      gesture.current.shadowDirty = true;
+      invalidate();
+      return;
+    }
     let dirty: Set<number> | null = null;
     for (let i = 0; i < data.edges.length; i++) {
       if (!data.cuttable[i]) continue;
