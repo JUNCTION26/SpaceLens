@@ -8,6 +8,7 @@ import { generateLayouts } from '../layout/solver';
 import { runRoutes } from '../sim/routes';
 import { testPassage } from '../sim/passage';
 import { validateLayout } from '../referee/validate';
+import { ShowRunner } from './ShowRunner';
 
 const PROMPT ='Home office for two, keep my desk, clear route to the window, under 12 000 kr';
 
@@ -151,11 +152,13 @@ export function DemoRunner() {
     if (alive()) { say('Done', 'That is SpaceLens.'); try { await wait(3000); } catch { return; } setOn(false); }
   }
 
-  if (!on) return null;
+  if (!on) return <><ShowRunner /></>;
   const exit = () => { runId.current++; setOn(false); };
   const togglePause = () => { pausedRef.current = !pausedRef.current; setPaused(pausedRef.current); };
 
   return (
+    <>
+    <ShowRunner />
     <div role="status" aria-live="polite" className="demo-caption float">
       <div className="demo-text">
         <div className="demo-title">{cap.title}<span className="demo-count">{idx + 1} of {STEPS.length}</span></div>
@@ -165,5 +168,6 @@ export function DemoRunner() {
       <button className="btn btn-sm" onClick={() => { skipRef.current = true; }}>Next</button>
       <button className="icon-btn" onClick={exit} aria-label="Exit demo" title="Exit demo"><Icon name="x" size={14} /></button>
     </div>
+    </>
   );
 }
