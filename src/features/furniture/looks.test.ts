@@ -11,8 +11,8 @@ const build = (cat: string): { e: typeof CATALOG[number]; p: Parts } => { const 
 describe('scanned models', () => {
   it('only clean modern scans remain mapped', () => {
     const old = /classic|drawer_cabinet|dining_chair_02|dining_table|side_table|old_|worn/i;
-    for (const e of CATALOG) { const s = modelSpecFor(e); if (s) expect(old.test(s.id), `${e.id} -> ${s.id}`).toBe(false); }
-    for (const c of ['bed', 'desk', 'bookshelf', 'toy-storage', 'chair', 'table', 'nightstand', 'dresser']) expect(modelSpecFor(first(c)), c).toBeUndefined();
+    for (const e of CATALOG) { const s = modelSpecFor({ catalogId: e.id, category: e.category }); if (s) expect(old.test(s.id), `${e.id} -> ${s.id}`).toBe(false); }
+    for (const c of ['bed', 'desk', 'bookshelf', 'toy-storage', 'chair', 'table', 'nightstand', 'dresser']) expect(modelSpecFor({ catalogId: first(c).id, category: first(c).category }), c).toBeUndefined();
   });
 });
 

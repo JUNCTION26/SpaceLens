@@ -17,7 +17,7 @@ import { refineRoom, refineRoomOffline } from '../intent/refine';
 import { signedArea } from '../referee/geom';
 import { validateLayout } from '../referee/validate';
 import { totalFor } from '../budget/plan';
-import { budgetVerdict, compareFacts, D, goalsBrief, hasGoals, mergeGoals, parseGoals, parseWhatIf, planTurn, sayParts, stretchPolygon, tidy, type RoomFacts } from './conversation';
+import { budgetVerdict, compareFacts, D, goalsBrief, hasGoals, mergeGoals, parseGoals, parseWhatIf, planTurn, sayParts, stretchPolygon, tidy, type Plan, type RoomFacts } from './conversation';
 import type { SpaceModel } from '../../core/types';
 import { offlineReply } from './offline';
 import { latestMark, useSketch } from './sketchStore';
@@ -250,7 +250,7 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
     meta = 'What if';
   } else if (plan) {
     useAgent.getState().set({ memory: { last: [] } });
-    const checks = plan.checks.filter((c) => c !== 'budget');
+    const checks = plan.checks.filter((c: string) => c !== 'budget');
     const actions: Action[] = [{ type: 'design_room', brief: plan.brief }, { type: 'apply_layout' }];
     if (checks.length) actions.push({ type: 'check_safety' });
     reply = stream.finish({ say: D(lang, 'designing'), sketch: [], actions });

@@ -1,18 +1,20 @@
 // Honest measurement of offline furnishing. A floor the current code misses is marked it.fails
 // (it turns into a failure the day the code meets the floor, which is the cue to drop the mark).
 import { beforeAll, describe, expect, it } from 'vitest';
-import { writeFileSync } from 'node:fs';
+type NodeProc = { env: Record<string, string | undefined>; stderr: { write: (s: string) => void } };
+const proc = (globalThis as unknown as { process: NodeProc }).process;
 import { CASES, runCase, scorecardMarkdown, scorecardOn, type Scorecard } from './scorecard';
 
 const cards = new Map<string, Scorecard>();
 const normal = CASES.filter((c) => c.normal);
 
 beforeAll(async () => {
-  for (const c of CASES) { cards.set(c.name, (await runCase(c)).card); process.stderr.write(`case ${c.name} ${cards.get(c.name)!.ms}ms
+  for (const c of CASES) { cards.set(c.name, (await runCase(c)).card); proc.stderr.write(`case ${c.name} ${cards.get(c.name)!.ms}ms
 `); }
   if (scorecardOn) {
     const all = CASES.map((c) => cards.get(c.name)!);
-    writeFileSync(`${process.env.TEMP}/spacelens-shots/BOARD/scorecard.md`, scorecardMarkdown(all));
+    const m = 'node:'; const fs = (await import(/* @vite-ignore */ m + 'fs')) as { writeFileSync: (p: string, d: string) => void };
+    fs.writeFileSync(`${proc.env.TEMP}/spacelens-shots/BOARD/scorecard.md`, scorecardMarkdown(all));
   }
 }, 240_000);
 
