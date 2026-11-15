@@ -320,14 +320,14 @@ export function ShowRunner() {
       <div aria-hidden="true" style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 96, opacity: black || end ? 1 : 0, transition: `opacity ${FADE_MS}ms ease`, pointerEvents: 'none' }} />
       <div aria-hidden="true" style={{ ...bar, top: 0, transform: bars ? 'none' : 'translateY(-100%)' }} />
       <div style={{ ...bar, bottom: 0, transform: bars ? 'none' : 'translateY(100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {sub && <span aria-live="polite" style={{ color: '#f5f5f5', font: '500 clamp(16px, 2.4vw, 26px)/1.2 ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '0.01em', padding: '0 16px', textAlign: 'center' }}>{sub}<span aria-hidden="true" style={{ opacity: 0.7 }}>▍</span></span>}
+        {sub && <span aria-live="polite" style={{ color: '#f5f5f5', font: '500 clamp(16px, 2.4vw, 26px)/1.2 ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: '0.01em', padding: '0 16px', textAlign: 'center' }}>{sub}</span>}
         <div role="progressbar" aria-label="Film" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}
           style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, background: '#ffffff1a' }}>
           <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent, #3b82f6)', transition: 'width 200ms linear' }} />
         </div>
       </div>
       {end && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 98, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, color: '#fff', pointerEvents: 'none', animation: 'none' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 98, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, color: '#fff', pointerEvents: 'none' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 14, font: '600 clamp(28px, 5vw, 56px)/1 system-ui, sans-serif', letterSpacing: '-0.02em' }}>
             <span style={{ transform: 'scale(1.8)', display: 'inline-flex' }}><Logo /></span>SpaceLens
           </span>
