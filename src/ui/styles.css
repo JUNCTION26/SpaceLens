@@ -341,3 +341,12 @@ button.brand:hover { background: var(--hover); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .sample-tag { height: 20px; font-size: 12px; }
 .status-pill { min-width: 28px; justify-content: center; }
+
+/* Inspector: secondary fields sit behind one closed "More" disclosure. */
+.provenance-more > summary { cursor: pointer; display: flex; align-items: center; min-height: var(--ctl); color: var(--muted); font-size: var(--fs-sm); font-weight: var(--fw-strong); list-style: none; }
+.provenance-more > summary::-webkit-details-marker { display: none; }
+.provenance-more > summary::before { content: '+'; width: 14px; margin-right: 4px; text-align: center; }
+.provenance-more[open] > summary::before { content: '\2212'; }
+.provenance-more > summary:hover { color: var(--text); }
+.provenance-more-fields { margin-top: var(--s1, 4px); }
+@media (pointer: coarse) { .provenance-more > summary { min-height: 44px; } }

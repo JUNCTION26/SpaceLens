@@ -300,12 +300,15 @@ function Selected() {
         <div>
           <Field label="Width"><Num label="Width" value={cm(o.widthM)} onCommit={(v) => up({ widthM: v / 100 })} /></Field>
           <Field label="Height"><Num label="Height" value={cm(o.heightM)} onCommit={(v) => up({ heightM: v / 100 })} /></Field>
+          <details className="provenance-more provenance-more-fields">
+            <summary>More</summary>
           <Field label="Sill"><Num label="Sill" value={cm(o.sillM)} onCommit={(v) => up({ sillM: v / 100 })} /></Field>
           <Field label="Offset"><Num label="Offset" value={cm(o.offsetM)} onCommit={(v) => up({ offsetM: v / 100 })} /></Field>
           <label className="field provenance-field">Swing <select value={o.swing} onChange={(e) => up({ swing: e.target.value as typeof o.swing })}>
             <option value="in">In</option><option value="out">Out</option><option value="none">None</option></select></label>
           <label className="field provenance-field">Hinge <select value={o.hinge} onChange={(e) => up({ hinge: e.target.value as typeof o.hinge })}>
             <option value="start">Start</option><option value="end">End</option></select></label>
+          </details>
         </div>
         </div>
         <Provenance targetId={o.id} measurementId={o.measurementId} sourceKind={o.sourceKind} status={o.status} valueM={o.widthM} />
@@ -327,11 +330,14 @@ function Selected() {
           <Field label="Height"><Num label="Height" value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} /></Field>
           <Field label="Rotation"><Num label="Rotation" value={Math.round((f.rotation * 180) / Math.PI)} suffix="°" min={-360} max={360} step={15} onCommit={(v) => up({ rotation: (v * Math.PI) / 180 })} /></Field>
         </div>
+        <details className="provenance-more provenance-more-fields">
+          <summary>More</summary>
         <div className="provenance-checks">
           <label><input type="checkbox" checked={f.locked} onChange={(e) => up({ locked: e.target.checked })} /> Locked</label>
           <label><input type="checkbox" checked={f.owned} onChange={(e) => up({ owned: e.target.checked })} /> Owned</label>
         </div>
         <Field label="Price"><span>{fmtSek(f.priceSek)} <span className="muted">{f.priceStatus}</span></span></Field>
+        </details>
         </div>
         <Provenance targetId={f.id} sourceKind={f.sourceKind} status={f.sourceKind === 'catalog' ? 'estimated' : 'verified'} valueM={f.w} />
       </>);
