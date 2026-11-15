@@ -133,7 +133,7 @@ describe.skipIf(!live || part !== 'rooms')('rooms live', () => {
     const { designRoom } = await import('../src/features/design/pipeline');
     const { lastThemed } = await import('../src/features/themes/session');
     const rows: unknown[] = [];
-    for (const [i, text] of ROOMS.entries()) {
+    for (const [i, text] of (penv.UNIVERSAL_TEXTS ? penv.UNIVERSAL_TEXTS.split('|') : ROOMS).entries()) {
       if (only && !only.has(i)) continue;
       const room = await testRoom();
       const t0 = performance.now();

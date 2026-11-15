@@ -16,7 +16,7 @@ import { describeLayout, solveProgram } from '../design/solve';
 import type { DesignResult, FullReport, Stage } from '../design/pipeline';
 import { designScore } from '../design/score';
 import { wallElevation } from '../layout/wallItems';
-import { capFloorItems, rulesBrief, themeBrief, withNamePosters, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
+import { capFloorItems, findNames, rulesBrief, themeBrief, withNamePosters, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
 import { recipeSpec } from './recipes';
 
 export interface ThemedOpts {
@@ -197,7 +197,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
   };
   const brief0 = opts.brief ?? (await themeBrief(text, { signal: opts.signal, room: roomLine(model), onObject: onEarly }));
   // Keep layout fast (12 floor pieces plus wall decor) and the named poster present.
-  const brief: ThemeBrief = { ...brief0, objects: withNamePosters(capFloorItems(brief0.objects), brief0.names) };
+  const brief: ThemeBrief = { ...brief0, objects: withNamePosters(capFloorItems(brief0.objects), findNames(text), brief0.palette) };
   const briefMs = Math.round(now() - t);
   end('brief', t, { label: brief.title, model: brief.by === 'gemini' ? brief.model : 'rules', detail: `${brief.objects.length} pieces` });
   abortIf(opts.signal);
