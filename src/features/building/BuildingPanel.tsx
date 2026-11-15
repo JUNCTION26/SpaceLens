@@ -9,6 +9,8 @@ import { wallEdges } from '../sim/walls';
 import { buildingBill, furnishBuilding, type RoomProgress } from './furnish';
 import { lShell, rectShell, type BuildingPlan, type ShellEntrance, type ShellWindow } from './partition';
 import { planBuildingAsync } from './planAsync';
+import { FloorChips } from './FloorChips';
+import { programmeFromSentence, shellForArea } from './sentence';
 import { programmeArea, programmeFromBrief, TEMPLATES, type Privacy, type ProgrammeRoom, type RoomProgramme } from './programme';
 import { planSvg } from './render';
 import './building.css';
@@ -79,6 +81,11 @@ export function PlanCard({ plan, onUse }: { plan: BuildingPlan; onUse: () => voi
   );
 }
 
+function PlanThumb({ plan, onUse }: { plan: BuildingPlan; onUse: () => void }) {
+  const svg = useMemo(() => planSvg(plan, { px: 10, labels: false, pad: 0.4 }), [plan]);
+  return <button className="bld-opt" onClick={onUse} aria-label={`Use ${plan.name}`} title={plan.name} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
 export function BuildingPanel() {
   const model = useStore((s) => s.model);
   const dispatch = useStore((s) => s.dispatch);
@@ -118,10 +125,11 @@ export function BuildingPanel() {
   const [progress, setProgress] = useState<RoomProgress[]>([]);
   const [furnishing, setFurnishing] = useState(false);
 
+  const shellNow = shell;
   const shellM2 = shellArea(shell);
   const progM2 = programmeArea(prog);
 
-  const inputs = (): { entrances: ShellEntrance[]; windows: ShellWindow[] } => {
+  const inputs = (shell: Vec2[] = shellNow): { entrances: ShellEntrance[]; windows: ShellWindow[] } => {
     if (kind === 'current' && current) {
       const doors = model.openings.filter((o) => o.spaceId === current.id && o.kind === 'door');
       const wins = model.openings.filter((o) => o.spaceId === current.id && o.kind === 'window');
@@ -136,16 +144,25 @@ export function BuildingPanel() {
   const readBrief = async () => {
     if (!brief.trim()) return;
     setReading(true);
-    try { const p = await programmeFromBrief(brief, { shellAreaM2: shellM2 }); setProg(p); setTpl(''); setPlans([]); }
-    finally { setReading(false); }
+    try {
+      const s = programmeFromSentence(brief);
+      if (s.recognised) {
+        // a sentence sizes the shell itself, unless a drawn room is the shell
+        let sh = shell;
+        if (kind !== 'current') { const { w: sw, d: sd } = shellForArea(s.areaM2); setKind('rect'); setW(String(sw)); setD(String(sd)); sh = rectShell(sw, sd); }
+        setProg(s.programme); setTpl(''); setPlans([]);
+        await propose(s.programme, sh);
+      } else { const p = await programmeFromBrief(brief, { shellAreaM2: shellM2 }); setProg(p); setTpl(''); setPlans([]); }
+    } finally { setReading(false); }
   };
 
-  const propose = async (p: RoomProgramme = prog) => {
+  const propose = async (p: RoomProgramme = prog, sh: Vec2[] = shell) => {
     setPlanning(true); setError(null);
     try {
-      const { entrances, windows } = inputs();
+      const sideIdx = Math.min(entWall, sh.length - 1);
+      const { entrances, windows } = kind === 'current' ? inputs(sh) : { entrances: [{ wallIndex: sideIdx, offsetM: Math.round(wallLen(sh, sideIdx) * entPos * 100) / 100 }], windows: noWindows.length ? sh.map((_, i) => i).filter((i) => !noWindows.includes(i)).map((i) => ({ wallIndex: i })) : [] };
       // searched in a worker, so the panel and the 3D view keep responding
-      const res = await planBuildingAsync(shell, entrances, windows, p, { count: 3, seed: 1 });
+      const res = await planBuildingAsync(sh, entrances, windows, p, { count: 3, seed: 1 });
       setPlans(res);
       if (!res.length) setError('No plan fits');
     } catch (e) { setError((e as Error).message); }
@@ -273,15 +290,27 @@ export function BuildingPanel() {
         <h3>Plans</h3>
         <button className="btn btn-primary" onClick={() => propose()} disabled={planning || !prog.rooms.length}>{planning ? <span className="intent-spin" aria-label="Working" /> : <Icon name="layout" />} {plans.length ? 'Plan again' : 'Propose plans'}</button>
         {error && <p className="bld-error" role="alert">{error}</p>}
-        <div className="bld-cards">
-          {plans.map((p) => <PlanCard key={p.id} plan={p} onUse={() => use(p)} />)}
-        </div>
+        {plans.length > 0 && (
+          <div className="bld-opts" role="group" aria-label="Plan options">
+            {plans.map((p) => <PlanThumb key={p.id} plan={p} onUse={() => use(p)} />)}
+          </div>
+        )}
+        {plans.length > 0 && (
+          <details className="bld-sub"><summary>Details</summary>
+            <div className="bld-cards">
+              {plans.map((p) => <PlanCard key={p.id} plan={p} onUse={() => use(p)} />)}
+            </div>
+          </details>
+        )}
       </section>
 
   </>);
 
+  const roomBriefs = useMemo(() => { const b: Record<string, string> = {}; for (const r of prog.rooms) if (r.brief) b[`room-${r.id}`] = r.brief; return b; }, [prog]);
+
   return (
     <div className="bld">
+      <FloorChips briefs={roomBriefs} />
       {usedPlan && (
         <section className="panel">
           <h3>Your plan</h3>

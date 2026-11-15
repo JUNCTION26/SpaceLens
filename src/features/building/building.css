@@ -37,3 +37,18 @@
 .bld-rooms { margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
 .bld-rooms li { display: flex; align-items: center; gap: var(--s2); min-height: 30px; }
 .bld-rooms .muted { font-variant-numeric: tabular-nums; }
+.fl { display: flex; flex-direction: column; gap: var(--s2); }
+.fl-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fl-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 0; max-width: 100%; }
+.fl-chip.on { border-color: var(--accent, var(--line-strong)); }
+.fl-name { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: inherit; font: inherit; padding: 2px 6px; cursor: pointer; min-width: 0; }
+.fl-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.fl-icon { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 4px; display: inline-flex; }
+.fl-icon:disabled { opacity: .4; cursor: default; }
+.fl-use, .fl-rename { min-height: 24px; padding: 0 4px; font-size: var(--fs-sm); max-width: 110px; }
+.fl-ring { display: block; color: var(--accent, currentColor); }
+.chip .sr-only, .fl .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bld-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.bld-opt { background: none; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px; cursor: pointer; min-width: 0; }
+.bld-opt:hover { border-color: var(--accent, var(--line-strong)); }
+.bld-opt svg { display: block; width: 100%; height: auto; background: #fff; border-radius: 3px; }
