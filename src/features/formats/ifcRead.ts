@@ -4,7 +4,8 @@
  * (IfcPolyline) or an IfcRectangleProfileDef, and applies the IfcLocalPlacement chain.
  * The file is untrusted data: nothing is evaluated, every lookup is bounds-checked.
  */
-import type { Evidence, Space, SpaceModel, Vec2 } from '../../core/types';
+import type { Evidence, FurnitureItem, Opening, Space, SpaceModel, Vec2 } from '../../core/types';
+import { doorOperation } from './ifcWrite';
 
 type Arg = Arg[] | { ref: number } | number | string | null | { en: string };
 interface Ent { name: string; raw: string }
@@ -18,19 +19,31 @@ const KEEP = new Set([
   'IFCPRODUCTDEFINITIONSHAPE', 'IFCSHAPEREPRESENTATION', 'IFCEXTRUDEDAREASOLID', 'IFCARBITRARYCLOSEDPROFILEDEF',
   'IFCARBITRARYPROFILEDEFWITHVOIDS', 'IFCPOLYLINE', 'IFCRECTANGLEPROFILEDEF', 'IFCSIUNIT', 'IFCCONVERSIONBASEDUNIT',
   'IFCMEASUREWITHUNIT', 'IFCBUILDINGSTOREY', 'IFCGEOMETRICCURVESET',
+  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCDOOR', 'IFCWINDOW', 'IFCOPENINGELEMENT', 'IFCRELFILLSELEMENT',
+  'IFCRELVOIDSELEMENT', 'IFCFURNITURE', 'IFCPROPERTYSET', 'IFCPROPERTYSINGLEVALUE', 'IFCRELDEFINESBYPROPERTIES',
+  'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+]);
+/** Building elements this reader does not turn into plan content; they are counted in the skip report. */
+const UNSUPPORTED = new Set([
+  'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAMP', 'IFCRAMPFLIGHT', 'IFCROOF', 'IFCCURTAINWALL',
+  'IFCRAILING', 'IFCPLATE', 'IFCMEMBER', 'IFCCOVERING', 'IFCFOOTING', 'IFCPILE', 'IFCCHIMNEY', 'IFCBUILDINGELEMENTPROXY',
+  'IFCFLOWTERMINAL', 'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCDISTRIBUTIONELEMENT', 'IFCFURNISHINGELEMENT', 'IFCSYSTEMFURNITUREELEMENT',
+  'IFCTRANSPORTELEMENT', 'IFCELECTRICAPPLIANCE', 'IFCLIGHTFIXTURE', 'IFCSANITARYTERMINAL', 'IFCMECHANICALFASTENER', 'IFCREINFORCINGBAR',
+  'IFCWALLELEMENTEDCASE', 'IFCSLABSTANDARDCASE', 'IFCOPENINGSTANDARDCASE', 'IFCGEOGRAPHICELEMENT', 'IFCANNOTATION', 'IFCGRID',
 ]);
 const MAX_ARGS_LEN = 200000;
 
 /** Splits the DATA section into entities, keeping only the kinds this reader needs. */
-function entities(text: string): { ents: Map<number, Ent>; header: string } {
+function entities(text: string): { ents: Map<number, Ent>; header: string; skipped: Map<string, number> } {
   const ents = new Map<number, Ent>();
+  const skipped = new Map<string, number>();
   const di = text.indexOf('DATA;');
   const header = di >= 0 ? text.slice(0, di) : '';
   let i = di >= 0 ? di + 5 : 0;
   const n = text.length;
   while (i < n) {
     while (i < n && text.charCodeAt(i) !== 35 /* # */) {
-      if (text.startsWith('ENDSEC', i)) return { ents, header };
+      if (text.startsWith('ENDSEC', i)) return { ents, header, skipped };
       i++;
     }
     if (i >= n) break;
@@ -47,8 +60,9 @@ function entities(text: string): { ents: Map<number, Ent>; header: string } {
     if (!m) continue;
     const name = m[2].toUpperCase();
     if (KEEP.has(name) && m[3].length < MAX_ARGS_LEN) ents.set(Number(m[1]), { name, raw: m[3] });
+    else if (UNSUPPORTED.has(name)) skipped.set(name, (skipped.get(name) ?? 0) + 1);
   }
-  return { ents, header };
+  return { ents, header, skipped };
 }
 
 /** Parses an argument list into nested arrays. Returns [] on malformed input. */
@@ -123,7 +137,19 @@ export interface IfcReport {
   unitM: number;
   schema: string;
   warnings: string[];
+  /** IFC walls found, and those placed on a room edge (their thickness is applied there). */
+  walls: number;
+  wallList: IfcWallRead[];
+  doors: number;
+  windows: number;
+  /** Doors and windows that could not be placed on a room wall. */
+  openingsSkipped: number;
+  furniture: number;
+  storeys: Array<{ name: string; elevationM: number }>;
+  /** Unsupported building elements by IFC type, with the count of each. */
+  skipped: Record<string, number>;
 }
+export interface IfcWallRead { name: string; a: Vec2; b: Vec2; thicknessM: number; heightM: number }
 export interface IfcResult { model: SpaceModel; report: IfcReport }
 
 const area2 = (p: Vec2[]) => p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]; return s + (a.x * b.y - b.x * a.y); }, 0) / 2;
@@ -134,7 +160,7 @@ export function ifcToModel(text: string, name = 'model.ifc', opts: { now?: numbe
   const now = opts.now ?? Date.now();
   const warnings: string[] = [];
   const base = name.replace(/\.ifc$/i, '');
-  const { ents, header } = entities(text);
+  const { ents, header, skipped } = entities(text);
   const schema = /FILE_SCHEMA\s*\(\s*\(\s*'([^']*)'/i.exec(header)?.[1] ?? '';
   const ours = /'SpaceLens'/.test(header);
 
@@ -307,16 +333,237 @@ export function ifcToModel(text: string, name = 'model.ifc', opts: { now?: numbe
   const ceilingM = hs.length ? r3(hs[Math.floor(hs.length / 2)]) : 2.6;
   if (!spaces.length) warnings.push('No readable room footprints found.');
 
+  // ---- walls, doors, windows, furniture ---------------------------------------------------
+  const pickZ = pick.length ? pick[0].z : undefined;
+  const toPlan = (w: V3): Vec2 => ({ x: w[0] * lenUnit - minX, y: -w[1] * lenUnit - minY });
+  const sOf = (v: Arg | undefined) => (typeof v === 'string' ? v : '');
+  const enOf = (v: Arg | undefined) => (v && typeof v === 'object' && !Array.isArray(v) && 'en' in v ? v.en : '');
+  const storeys: Array<{ name: string; elevationM: number }> = [];
+  const storeyZ = new Map<number, number>();
+  for (const [id, e] of ents) {
+    if (e.name !== 'IFCBUILDINGSTOREY') continue;
+    const a = args(e.raw);
+    const z = isRef(a[5]) ? placement(a[5].ref).o[2] * lenUnit : 0;
+    storeyZ.set(id, z);
+    storeys.push({ name: sOf(a[2]) || sOf(a[7]) || `Level ${storeys.length}`, elevationM: r3(z) });
+  }
+  const contained = new Map<number, number>(); // element -> storey elevation
+  const fillOf = new Map<number, number>(); // filler (door/window) -> opening element
+  const voidOf = new Map<number, number>(); // opening element -> host wall
+  const psetsOf = new Map<number, number[]>();
+  for (const e of ents.values()) {
+    const a = args(e.raw);
+    if (e.name === 'IFCRELCONTAINEDINSPATIALSTRUCTURE' && isRef(a[5]) && storeyZ.has(a[5].ref) && Array.isArray(a[4])) {
+      for (const r of a[4]) if (isRef(r)) contained.set(r.ref, storeyZ.get(a[5].ref)!);
+    } else if (e.name === 'IFCRELFILLSELEMENT' && isRef(a[4]) && isRef(a[5])) fillOf.set(a[5].ref, a[4].ref);
+    else if (e.name === 'IFCRELVOIDSELEMENT' && isRef(a[4]) && isRef(a[5])) voidOf.set(a[5].ref, a[4].ref);
+    else if (e.name === 'IFCRELDEFINESBYPROPERTIES' && isRef(a[5]) && Array.isArray(a[4])) {
+      for (const r of a[4]) if (isRef(r)) psetsOf.set(r.ref, [...(psetsOf.get(r.ref) ?? []), a[5].ref]);
+    }
+  }
+  const filledOpenings = new Set(fillOf.values());
+  const propsOf = (id: number): Record<string, Arg> => {
+    const out: Record<string, Arg> = {};
+    for (const ps of psetsOf.get(id) ?? []) {
+      const pe = ents.get(ps);
+      if (!pe || pe.name !== 'IFCPROPERTYSET') continue;
+      const list = args(pe.raw)[4];
+      for (const r of Array.isArray(list) ? list : []) {
+        const sv = isRef(r) ? ents.get(r.ref) : undefined;
+        if (!sv || sv.name !== 'IFCPROPERTYSINGLEVALUE') continue;
+        const b = args(sv.raw);
+        const v = Array.isArray(b[2]) ? b[2][0] : b[2];
+        if (typeof b[0] === 'string') out[b[0]] = v ?? null;
+      }
+    }
+    return out;
+  };
+  /** World footprint (plan coordinates), base height, depth and frame of a product's extruded body. */
+  const bodyOf = (a: Arg[]) => {
+    const sd = solidOf(a);
+    if (!sd || !Number.isFinite(sd.depth)) return null;
+    const world = isRef(a[5]) ? compose(placement(a[5].ref), sd.tf) : sd.tf;
+    const w3 = sd.pts.map((p) => apply(world, [p.x, p.y, 0]));
+    return { pts: w3.map(toPlan), z: w3[0][2] * lenUnit, depth: Math.abs(sd.depth) * lenUnit, tf: world };
+  };
+  const axisOf = (a: Arg[]): [Vec2, Vec2] | null => {
+    const pd = isRef(a[6]) ? ents.get(a[6].ref) : undefined;
+    if (!pd || pd.name !== 'IFCPRODUCTDEFINITIONSHAPE' || !isRef(a[5])) return null;
+    const reps = args(pd.raw)[2];
+    for (const r of Array.isArray(reps) ? reps : []) {
+      const re = isRef(r) ? ents.get(r.ref) : undefined;
+      if (!re || re.name !== 'IFCSHAPEREPRESENTATION') continue;
+      const ra = args(re.raw);
+      if (ra[1] !== 'Axis') continue;
+      for (const it of Array.isArray(ra[3]) ? ra[3] : []) {
+        const ce = isRef(it) ? ents.get(it.ref) : undefined;
+        if (!ce || ce.name !== 'IFCPOLYLINE') continue;
+        const pts: V3[] = [];
+        const refs = args(ce.raw)[0];
+        for (const q of Array.isArray(refs) ? refs : []) if (isRef(q)) { const v = point(q.ref); if (v.length >= 2) pts.push(apply(placement(a[5].ref), [v[0], v[1], v[2] ?? 0])); }
+        if (pts.length >= 2) return [toPlan(pts[0]), toPlan(pts[pts.length - 1])];
+      }
+    }
+    return null;
+  };
+  const longestEdgeDir = (pts: Vec2[]): Vec2 => {
+    let best = { x: 1, y: 0 }, bl = -1;
+    pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length]; const l = Math.hypot(q.x - p.x, q.y - p.y); if (l > bl) { bl = l; best = { x: (q.x - p.x) / (l || 1), y: (q.y - p.y) / (l || 1) }; } });
+    return best;
+  };
+  const extent = (pts: Vec2[], d: Vec2): [number, number] => {
+    const v = pts.map((p) => p.x * d.x + p.y * d.y);
+    return [Math.min(...v), Math.max(...v)];
+  };
+  const centreOf = (pts: Vec2[]): Vec2 => ({ x: pts.reduce((t, p) => t + p.x, 0) / pts.length, y: pts.reduce((t, p) => t + p.y, 0) / pts.length });
+  const onLevel = (z: number) => pickZ === undefined || Math.abs(z - pickZ) < 0.2;
+
+  interface WallRec extends IfcWallRead { id: number; z: number; ux: number; uy: number; L: number }
+  const wallRecs: WallRec[] = [];
+  const skipCount = new Map(skipped);
+  const skip = (k: string) => skipCount.set(k, (skipCount.get(k) ?? 0) + 1);
+  for (const [id, e] of ents) {
+    if (e.name !== 'IFCWALL' && e.name !== 'IFCWALLSTANDARDCASE') continue;
+    const a = args(e.raw);
+    const b = bodyOf(a);
+    if (!b) { skip(e.name + ' (no extruded body)'); continue; }
+    if (!onLevel(contained.get(id) ?? b.z)) continue;
+    const d = longestEdgeDir(b.pts);
+    const [l0, l1] = extent(b.pts, d), [t0, t1] = extent(b.pts, { x: -d.y, y: d.x });
+    const ax = axisOf(a);
+    const mid = (t0 + t1) / 2;
+    const A = ax ? ax[0] : { x: d.x * l0 - d.y * mid, y: d.y * l0 + d.x * mid };
+    const B = ax ? ax[1] : { x: d.x * l1 - d.y * mid, y: d.y * l1 + d.x * mid };
+    const L = Math.hypot(B.x - A.x, B.y - A.y);
+    if (L < 0.05) { skip(e.name + ' (zero length)'); continue; }
+    wallRecs.push({
+      id, name: sOf(a[2]) || `Wall ${wallRecs.length + 1}`, a: { x: r3(A.x), y: r3(A.y) }, b: { x: r3(B.x), y: r3(B.y) },
+      thicknessM: r3(t1 - t0), heightM: r3(b.depth), z: b.z, ux: (B.x - A.x) / L, uy: (B.y - A.y) / L, L,
+    });
+  }
+  const offLine = (w: WallRec, p: Vec2) => Math.abs((p.x - w.a.x) * -w.uy + (p.y - w.a.y) * w.ux);
+  const alongOf = (w: WallRec, p: Vec2) => (p.x - w.a.x) * w.ux + (p.y - w.a.y) * w.uy;
+  const edgeOn = (w: WallRec, p: Vec2, q: Vec2) => { const tol = w.thicknessM / 2 + 0.05; return offLine(w, p) <= tol && offLine(w, q) <= tol; };
+  // thickness of each room edge from the wall that lies on it (largest overlap wins)
+  const placedWalls = new Set<number>();
+  for (const sp of spaces) {
+    sp.polygon.forEach((p, i) => {
+      const q = sp.polygon[(i + 1) % sp.polygon.length];
+      const el = Math.hypot(q.x - p.x, q.y - p.y);
+      let best: { w: WallRec; ov: number } | null = null;
+      for (const w of wallRecs) {
+        if (!edgeOn(w, p, q)) continue;
+        const a0 = alongOf(w, p), a1 = alongOf(w, q);
+        const ov = Math.min(Math.max(a0, a1), w.L) - Math.max(Math.min(a0, a1), 0);
+        if (ov >= Math.min(0.3, el * 0.5) && (!best || ov > best.ov)) best = { w, ov };
+      }
+      if (best) { sp.walls[i] = { ...sp.walls[i], thicknessM: best.w.thicknessM }; placedWalls.add(best.w.id); }
+    });
+  }
+  if (wallRecs.length && placedWalls.size < wallRecs.length) warnings.push(`${wallRecs.length - placedWalls.size} wall(s) do not lie on a room edge; kept in the wall list only.`);
+
+  const openings: Opening[] = [];
+  let doors = 0, windows = 0, openingsSkipped = 0, swingGuessed = 0;
+  const wallById = new Map(wallRecs.map((w) => [w.id, w]));
+  const handle = (id: number, e: Ent) => {
+    const a = args(e.raw);
+    const isOpen = e.name === 'IFCOPENINGELEMENT';
+    if (isOpen && (filledOpenings.has(id) || !voidOf.has(id))) return; // filled: its door or window is read
+    const holeId = isOpen ? id : fillOf.get(id);
+    const hostId = holeId === undefined ? undefined : voidOf.get(holeId);
+    const host = hostId === undefined ? undefined : wallById.get(hostId);
+    const holeEnt = holeId !== undefined ? ents.get(holeId) : undefined;
+    const b = bodyOf(a) ?? (holeEnt ? bodyOf(args(holeEnt.raw)) : null);
+    if (!b) { openingsSkipped++; return; }
+    if (!onLevel(host ? contained.get(host.id) ?? host.z : contained.get(id) ?? b.z)) return;
+    const c = centreOf(b.pts);
+    const dir = host ? { x: host.ux, y: host.uy } : longestEdgeDir(b.pts);
+    const [e0, e1] = extent(b.pts, dir);
+    const kind: Opening['kind'] = isOpen ? 'opening' : e.name === 'IFCDOOR' ? 'door' : 'window';
+    const widthM = !isOpen && typeof a[9] === 'number' && a[9] > 0 ? a[9] * lenUnit : e1 - e0;
+    const heightM = !isOpen && typeof a[8] === 'number' && a[8] > 0 ? a[8] * lenUnit : b.depth;
+    let best: { sp: Space; i: number; d: number; t: number } | null = null;
+    for (const sp of spaces) sp.polygon.forEach((p, i) => {
+      const q = sp.polygon[(i + 1) % sp.polygon.length];
+      const L = Math.hypot(q.x - p.x, q.y - p.y);
+      if (L < 0.2) return;
+      if (host && !edgeOn(host, p, q)) return;
+      const t = Math.max(0, Math.min(L, ((c.x - p.x) * (q.x - p.x) + (c.y - p.y) * (q.y - p.y)) / L));
+      const d = Math.hypot(p.x + ((q.x - p.x) * t) / L - c.x, p.y + ((q.y - p.y) * t) / L - c.y);
+      if (!best || d < best.d) best = { sp, i, d, t };
+    });
+    const found = best as { sp: Space; i: number; d: number; t: number } | null;
+    if (!found || found.d > (host ? host.thicknessM / 2 + 0.1 : 0.3)) { openingsSkipped++; return; }
+    const sp = found.sp;
+    const p = sp.polygon[found.i], q = sp.polygon[(found.i + 1) % sp.polygon.length];
+    const L = Math.hypot(q.x - p.x, q.y - p.y);
+    const u = { x: (q.x - p.x) / L, y: (q.y - p.y) / L };
+    let swing: Opening['swing'] = 'none', hinge: Opening['hinge'] = 'start';
+    if (kind === 'door') {
+      const op = enOf(a[11]);
+      if (op === 'SINGLE_SWING_LEFT' || op === 'SINGLE_SWING_RIGHT') {
+        swing = 'in'; swingGuessed++;
+        const sg = area2(sp.polygon) >= 0 ? 1 : -1;
+        hinge = doorOperation(u, { x: -u.y * sg, y: u.x * sg }, 'start') === op ? 'start' : 'end';
+      } else if (op.startsWith('DOUBLE_')) swing = 'in';
+      doors++;
+    } else if (kind === 'window') windows++;
+    const baseZ = host ? host.z : contained.get(id) ?? pickZ ?? 0;
+    openings.push({
+      id: `${kind}-${openings.length + 1}`, kind, spaceId: sp.id, wallIndex: found.i, offsetM: r3(found.t),
+      widthM: r3(widthM), heightM: r3(heightM), sillM: r3(Math.max(0, b.z - baseZ)), swing, hinge,
+      sourceKind: 'pdf-annotation', status: 'estimated',
+    });
+  };
+  for (const [id, e] of ents) if (e.name === 'IFCDOOR' || e.name === 'IFCWINDOW' || e.name === 'IFCOPENINGELEMENT') handle(id, e);
+  if (swingGuessed) warnings.push('IFC does not store which side a door swings to; swing doors are read as opening into the room, the hinge follows the door operation.');
+  if (openingsSkipped) warnings.push(`${openingsSkipped} door, window or opening element(s) could not be placed on a room wall.`);
+
+  const furniture: FurnitureItem[] = [];
+  for (const [id, e] of ents) {
+    if (e.name !== 'IFCFURNITURE') continue;
+    const a = args(e.raw);
+    const b = bodyOf(a);
+    if (!b) { skip('IFCFURNITURE (no extruded body)'); continue; }
+    const storeyEl = contained.get(id);
+    if (!onLevel(storeyEl ?? b.z)) continue;
+    const c = centreOf(b.pts);
+    const rotation = Math.atan2(-b.tf.x[1], b.tf.x[0]);
+    const ex = extent(b.pts, { x: Math.cos(rotation), y: Math.sin(rotation) });
+    const ey = extent(b.pts, { x: -Math.sin(rotation), y: Math.cos(rotation) });
+    const pr = propsOf(id);
+    const pt = enOf(a[8]);
+    const cat = typeof pr.Category === 'string' && pr.Category ? pr.Category
+      : sOf(a[4]) ? sOf(a[4]).toLowerCase().replace(/_/g, '-')
+      : pt && pt !== 'NOTDEFINED' && pt !== 'USERDEFINED' ? pt.toLowerCase() : 'furniture';
+    const ps = String(pr.PriceStatus ?? '');
+    const elev = Math.max(0, b.z - (storeyEl ?? 0));
+    furniture.push({
+      id: `furn-${furniture.length + 1}`, catalogId: typeof pr.CatalogId === 'string' ? pr.CatalogId : 'ifc-furniture',
+      name: sOf(a[2]) || cat, category: cat, x: r3(c.x), y: r3(c.y), rotation: r3(rotation),
+      w: r3(ex[1] - ex[0]), d: r3(ey[1] - ey[0]), h: r3(b.depth), clearance: { front: 0, back: 0, left: 0, right: 0 },
+      locked: false, owned: enOf(pr.Owned) === 'T', priceSek: typeof pr.Price === 'number' ? pr.Price : 0,
+      priceStatus: ps === 'catalog' || ps === 'user' || ps === 'owned' ? ps : 'estimated', color: '#9aa0a6',
+      material: typeof pr.Material === 'string' ? pr.Material : undefined, sourceKind: 'pdf-annotation',
+      elevationM: elev > 0.001 ? r3(elev) : undefined,
+    });
+  }
+  if (skipCount.size) warnings.push(`Not read: ${[...skipCount].map(([k, n]) => `${n} x ${k}`).join(', ')}.`);
+
   const evidence: Evidence[] = [{
     id: 'ev-ifc', kind: 'manual', label: `IFC file ${name}`,
-    note: `Read from ${schema || 'an IFC file'}; room footprints only, all estimated.`, createdAt: now,
+    note: `Read from ${schema || 'an IFC file'}; rooms, walls, doors, windows and furniture; all estimated.`, createdAt: now,
   }];
   const model: SpaceModel = {
     id: `ifc-${now}`, name: base, version: 1, units: 'm', ceilingM,
-    sourceLabel: `IFC: ${name}, ${spaces.length} room footprint(s); all estimated`,
-    spaces, openings: [], furniture: [], measurements: [], evidence,
+    sourceLabel: `IFC: ${name}, ${spaces.length} room(s), ${openings.length} opening(s), ${furniture.length} item(s); all estimated`,
+    spaces, openings, furniture, measurements: [], evidence,
   };
-  return { model, report: { spaces: total, converted: spaces.length, levels, unitM, schema, warnings } };
+  return { model, report: {
+    spaces: total, converted: spaces.length, levels, unitM, schema, warnings,
+    walls: wallRecs.length, wallList: wallRecs.map(({ name: n, a, b, thicknessM, heightM }) => ({ name: n, a, b, thicknessM, heightM })),
+    doors, windows, openingsSkipped, furniture: furniture.length, storeys, skipped: Object.fromEntries(skipCount),
+  } };
 }
 
 /** Reads an IFC file picked by the user. */
