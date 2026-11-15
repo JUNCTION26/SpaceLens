@@ -21,3 +21,9 @@
 .export-table td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; }
 .export-rates input { width: 100%; }
+
+.export-ifc button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line, #3334); background: transparent; color: inherit; cursor: pointer; }
+.shoplist { font-size: 12px; overflow-x: auto; }
+.shoplist table { width: 100%; border-collapse: collapse; }
+.shoplist th, .shoplist td { text-align: left; padding: 3px 6px; white-space: nowrap; }
+.shoplist a { color: inherit; text-decoration: none; }
