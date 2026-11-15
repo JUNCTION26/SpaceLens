@@ -60,6 +60,7 @@ function itemFor(spec: ObjectSpec, o: ThemeObject, ceilingM: number): FurnitureI
     f.mount = 'wall';
     f.clearance = { front: 0, back: 0, left: 0, right: 0 };
     f.elevationM = wallElevation(f, ceilingM);
+    if (o.hero) (f as FurnitureItem & { hero?: boolean }).hero = true;
     if (o.eyeM) f.elevationM = Math.max(0, Math.min(o.eyeM - f.h / 2, ceilingM - f.h - 0.05));
   }
   return f;
@@ -198,7 +199,11 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
   };
   const brief0 = opts.brief ?? (await themeBrief(text, { signal: opts.signal, room: roomLine(model), onObject: onEarly }));
   // Keep layout fast (12 floor pieces plus wall decor) and the named poster present.
-  const brief: ThemeBrief = { ...brief0, objects: withNamePosters(capFloorItems(brief0.objects), findNames(text), brief0.palette) };
+  const names = findNames(text);
+  const withNames = withNamePosters(capFloorItems(brief0.objects), names, brief0.palette);
+  // A named poster is always the hero: it takes the centre of the wall facing the door.
+  const named = names.length ? withNames.find((o) => o.text?.toLowerCase() === names[0].toLowerCase()) : undefined;
+  const brief: ThemeBrief = { ...brief0, objects: named ? withNames.map((o) => ({ ...o, hero: o === named ? true : undefined })) : withNames };
   const briefMs = Math.round(now() - t);
   end('brief', t, { label: brief.title, model: brief.by === 'gemini' ? brief.model : 'rules', detail: `${brief.objects.length} pieces` });
   abortIf(opts.signal);

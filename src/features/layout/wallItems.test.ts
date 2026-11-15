@@ -40,3 +40,37 @@ describe('wall-mounted items', () => {
     expect(rs.find((r) => r.id === 'wall:off')?.result).toBe('fail');
   });
 });
+
+describe('hero wall piece', () => {
+  const mk = (id: string, w: number, h: number, patch = {}) => ({ ...item(id, 0, 0, w, 0.03, { category: 'poster', name: id, h, mount: 'wall' as const }), ...patch });
+  const hero = () => mk('Hero poster', 0.5, 0.7, { hero: true });
+  it('lands centred on the wall opposite the door at eye height', () => {
+    const m = room(rect(3.4, 4.2), [opening('door', 'door', 0, 0.6, 0.8, 'in')]);
+    const { placed } = placeWallItems(m, [], [mk('a', 0.5, 0.7), hero(), mk('b', 0.5, 0.7)]);
+    const h = placed.find((p) => p.name === 'Hero poster')!;
+    const c = h.elevationM! + h.h / 2;
+    expect(c).toBeGreaterThanOrEqual(1.4 - 1e-6); expect(c).toBeLessThanOrEqual(1.6 + 1e-6);
+    expect(h.y).toBeCloseTo(4.2, 1); // the wall facing the door
+    expect(Math.abs(h.x - 1.7)).toBeLessThan(0.01);
+  });
+  it('shifts sideways for a window, and for a wardrobe against that wall', () => {
+    const m = room(rect(3.4, 4.2), [opening('door', 'door', 0, 0.6, 0.8, 'in'), opening('win', 'window', 2, 1.7, 1.2)]);
+    const h = placeWallItems(m, [], [hero()]).placed[0];
+    expect(Math.abs(h.x - 1.7)).toBeGreaterThan(0.5);
+    const m2 = room(rect(3.4, 4.2), [opening('door', 'door', 0, 0.6, 0.8, 'in')]);
+    const ward = item('ward', 1.7, 4.2 - 0.3, 1.0, 0.6, { category: 'wardrobe', h: 2.0, rotation: Math.PI });
+    const h2 = placeWallItems(m2, [ward], [hero()]).placed[0];
+    expect(h2.y).toBeGreaterThan(3.5);
+    expect(Math.abs(h2.x - 1.7)).toBeGreaterThan(0.5 + 0.25 - 0.01);
+  });
+  it('mirrors a left and right pair around the hero, with gaps, nothing overlapping an opening', () => {
+    const m = room(rect(3.4, 4.2), [opening('door', 'door', 0, 0.6, 0.8, 'in'), opening('win', 'window', 1, 2, 1.2)]);
+    const { placed } = placeWallItems(m, [], [hero(), mk('left poster', 0.4, 0.5), mk('right poster', 0.4, 0.5), mk('clock', 0.35, 0.35)]);
+    const g = (n: string) => placed.find((p) => p.name === n)!;
+    expect(g('left poster').y).toBeCloseTo(g('Hero poster').y, 2);
+    expect((g('left poster').x + g('right poster').x) / 2).toBeCloseTo(g('Hero poster').x, 2);
+    const rs = validateLayout(m, placed, reqs());
+    for (const p of placed) expect(rs.find((r) => r.id === `wall:${p.id}`)?.result, p.name).toBe('pass');
+    for (const p of placed) expect(p.elevationM! + p.h).toBeLessThanOrEqual(2.1 + 1e-6);
+  });
+});
