@@ -4,8 +4,6 @@ import { clearSignals } from './signals';
 import { setTasteEnabled, useTasteOn, useTasteProfile } from './state';
 import './taste.css';
 
-const dots = (c: number) => (c >= 0.7 ? 3 : c >= 0.4 ? 2 : c >= MIN_C ? 1 : 0);
-
 export function TastePanel() {
   const p = useTasteProfile();
   const on = useTasteOn();
@@ -30,13 +28,12 @@ export function TastePanel() {
         <button className="taste-reset" aria-label="Reset" title="Reset" onClick={clearSignals} disabled={!p.events}><Icon name="rotate" size={14} /></button>
       </div>
       {rows.map((r) => (
-        <div key={r.hi} className={`taste-row${r.c < MIN_C ? ' unlearned' : ''}`} title={`${Math.round(r.c * 100)}% sure`}>
+        <div key={r.hi} className={`taste-row${r.c < MIN_C ? ' unlearned' : ''}`}>
           <Icon name={r.icon} size={14} />
           <span className="taste-name">{r.c < MIN_C ? r.hi : r.v >= 0.5 ? r.hi : r.lo}</span>
           <span className="taste-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.v * 100)} aria-label={`${r.hi} or ${r.lo}`}>
             <i style={{ width: r.c < MIN_C ? 0 : `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
           </span>
-          <span className="taste-conf" aria-label={`${dots(r.c)} of 3 sure`}>{[0, 1, 2].map((i) => <i key={i} className={i < dots(r.c) ? 'on' : ''} />)}</span>
         </div>
       ))}
       {(p.palette.length > 0 || p.materials.length > 0) && (

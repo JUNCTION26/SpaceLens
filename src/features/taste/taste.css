@@ -11,8 +11,5 @@
 .taste-dots { display: inline-flex; gap: 4px; }
 .taste-dots i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); display: block; }
 .taste-row.unlearned .taste-name { color: var(--muted); }
-.taste-conf { display: inline-flex; gap: 3px; }
-.taste-conf i { width: 5px; height: 5px; border-radius: 50%; background: var(--line); display: block; }
-.taste-conf i.on { background: var(--accent); }
 .taste-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .taste-chip { padding: 2px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); white-space: nowrap; }
