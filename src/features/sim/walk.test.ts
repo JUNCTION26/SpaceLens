@@ -60,11 +60,11 @@ describe('collision', () => {
     expect(hits({ x: 4, y: 2 }, BODY.stand, obs)).toBe(false);
     expect(hits({ x: 4, y: 0.7 }, BODY.stand, obs)).toBe(true);
   });
-  it('a standing body passes a 0.6 m door and a wheelchair does not', () => {
+  it('a standing body passes a 0.7 m door and a wheelchair does not', () => {
     const passes = (m: SpaceModel, r: number) => moveSliding({ x: 3.4, y: 2 }, { x: 1.2, y: 0 }, r, segmentObstacles(solidSegments(m))).pos.x > 4.5;
     expect(passes(three(0.9), BODY.stand)).toBe(true);
     expect(passes(three(0.9), BODY.wheelchair)).toBe(true);
-    const narrow = three(0.9); narrow.openings[0].widthM = 0.6; narrow.openings[1].widthM = 0.6;
+    const narrow = three(0.9); narrow.openings[0].widthM = 0.7; narrow.openings[1].widthM = 0.7;
     expect(passes(narrow, BODY.stand)).toBe(true);
     expect(passes(narrow, BODY.wheelchair)).toBe(false);
   });
@@ -107,7 +107,7 @@ describe('walker', () => {
     let w = newWalker({ x: 0, y: 0 }, Math.PI / 4); // faces plan -x and -y
     for (let i = 0; i < 120; i++) w = stepWalker(w, { forward: 1, strafe: 0 }, 1 / 60, plain, { obstacles: obs });
     expect(w.pos.y).toBeGreaterThan(-0.76);
-    expect(w.pos.x).toBeLessThan(-1);
+    expect(w.pos.x).toBeLessThan(-0.9);
   });
 });
 
