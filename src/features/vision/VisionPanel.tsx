@@ -75,11 +75,10 @@ function FurnitureFromPhoto() {
       {err && <p className="error small">{err}</p>}
       {est && (
         <div className="vision-result">
-          <p className="small"><strong>Estimate</strong> · {Math.round(est.confidence * 100)}% sure</p>
-          <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
+                    <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')}
-          <details className="small"><summary>Details</summary><p className="muted">{est.reasoning}</p></details>
+          <details className="small"><summary>More</summary><p className="muted">{est.reasoning}</p></details>
           <button className="btn btn-primary" onClick={add}>Add as owned</button>
         </div>
       )}
