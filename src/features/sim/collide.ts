@@ -11,7 +11,7 @@ export type Obstacle =
   | { kind: 'segment'; a: Vec2; b: Vec2; halfM: number }
   | { kind: 'polygon'; pts: Vec2[] };
 
-export const BODY = { stand: 0.2, wheelchair: 0.35 } as const;
+export const BODY = { stand: 0.25, wheelchair: 0.35 } as const;
 
 export const segmentObstacles = (solids: SolidSegment[]): Obstacle[] => solids.map((s) => ({ kind: 'segment', a: s.a, b: s.b, halfM: s.halfM }));
 

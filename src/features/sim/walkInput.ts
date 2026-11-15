@@ -55,7 +55,8 @@ export interface WalkInput {
 
 const LOOK_MOUSE = 0.004, LOOK_TOUCH = 0.0045, PAD_R = 48;
 
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+/** True when keystrokes belong to a text field, so the walker must ignore them. */
+export const typing = (t: EventTarget | null) => t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
 const onControl = (t: EventTarget | null) => t instanceof Element && !!t.closest('button,a,input,select,textarea,[role="button"],[role="toolbar"]');
 
 /** Attach to the 3D view's element. Keys are caught first so they do not also edit the plan. */

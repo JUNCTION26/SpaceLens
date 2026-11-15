@@ -6,7 +6,7 @@ import { doorPaths, planTour, poseAt, tourOrder, tourProgress, tourTimeline } fr
 import { solidSegments } from './walls';
 import { wheelchairPinches } from './wheelchair';
 import { bestFormat } from './recorder';
-import { clampPitch, easeTurn, keyAxes, padAxes, TURN_RATE } from './walkInput';
+import { clampPitch, easeTurn, keyAxes, padAxes, TURN_RATE, typing } from './walkInput';
 
 const TURN_1S_MIN = (Math.PI / 2) * 0.8;
 
@@ -200,6 +200,18 @@ describe('recording and input', () => {
     expect(keyAxes(new Set(['ArrowRight'])).turn).toBe(-1);
     expect(keyAxes(new Set(['ArrowUp'])).tilt).toBe(1);
     expect(keyAxes(new Set(['ArrowDown'])).tilt).toBe(-1);
+  });
+  it('keys are ignored while typing in a field', () => {
+    class Fake { constructor(public tagName: string, public isContentEditable = false) {} }
+    const g = globalThis as unknown as { HTMLElement?: unknown };
+    const old = g.HTMLElement; g.HTMLElement = Fake;
+    try {
+      expect(typing(new Fake('INPUT') as never)).toBe(true);
+      expect(typing(new Fake('TEXTAREA') as never)).toBe(true);
+      expect(typing(new Fake('DIV', true) as never)).toBe(true);
+      expect(typing(new Fake('DIV') as never)).toBe(false);
+      expect(typing(null)).toBe(false);
+    } finally { g.HTMLElement = old; }
   });
   it('arrow turning eases in and holds about 90 degrees a second, tilt stays within 60 degrees', () => {
     let v = 0, yaw = 0;
