@@ -57,7 +57,7 @@
 
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
   .stage { height: calc(100dvh - 60px); min-height: 220px; }
-  .stage-split { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+  .stage-split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); grid-template-rows: 1fr; }
   .topbar { position: static; }
   .mobile-tabs button { min-height: 44px; }
 }

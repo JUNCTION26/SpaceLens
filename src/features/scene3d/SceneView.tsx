@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { AdaptiveDpr, ContactShadows, Edges, Environment, OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
@@ -14,6 +14,7 @@ import { pathBetween, planTour } from '../sim/tour';
 import { applyDemoLink } from '../building/demo';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
 import { revealOrder } from '../layout/revealOrder';
+import { useReports } from '../design/reportStore';
 import { EYES, setViewPrefs, toggleStageFull, useViewPrefs, type ViewAngle } from '../../ui/ViewFold';
 import './scene3d.css';
 import { XRRig } from '../xr/XRRig';
@@ -593,9 +594,9 @@ function homeView(room: ReturnType<typeof useRoom>, cam: THREE.Camera, kind: Vie
   // Bounding sphere of the room box; the target sits a little low so the floor reads well.
   const r = 0.5 * Math.hypot(w, d, ceil);
   // a little margin so corners and labels clear the pane edges and the floating bars
-  const dist = (r / Math.sin(Math.min(vHalf, hHalf))) * 1.12;
+  const dist = (r / Math.sin(Math.min(vHalf, hHalf))) * 1.0;
   const t = new THREE.Vector3(cx, ceil * 0.35, cy);
-  const dir = kind === 'front' ? new THREE.Vector3(0, 0.6, 1) : new THREE.Vector3(0.75, 1.05, 1.0);
+  const dir = kind === 'front' ? new THREE.Vector3(0, 0.6, 1) : new THREE.Vector3(0.8, 0.75, 1.0);
   return { p: t.clone().addScaledVector(dir.normalize(), dist), t };
 }
 
@@ -1134,6 +1135,17 @@ export function SceneView() {
   const stopTour = () => { walk.current.tour = false; walk.current.path = null; endTour(); };
   useEffect(() => () => { const r = recorder.current; if (r && r.state !== 'inactive') r.stop(); }, []);
   useEffect(() => { applyDemoLink(); }, []);
+  // The first design of each run lands with a slow quarter turn around the room; any drag cancels it.
+  useEffect(() => {
+    let armed = useReports.getState().running, base = useStore.getState().model.furniture;
+    const offR = useReports.subscribe((s, prev) => { if (s.running && !prev.running) { armed = true; base = useStore.getState().model.furniture; } });
+    const offS = useStore.subscribe((s) => {
+      if (!armed || s.model.furniture === base || !s.model.furniture.length) return;
+      armed = false;
+      window.dispatchEvent(new CustomEvent('spacelens:camera', { detail: { shot: 'orbit', seconds: 6 } }));
+    });
+    return () => { offR(); offS(); };
+  }, []);
 
   // Full screen covers the whole views area and is started from the top bar (or Shift+F).
   const toggleFs = toggleStageFull;
@@ -1295,7 +1307,8 @@ export function SceneView() {
         <hemisphereLight args={[light.night > 0.5 ? '#5a6a8a' : '#f4f1ea', '#5b5348', (mode === 'walk' ? 0.55 : 0.18) * (1 - 0.5 * light.night)]} />
         {mode === 'walk' && <ambientLight color="#fff6ea" intensity={0.3} />}
         <Sun hour={hour} room={room} quality={quality} />
-        <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85 * (1 - 0.8 * light.night) * (0.75 + 0.25 * light.day)} />
+        {/* the room draws at once in sun and sky light; reflections arrive when the light map has loaded */}
+        <Suspense fallback={null}><Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85 * (1 - 0.8 * light.night) * (0.75 + 0.25 * light.day)} /></Suspense>
         <LampGlow items={shown} hour={hour} />
         <SelectionRim items={shown} />
         <PerformanceMonitor onDecline={() => setQuality('low')} flipflops={2} />

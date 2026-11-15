@@ -210,7 +210,7 @@ button.brand:hover { background: var(--hover); }
 .side-body > * { animation: fade-in .16s var(--ease); }
 
 .stage { position: relative; min-width: 0; min-height: 0; display: grid; gap: 1px; background: var(--line); }
-.stage-split { grid-template-columns: 1fr 1fr; }
+.stage-split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .stage-2d, .stage-3d { grid-template-columns: 1fr; }
 .pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--plan-bg); }
 
