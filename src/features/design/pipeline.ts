@@ -8,6 +8,8 @@ import { catalogEntry, makeItem } from '../furniture/catalog';
 import { pointInPolygon, uid } from '../../core/geometry';
 import { explainInfeasible } from '../layout/solver';
 import { dressWalls } from '../layout/dress';
+import { finishCandidates } from './finish';
+import { styleRoom } from './palette';
 import { applyFixes, critique, type Critique } from './critic';
 import { planConcepts, rulesConcept, type Concept } from './planner';
 import { evaluateRules } from './rules';
@@ -296,6 +298,9 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
     stages.push({ id: 'critic', label: 'Second opinion', status: 'skipped', detail: online ? 'off' : 'no model key' }); emit();
   }
 
-  // 6. Rank.
-  return snapshot();
+  // 6. Rank, then finish (rugs, lamps, plant, wall snapping) and give the room one coherent style.
+  // Only for a single room: in a building the other rooms' pieces must stay exactly as they are.
+  if (model.spaces.length > 1) return snapshot();
+  const finished = finishCandidates(model, snapshot(), req);
+  return { ...finished, candidates: finished.candidates.map((c) => ({ ...c, furniture: styleRoom(c.furniture, opts.brief ?? '', req.style, req.purpose) })) };
 }

@@ -100,7 +100,7 @@ describe('designRoom', () => {
     const res = await designRoom(building, req, { variants: 1, spaceId: 'B' });
     const f = res.candidates[0].furniture;
     expect(f.find((x) => x.id === 'keep')).toMatchObject({ x: 1, y: 1 });
-    const placed = f.filter((x) => x.id !== 'keep');
+    const placed = f.filter((x) => x.id !== 'keep' && x.mount !== 'wall');
     expect(placed.length).toBe(2);
     // the mock solver puts items at x = 0.5 + i in the cut-out room, which starts just past the shared wall
     expect(placed.every((x) => x.x > 4 && x.x < 8)).toBe(true);
