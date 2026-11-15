@@ -38,6 +38,8 @@ export async function loadFromHash(): Promise<boolean> {
     const model = await decodeModel(k);
     const st = getState();
     st.dispatch({ type: 'REPLACE_MODEL', model });
+    // A first-time visitor would land on Home with the shared room hidden behind it: open the design.
+    if (st.mode === 'home') { st.setMode('design'); st.setView('split'); }
     st.toast('Opened shared design', 'ok');
     return true;
   } catch {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore, type Toast } from '../core/store';
 import { useNotices, type NoticeAction } from './notify';
 import { useUi } from './uiStore';
-import { sampleRoom } from '../core/sample';
+import { showcaseRoom } from '../core/showcase';
 
 /** Text that reads like a raw exception rather than a sentence for people. */
 const RAW = /(TypeError|ReferenceError|SyntaxError|RangeError|Uncaught|undefined is not|Cannot read propert|\bat \w+ \(|https?:\/\/\S{60,}|\{".*":)/;
@@ -26,7 +26,7 @@ function actionsFor(t: Toast, details?: string): NoticeAction[] {
     if (sel?.kind === 'furniture') out.push({ label: 'Unlock', run: () => useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { locked: false } }), primary: true });
   }
   if (/camera|webcam|getUserMedia|NotAllowedError/i.test(s)) out.push({ label: 'Draw', run: () => ui.openCapture('draw'), primary: true });
-  if (/share(d)? link|link .*(invalid|broken|expired)/i.test(s)) out.push({ label: 'My room', run: () => { useStore.getState().dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); ui.openSection('layouts'); } });
+  if (/share(d)? link|link .*(invalid|broken|expired)/i.test(s)) out.push({ label: 'My room', run: () => { useStore.getState().dispatch({ type: 'REPLACE_MODEL', model: showcaseRoom() }); ui.openSection('layouts'); } });
   if (/no (room|outline|walls)/i.test(s)) out.push({ label: 'Draw', run: () => ui.openCapture('draw') });
   if (/overlap/i.test(s)) out.push({ label: 'Fixes', run: () => ui.openSection('checks'), primary: true });
   if (details) out.push({ label: 'Copy', run: () => copy(details) });
