@@ -191,13 +191,13 @@ export function LibraryPanel() {
 
       {own.open ? (
         <section className="furniture-own">
-          <input className="field" placeholder="Name" value={own.name} onChange={(e) => setOwn({ ...own, name: e.target.value })} />
+          <input className="field" placeholder="Name" aria-label="Name" value={own.name} onChange={(e) => setOwn({ ...own, name: e.target.value })} />
           <div className="row">
             {(['w', 'd', 'h'] as const).map((k) => (
-              <input key={k} className="field" inputMode="numeric" placeholder={{ w: 'W cm', d: 'D cm', h: 'H cm' }[k]} value={own[k]} onChange={(e) => setOwn({ ...own, [k]: e.target.value })} />
+              <input key={k} className="field" inputMode="numeric" placeholder={{ w: 'W cm', d: 'D cm', h: 'H cm' }[k]} aria-label={{ w: 'Width, cm', d: 'Depth, cm', h: 'Height, cm' }[k]} value={own[k]} onChange={(e) => setOwn({ ...own, [k]: e.target.value })} />
             ))}
           </div>
-          <select className="field" value={own.category} onChange={(e) => setOwn({ ...own, category: e.target.value })}>
+          <select className="field" aria-label="Category" value={own.category} onChange={(e) => setOwn({ ...own, category: e.target.value })}>
             {CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}
           </select>
           <div className="row">
@@ -206,7 +206,7 @@ export function LibraryPanel() {
           </div>
         </section>
       ) : (
-        <button className="furniture-link" onClick={() => setOwn({ ...own, open: true })}><Icon name="plus" size={14} />Custom item</button>
+        <button className="btn btn-sm" onClick={() => setOwn({ ...own, open: true })}><Icon name="plus" size={14} />Custom item</button>
       )}
 
       {model.furniture.length > 0 && (
