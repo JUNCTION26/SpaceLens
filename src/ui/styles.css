@@ -85,7 +85,7 @@ input, select, textarea {
   border-radius: var(--radius-sm); padding: 0 10px; min-height: var(--ctl); width: 100%; font-variant-numeric: tabular-nums;
 }
 textarea { padding: 8px 10px; resize: vertical; min-height: 88px; line-height: 1.5; }
-select { padding-right: 6px; }
+select { padding-right: 6px; height: var(--ctl); }
 input[type='checkbox'], input[type='radio'] { width: auto; min-height: 0; padding: 0; accent-color: var(--accent); }
 input[type='range'] { padding: 0; background: none; border: 0; min-height: 20px; accent-color: var(--accent); }
 input[type='file'] { padding: 6px; }

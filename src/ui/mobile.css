@@ -72,7 +72,11 @@
 }
 
 @media (pointer: coarse) {
-  .btn, .icon-btn, .nav-item { min-height: 44px; }
-  .icon-btn { min-width: 44px; }
+  .btn, .btn-sm, .btn-xl, .icon-btn, .nav-item, .nav-link, .nav-collapse, .seg button, .chip-btn, select { min-height: 44px; }
+  select { height: 44px; }
+  .icon-btn, .sheet-head .icon-btn, .nav-collapse { min-width: 44px; min-height: 44px; }
+  .sheet-head .icon-btn { width: 44px; height: 44px; }
+  .topbar-center .seg button { min-height: 44px; }
+  .provenance-step { min-width: 44px; min-height: 44px; }
   input, select, textarea { font-size: max(16px, 1em); }
 }
