@@ -45,11 +45,13 @@ function friendlyName(raw: string): string {
 export function DrawingsPanel() {
   const dispatch = useStore((s) => s.dispatch);
   const setMode = useStore((s) => s.setMode);
-  const toast = useStore((s) => s.toast);
+  const [note, setNote] = useState<{ t: string; bad: boolean } | null>(null);
+  const toast = (t: string, tone: 'ok' | 'info' | 'warn' | 'error' = 'info') => { if (tone === 'warn' || tone === 'error') setNote({ t, bad: true }); };
+  useEffect(() => { if (!note) return; const id = window.setTimeout(() => setNote(null), 8000); return () => window.clearTimeout(id); }, [note]);
   const [doc, setDoc] = useState<DrawingDoc | null>(lastDoc);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
-  const [samples, setSamples] = useState<Array<{ name: string; url: string }>>([]);
+  const [samples, setSamples] = useState<Array<{ name: string; url: string; label: string }>>([]);
   const [tool, setTool] = useState<Tool>('pan');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -119,7 +121,9 @@ export function DrawingsPanel() {
       setSamples(list.map((e: string | { name?: string; url?: string; file?: string; path?: string }) => {
         const url = typeof e === 'string' ? e : e.url ?? e.file ?? e.path ?? '';
         const name = typeof e === 'string' ? e.split('/').pop()! : e.name ?? url.split('/').pop()!;
-        return { name, url: /^(https?:|\/)/.test(url) ? url : `${import.meta.env.BASE_URL}samples/stoa/${url}` };
+        const title = typeof e === 'string' ? '' : (e as { title?: string }).title ?? '';
+        const label = title ? title.replace(/\s*\(.*$/, '').replace(/^.*?floor,\s*/i, '') : friendlyName(name);
+        return { name, label, url: /^(https?:|\/)/.test(url) ? url : `${import.meta.env.BASE_URL}samples/stoa/${url}` };
       }).filter((s: { url: string }) => s.url));
     }).catch(() => { /* no samples yet */ });
   }, []);
@@ -130,22 +134,15 @@ export function DrawingsPanel() {
   }, []);
 
   const benchCard = bench && (
-    <details className="drawings-bench">
-      <summary>Accuracy</summary>
-      <div className="row drawings-stats">
-        <div className="stat"><b>{bench.accuracyOnAnswered}%</b><span className="muted">accuracy when answered</span></div>
-        <div className="stat"><b>{bench.coverage}%</b><span className="muted">answered</span></div>
-        <div className="stat"><b>{bench.questions}</b><span className="muted">questions</span></div>
-        <div className="stat"><b>0</b><span className="muted">model calls</span></div>
+    <details className="drawings-more">
+      <summary>More</summary>
+      <div className="drawings-chips">
+        <span className="chip" title="Accuracy">{bench.accuracyOnAnswered}%</span>
+        <span className="chip" title="Answered">{bench.coverage}% <Icon name="check" size={12} /></span>
+        <span className="chip" title="Plans">{bench.files} <Icon name="file" size={12} /></span>
+        {buildBench && <span className="chip" title="Built in 3D">{buildBench.convertedPct}% <Icon name="cube" size={12} /></span>}
+        {buildBench && <span className="chip" title="Areas within 2%">{buildBench.within2PctPct}% <Icon name="ruler" size={12} /></span>}
       </div>
-      <p className="muted">{bench.dataset} · {bench.files} plans</p>
-      {buildBench && (
-        <div className="row drawings-stats">
-          <div className="stat"><b>{buildBench.convertedPct}%</b><span className="muted">plans built in 3D</span></div>
-          <div className="stat"><b>{buildBench.within2PctPct}%</b><span className="muted">areas within 2%</span></div>
-          <div className="stat"><b>{buildBench.medianMsPerPlan} ms</b><span className="muted">per plan</span></div>
-        </div>
-      )}
     </details>
   );
 
@@ -179,7 +176,7 @@ export function DrawingsPanel() {
     if (!pic) return;
     const v = Number(knownLen.replace(',', '.'));
     const k = factorForLength(pic.report.sizeM, v);
-    if (!k) { toast('Type metres', 'warn'); return; }
+    if (!k) { toast('m', 'warn'); return; }
     const model = rescaleModel(pic.model, k);
     const report: ImagePlanReport = {
       ...pic.report, needsLength: false, confidence: Math.max(pic.report.confidence, 0.8), warnings: [],
@@ -199,7 +196,7 @@ export function DrawingsPanel() {
 
   async function buildPlan() {
     if (!doc || !pg) return;
-    setBuilding(true); setLoading('Reading walls, doors and rooms');
+    setBuilding(true); setLoading('Reading');
     await new Promise((r) => setTimeout(r, 30)); // let the progress line paint
     try {
       // An object URL keeps the saved model small: every wall's evidence points at the same page image.
@@ -222,7 +219,7 @@ export function DrawingsPanel() {
 
   async function proposeRooms() {
     if (!doc || !pg) return;
-    setBuilding(true); setLoading('Gemini is looking at the plan');
+    setBuilding(true); setLoading('Reading');
     try {
       const img = await downscale(pg.dataUrl, 1400);
       const raw = await gemini<{ rooms?: Array<{ name?: string; areaM2?: number; polygon?: Vec2[] }> }>(
@@ -231,9 +228,9 @@ export function DrawingsPanel() {
       );
       const ps = cleanProposals(raw);
       setProposals(ps);
-      if (!ps.length) toast('No rooms found. Trace a room by hand.', 'warn');
+      if (!ps.length) toast('0 rooms', 'warn');
     } catch (e) {
-      toast(`${(e as Error).message} Trace a room by hand instead.`, 'error');
+      toast((e as Error).message, 'error');
     } finally { setBuilding(false); setLoading(null); }
   }
 
@@ -273,7 +270,7 @@ export function DrawingsPanel() {
       const r = await fetch(s.url);
       if (!r.ok) throw new Error(String(r.status));
       await openBlob(await r.blob(), s.name);
-    } catch (e) { toast(`Sample failed: ${(e as Error).message}`, 'error'); }
+    } catch (e) { toast(`Open failed: ${(e as Error).message}`, 'error'); }
   }
 
   async function addCrops(a: Answer) {
@@ -320,7 +317,7 @@ export function DrawingsPanel() {
     if (local) { setStats((s) => ({ asked: s.asked + 1, free: s.free + 1 })); show(local); setAsking(false); setQ(''); return; }
     setStats((s) => ({ ...s, asked: s.asked + 1 }));
     if (!hasGemini()) {
-      show({ id: uid('a'), question, answer: 'Not found in the drawing text. Add a Gemini key in Settings to ask the model.', kind: 'inferred', method: 'none', regions: [] });
+      show({ id: uid('a'), question, answer: '–', kind: 'inferred', method: 'none', regions: [] });
       setAsking(false); return;
     }
     const key = `${doc.name}|${page}|${question.trim().toLowerCase()}`;
@@ -383,7 +380,7 @@ export function DrawingsPanel() {
 
   function applyCalibration() {
     const d = Number(calDist.replace(',', '.'));
-    if (calPts.length !== 2 || !(d > 0)) return toast('Click 2 points, type metres', 'warn');
+    if (calPts.length !== 2 || !(d > 0)) return toast('2 points + m', 'warn');
     setMPerPx((m) => ({ ...m, [page]: d / pxDist(calPts[0], calPts[1]) }));
     toast('Scale set from your two points', 'ok');
   }
@@ -411,7 +408,7 @@ export function DrawingsPanel() {
   }, [trace, mpp, dims, pg]);
 
   function explore3d() {
-    if (!doc || !pg || !mpp || trace.length < 3) return toast('Set scale, click 3 corners', 'warn');
+    if (!doc || !pg || !mpp || trace.length < 3) return toast('Scale + 3 corners', 'warn');
     let poly: Vec2[] = trace.map((p) => ({ x: p.x * pg.pxW * mpp, y: p.y * pg.pxH * mpp }));
     const minX = Math.min(...poly.map((p) => p.x)), minY = Math.min(...poly.map((p) => p.y));
     poly = poly.map((p) => ({ x: p.x - minX, y: p.y - minY }));
@@ -448,17 +445,6 @@ export function DrawingsPanel() {
 
   const st = doc ? indexStats(doc) : null;
   const pageFocus = (focus ?? []).filter((r) => r.page === page);
-  const named = [...new Set(roomList.filter((x) => x.area).map((x) => x.r.str))].slice(0, 2);
-  const geoReady = !!built?.report.ok && built.page === page;
-  const suggestions = [
-    ...(geoReady ? ['Which room is largest?', 'How many rooms have a window?', 'Entrance to bathroom distance?'] : []),
-    ...named.slice(0, geoReady ? 1 : 2).map((n) => `Area of ${n}?`),
-    ...(roomList.length && !geoReady ? ['How many rooms?'] : []),
-    ...(scaleItems.length ? ['What scale?'] : []),
-    ...(dims.length ? ['Which dimensions are on this sheet?'] : []),
-  ];
-  if (!suggestions.length) suggestions.push('What scale?', 'List rooms', 'What is the area of the kitchen?');
-
   const rep = built && built.page === page ? built.report : null;
   const picked = rep?.rooms.find((r) => r.spaceId === pickRoom) ?? null;
   const flyToRoom = (id: string) => {
@@ -478,123 +464,115 @@ export function DrawingsPanel() {
   const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
   const hasLines = !!doc?.vectors?.[page];
   const sampleList = samples.length > 0 && (
-    <div className="drawings-samples">
-      <h4>Samples</h4>
+    <div className="drawings-chips" role="group" aria-label="Examples">
       {samples.map((s) => (
-        <button key={s.url} className="drawings-sample" onClick={() => void openSample(s)}>
-          <span>{friendlyName(s.name)}</span><Icon name="chevronRight" size={14} />
-        </button>
+        <button key={s.url} className="chip drawings-ex" onClick={() => void openSample(s)} title={s.label}>{s.label}</button>
       ))}
     </div>
   );
+  const spinner = loading ? <span className="intent-spin" role="status" aria-label="Working" /> : null;
+  const noteChip = note && <span className="chip chip-warn drawings-note" role="status"><Icon name="alert" size={12} /> {note.t}</span>;
   const buildCard = doc && (
-    <section className="card drawings-build">
+    <section className="drawings-sec drawings-build">
       {!rep && (
         <>
           {hasLines ? (
-            <>
-              <button className="btn btn-primary drawings-big" onClick={() => void buildPlan()} disabled={building}>
-                {building ? 'Reading…' : 'Build 3D from this plan'}
-              </button>
-            </>
+            <button className="btn drawings-big" onClick={() => void buildPlan()} disabled={building}>
+              <Icon name="cube" size={14} /> 3D
+            </button>
           ) : proposals ? (
             <>
-              <p className="muted drawings-bnote">{proposals.length} rooms found. Remove any that are wrong.</p>
-              <div className="drawings-rooms">
+              <div className="drawings-chips">
+                <span className="chip">{proposals.length} <Icon name="layout" size={12} /></span>
                 {proposals.map((r, i) => (
-                  <div key={i} className="drawings-room">
-                    <span>{r.name}{r.areaM2 ? ` · ${r.areaM2} m²` : ''}</span>
-                    <button className="btn btn-ghost btn-sm" aria-label={`Remove ${r.name}`} onClick={() => setProposals((ps) => ps!.filter((_, j) => j !== i))}><Icon name="minus" size={12} /></button>
-                  </div>
+                  <span key={i} className="chip" title={r.name}>
+                    {r.name}{r.areaM2 ? ` ${r.areaM2} m²` : ''}
+                    <button className="drawings-x" aria-label={`Remove ${r.name}`} onClick={() => setProposals((ps) => ps!.filter((_, j) => j !== i))}><Icon name="x" size={12} /></button>
+                  </span>
                 ))}
               </div>
-              {!proposalScale && <p className="muted drawings-bnote">No areas. Set scale.</p>}
-              <button className="btn btn-primary drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}>Open in 3D</button>
-              {!proposalScale && <button className="btn btn-sm" onClick={() => setTool('calibrate')}>Set scale</button>}
+              <div className="drawings-actions">
+                <button className="btn drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}><Icon name="cube" size={14} /> 3D</button>
+                {!proposalScale && <button className="btn" onClick={() => setTool('calibrate')}><Icon name="ruler" size={14} /> Scale</button>}
+              </div>
             </>
           ) : (
-            <>
-              <p className="muted">No lines in a picture</p>
-              {hasGemini() && <button className="btn btn-primary drawings-big" disabled={building} onClick={() => void proposeRooms()}>{building ? 'Finding rooms…' : 'Find rooms with Gemini'}</button>}
-              <button className="btn drawings-big" onClick={() => setTool(mpp ? 'trace' : 'calibrate')}>Trace a room</button>
-            </>
+            <div className="drawings-actions">
+              {hasGemini() && <button className="btn drawings-big" disabled={building} onClick={() => void proposeRooms()}><Icon name="sparkles" size={14} /> Rooms</button>}
+              <button className="btn drawings-big" onClick={() => setTool(mpp ? 'trace' : 'calibrate')}><Icon name="ruler" size={14} /> Trace</button>
+            </div>
           )}
         </>
       )}
       {rep && !rep.ok && (
         <>
-          <h4>Could not build 3D</h4>
-          <p>{rep.reason}</p>
-          <button className="btn drawings-big" onClick={() => { setBuilt(null); setTool(mpp ? 'trace' : 'calibrate'); }}>Trace a room</button>
+          <div className="drawings-chips"><span className="chip chip-warn"><Icon name="alert" size={12} /> 0 <Icon name="layout" size={12} /></span></div>
+          <button className="btn drawings-big" onClick={() => { setBuilt(null); setTool(mpp ? 'trace' : 'calibrate'); }}><Icon name="ruler" size={14} /> Trace</button>
+          <details className="drawings-more"><summary>More</summary><p>{rep.reason}</p></details>
         </>
       )}
       {rep && rep.ok && (
         <>
-          <div className="row drawings-stats">
-            <div className="stat"><b>{rep.rooms.length}</b><span className="muted">rooms</span></div>
-            <div className="stat"><b>{rep.doors}</b><span className="muted">doors</span></div>
-            <div className="stat"><b>{rep.windows}</b><span className="muted">windows</span></div>
+          <div className="drawings-chips">
+            <span className="chip" title="Rooms">{rep.rooms.length} <Icon name="layout" size={12} /></span>
+            <span className="chip" title="Doors">{rep.doors} <Icon name="door" size={12} /></span>
+            <span className="chip" title="Windows">{rep.windows} <Icon name="window" size={12} /></span>
+            {rep.withPrintedArea > 0 && <span className={`chip ${rep.verified === rep.withPrintedArea ? 'chip-ok' : 'chip-warn'}`} title="Areas within 2% of printed">{rep.verified}/{rep.withPrintedArea} <Icon name="check" size={12} /></span>}
           </div>
-          {rep.withPrintedArea > 0 && (
-            <p className="muted drawings-bnote">
-              {rep.verified} of {rep.withPrintedArea} areas within 2% of printed
-            </p>
-          )}
-          {picked ? (
-            <div className={`drawings-bpick st-${picked.printedArea == null ? 'none' : picked.status}`}>
-              <b>{picked.name}</b>
-              {picked.printedArea != null
-                ? <span>Printed {picked.printedArea.toFixed(2)} m² · Computed {picked.computedArea.toFixed(2)} m²</span>
-                : <span>{picked.computedArea.toFixed(2)} m² · no printed area</span>}
-              <span className="muted">{picked.doors} door{picked.doors === 1 ? '' : 's'} · {picked.windows} window{picked.windows === 1 ? '' : 's'}</span>
-            </div>
-          ) : null}
-          <div className="drawings-rooms">
+          <div className="drawings-chips" role="group" aria-label="Rooms">
             {rep.rooms.map((r) => (
-              <button key={r.spaceId} className={`drawings-room${pickRoom === r.spaceId ? ' is-on' : ''}`} onClick={() => flyToRoom(r.spaceId)}>
-                <span>{r.name}</span>
-                <span className={r.printedArea == null ? 'muted' : r.status === 'verified' ? 'drawings-ok' : 'drawings-bad'}>
-                  {r.computedArea.toFixed(1)} m²{r.errorPct != null ? ` ${fmtPct(r.errorPct)}` : ''}
-                </span>
+              <button key={r.spaceId} className={`chip drawings-ex${pickRoom === r.spaceId ? ' is-on' : ''}${r.printedArea != null && r.status !== 'verified' ? ' chip-bad' : ''}`} aria-pressed={pickRoom === r.spaceId}
+                title={r.printedArea != null ? `${r.name}: ${r.printedArea.toFixed(2)} / ${r.computedArea.toFixed(2)} m²` : r.name} onClick={() => flyToRoom(r.spaceId)}>
+                {r.name} {r.computedArea.toFixed(1)} m²{r.errorPct != null ? ` ${fmtPct(r.errorPct)}` : ''}
               </button>
             ))}
           </div>
-          {rep.failed.length > 0 && (
-            <details className="drawings-bfailed">
-              <summary>{rep.failed.length} room{rep.failed.length > 1 ? 's' : ''} not built</summary>
-              <ul>{rep.failed.map((f, i) => <li key={i}>{[f.label, f.no].filter(Boolean).join(' ') || 'Room'}: {f.reason}</li>)}</ul>
+          <div className="drawings-actions">
+            <button className="btn drawings-big" onClick={open3d}><Icon name="cube" size={14} /> 3D</button>
+            <button className="btn btn-ghost" aria-label="Clear" onClick={() => { setBuilt(null); setPickRoom(null); }}><Icon name="x" size={14} /></button>
+          </div>
+          {(rep.failed.length > 0 || rep.warnings.some((w) => !/could not be closed/.test(w))) && (
+            <details className="drawings-more">
+              <summary>More</summary>
+              <ul>
+                {rep.failed.map((f, i) => <li key={`f${i}`}>{[f.label, f.no].filter(Boolean).join(' ') || 'Room'}: {f.reason}</li>)}
+                {rep.warnings.filter((w) => !/could not be closed/.test(w)).map((w) => <li key={w}>{w}</li>)}
+              </ul>
             </details>
           )}
-          {rep.warnings.filter((w) => !/could not be closed/.test(w)).map((w) => <p key={w} className="muted drawings-bnote">{w}</p>)}
-          <button className="btn btn-primary drawings-big" onClick={open3d}>Open in 3D</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setBuilt(null); setPickRoom(null); }}>Clear</button>
         </>
       )}
     </section>
   );
 
   const picCard = pic && (
-    <section className="card drawings-pic">
-      <div className="row">
+    <section className="drawings-sec drawings-pic">
+      <div className="drawings-chips">
         <span className={`chip ${pic.report.confidence >= 0.7 ? 'chip-ok' : pic.report.confidence >= 0.4 ? 'chip-warn' : 'chip-bad'}`}>{Math.round(pic.report.confidence * 100)}%</span>
-        <span className="chip">{pic.report.scale.source === 'dimensions' ? 'Dimensions' : pic.report.scale.source === 'areas' ? 'Areas' : pic.report.scale.source === 'door' ? 'Door' : 'No scale'}</span>
-        <span className="chip">{pic.model.spaces.length} rooms</span>
-        <span className="chip">{pic.report.sizeM.w.toFixed(1)} x {pic.report.sizeM.h.toFixed(1)} m</span>
+        <span className="chip" title="Scale">{pic.report.scale.source === 'dimensions' ? 'Dims' : pic.report.scale.source === 'areas' ? 'Areas' : pic.report.scale.source === 'door' ? 'Door' : '–'} <Icon name="ruler" size={12} /></span>
+        <span className="chip" title="Rooms">{pic.model.spaces.length} <Icon name="layout" size={12} /></span>
+        <span className="chip" title="Size">{pic.report.sizeM.w.toFixed(1)} x {pic.report.sizeM.h.toFixed(1)} m</span>
       </div>
       <label className="row drawings-underlay">
-        <span className="muted">Picture</span>
+        <Icon name="image" size={14} />
         <input type="range" min={0} max={1} step={0.05} value={underlay} onChange={(e) => setUnderlay(Number(e.target.value))} aria-label="Picture opacity" />
       </label>
       <form className="row" onSubmit={(e) => { e.preventDefault(); applyKnownLength(); }}>
-        <input className={`field drawings-num${pic.report.needsLength ? ' is-need' : ''}`} value={knownLen} onChange={(e) => setKnownLen(e.target.value)} placeholder="Longest side, m" inputMode="decimal" aria-label="One known length in metres, the longest side of the plan" />
-        <button className="btn btn-sm" disabled={!knownLen.trim()}>Set</button>
+        <input className={`field drawings-num${pic.report.needsLength ? ' is-need' : ''}`} value={knownLen} onChange={(e) => setKnownLen(e.target.value)} placeholder="m" inputMode="decimal" title="One known length in metres, the longest side of the plan" aria-label="One known length in metres, the longest side of the plan" />
+        <button className="btn btn-sm" disabled={!knownLen.trim()} aria-label="Set length"><Icon name="check" size={14} /></button>
       </form>
+      <div className="drawings-actions">
+        <button className="btn drawings-big" onClick={openPicture3d}><Icon name="cube" size={14} /> 3D</button>
+        <button className="btn btn-ghost" aria-label="Clear" onClick={() => setPic(null)}><Icon name="x" size={14} /></button>
+      </div>
       {pic.report.warnings.length > 0 && (
-        <details><summary>{pic.report.warnings.length}</summary><ul>{pic.report.warnings.map((w) => <li key={w}>{w}</li>)}</ul></details>
+        <details className="drawings-more"><summary>More</summary><ul>{pic.report.warnings.map((w) => <li key={w}>{w}</li>)}</ul></details>
       )}
-      <button className="btn btn-primary drawings-big" onClick={openPicture3d}>Open in 3D</button>
-      <button className="btn btn-ghost btn-sm" onClick={() => setPic(null)}>Clear</button>
     </section>
+  );
+
+  const openInput = (
+    <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
   );
 
   return (
@@ -602,34 +580,27 @@ export function DrawingsPanel() {
       onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
       onDrop={(e) => { setDragOver(false); if (e.defaultPrevented) return; const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); void openBlob(f, f.name); } }}>
-      {doc && (
-        <div className="drawings-bar row" role="toolbar" aria-label="Drawing tools">
-          {(['pan', 'calibrate', 'trace'] as Tool[]).map((t) => (
-            <button key={t} className={`btn btn-sm ${tool === t ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={tool === t} onClick={() => setTool(t)}>
-              {t === 'pan' ? 'Move' : t === 'calibrate' ? 'Set scale' : 'Trace room'}
-            </button>
-          ))}
-          <span className="drawings-sep" />
-          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} aria-label="Zoom in"><Icon name="plus" size={14} /></button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.max(0.3, z / 1.25))} aria-label="Zoom out"><Icon name="minus" size={14} /></button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Fit</button>
-          <button className={`btn btn-sm ${overlay ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={overlay} onClick={() => setOverlay((o) => !o)}>Overlay</button>
-          {loading && <span className="muted">{loading}…</span>}
-          <label className="btn btn-ghost btn-sm drawings-open">
-            <Icon name="file" size={14} /> Open
-            <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
-          </label>
-        </div>
-      )}
+      <div className="drawings-bar row" role="toolbar" aria-label="Drawing tools">
+        <label className="btn btn-primary drawings-open"><Icon name="file" size={14} /> Open{openInput}</label>
+        {spinner}
+        {doc && (
+          <>
+            {(['pan', 'calibrate', 'trace'] as Tool[]).map((t) => (
+              <button key={t} className={`btn btn-sm ${tool === t ? 'is-on' : 'btn-ghost'}`} aria-pressed={tool === t} title={t === 'pan' ? 'Move' : t === 'calibrate' ? 'Set scale' : 'Trace room'} onClick={() => setTool(t)}>
+                {t === 'pan' ? 'Move' : t === 'calibrate' ? 'Scale' : 'Trace'}
+              </button>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} aria-label="Zoom in"><Icon name="plus" size={14} /></button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setZoom((z) => Math.max(0.3, z / 1.25))} aria-label="Zoom out"><Icon name="minus" size={14} /></button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} aria-label="Fit"><Icon name="maximize" size={14} /></button>
+            <button className={`btn btn-sm ${overlay ? 'is-on' : 'btn-ghost'}`} aria-pressed={overlay} aria-label="Overlay" title="Overlay" onClick={() => setOverlay((o) => !o)}><Icon name="eye" size={14} /></button>
+          </>
+        )}
+      </div>
+      {noteChip}
 
       {!doc ? (
         <div className="drawings-empty">
-          <label className="drawings-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void openBlob(f, f.name); }}>
-            <Icon name="file" size={20} />
-            <b>Drop a plan</b>
-            <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
-          </label>
-          {loading && <p className="muted">{loading}…</p>}
           {sampleList}
           {benchCard}
         </div>
@@ -666,7 +637,7 @@ export function DrawingsPanel() {
                   {pic && pic.report.rooms.map((r) => (
                     <polygon key={`pic${r.spaceId}`} className="drawings-broom st-none" points={r.outline.map((p) => `${p.x},${p.y}`).join(' ')}><title>{r.name}</title></polygon>
                   ))}
-                  {proposals?.map((r, i) => <polygon key={`p${i}`} className="drawings-broom st-none" points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')}><title>{`${r.name} (proposed)`}</title></polygon>)}
+                  {proposals?.map((r, i) => <polygon key={`p${i}`} className="drawings-broom st-none" points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')}><title>{r.name}</title></polygon>)}
                   {built && built.page === page && built.report.failed.map((f, i) => <rect key={`f${i}`} className="drawings-bfail" x={f.box[0] - 0.004} y={f.box[1] - 0.004} width={f.box[2] + 0.008} height={f.box[3] + 0.008}><title>{f.reason}</title></rect>)}
                   {pageFocus.map((r, i) => <rect key={i} className="drawings-hit" x={r.x} y={r.y} width={r.w} height={r.h} />)}
                   {calPts.length === 2 && <line className="drawings-cal" x1={calPts[0].x} y1={calPts[0].y} x2={calPts[1].x} y2={calPts[1].y} />}
@@ -677,6 +648,12 @@ export function DrawingsPanel() {
                 </svg>
               </div>
             )}
+          </div>
+
+          <aside className="drawings-side">
+            {picCard}
+            {buildCard}
+            {overlay && <div className="drawings-chips" role="group" aria-label="Overlay legend">{OVERLAY_KINDS.map((k) => <span key={k} className={`chip lg-${k}`}>{k}</span>)}</div>}
             {pg && zoom > 1.05 && (() => {
               const sb = sheetBox(); const vw = Math.min(1, stageSize.w / (sb.w * zoom)), vh = Math.min(1, stageSize.h / (sb.h * zoom));
               const cxn = 0.5 - pan.x / (sb.w * zoom), cyn = 0.5 - pan.y / (sb.h * zoom);
@@ -690,104 +667,74 @@ export function DrawingsPanel() {
                 </div>
               );
             })()}
-            {overlay && <div className="drawings-legend">{OVERLAY_KINDS.map((k) => <span key={k} className={`lg-${k}`}>{k}</span>)}</div>}
-          </div>
-
-          <aside className="drawings-side">
-            {picCard}
-            {buildCard}
-            {sampleList}
-            <section className="card drawings-ask">
-              <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
-                <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this drawing" />
-                <button className="btn btn-primary btn-sm" disabled={asking || !q.trim()}>{asking ? '…' : 'Ask'}</button>
-              </form>
-              <div className="row drawings-sugg">
-                {suggestions.map((s) => <button key={s} className="chip" onClick={() => void ask(s)}>{s}</button>)}
-              </div>
-              <p className="muted drawings-cost">
-                {stats.free} of {stats.asked} answered free · {st!.rooms} rooms · {st!.dimensions} dimensions
-              </p>
-              {st!.text === 0 && <p className="muted">No text layer</p>}
-              <div className="list">
-                {answers.map((a) => (
-                  <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
-                    <div className="muted drawings-aq">{a.question}</div>
-                    <div className="drawings-at">{a.answer}</div>
-                    <div className="row drawings-meta">
-                      <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
-                      <span className="chip">{a.method === 'index' ? 'Free' : a.method === 'gemini' ? 'Gemini' : 'No answer'}</span>
-                    </div>
-                    {a.check && (
-                      <div className={`drawings-check ${a.check.ok ? 'ok' : 'bad'}`}>
-                        Index {a.check.index} m² · Model {a.check.model} m² · {a.check.ok ? 'agree' : 'disagree, check the sheet'}
-                      </div>
-                    )}
-                    {(crops[a.id] ?? []).length > 0 && (
-                      <div className="drawings-crops">{crops[a.id].map((c, i) => <img key={i} src={c} alt="Source on drawing" />)}</div>
-                    )}
-                  </div>
+            {roomList.length > 0 && (
+              <div className="drawings-chips" role="group" aria-label="Rooms on this page" onMouseLeave={() => setHover(null)}>
+                {roomList.map(({ r, area }) => (
+                  <button key={r.id} className="chip drawings-ex" onMouseEnter={() => setHover(r)} onFocus={() => setHover(r)} onClick={() => flyTo([r])}>
+                    {r.str}{area != null && ` ${area} m²`}
+                  </button>
                 ))}
               </div>
-            </section>
-
-            {roomList.length > 0 && (
-              <section className="card">
-                <h4>Rooms on this page</h4>
-                <div className="drawings-rooms" onMouseLeave={() => setHover(null)}>
-                  {roomList.map(({ r, area }) => (
-                    <button key={r.id} className="drawings-room" onMouseEnter={() => setHover(r)} onFocus={() => setHover(r)} onClick={() => flyTo([r])}>
-                      <span>{r.str}</span>{area != null && <span className="muted">{area} m²</span>}
-                    </button>
-                  ))}
-                </div>
-              </section>
             )}
-            {(tool === 'calibrate' || mpp) && <section className="card">
-              <h4>Scale</h4>
-              {mpp ? <p><span className="chip chip-ok">Set</span> {(mpp * 1000).toFixed(1)} mm per pixel</p> : <p className="muted">Not set.</p>}
-              {mpp && tool !== 'trace' && (
-                <button className="btn btn-primary drawings-big" onClick={() => { setTool('trace'); setTrace([]); }}>Trace a room into 3D</button>
-              )}
-              {scaleItems.length > 0 && pg?.ptW && (
-                <div className="row">{[...new Set(scaleItems.map((s) => s.value!))].map((n) => <button key={n} className="btn btn-ghost btn-sm" onClick={() => applyScale(n)}>Use 1:{n}</button>)}</div>
-              )}
+
+            {(tool === 'calibrate' || mpp) && <section className="drawings-sec">
+              <div className="drawings-chips">
+                {mpp && <span className="chip chip-ok" title="Scale">{(mpp * 1000).toFixed(1)} mm/px</span>}
+                {scaleItems.length > 0 && pg?.ptW && [...new Set(scaleItems.map((s) => s.value!))].map((n) => <button key={n} className="chip drawings-ex" onClick={() => applyScale(n)}>1:{n}</button>)}
+              </div>
               {tool === 'calibrate' && (
                 <div className="row">
-                  <span className="muted">{calPts.length}/2 points</span>
-                  <input className="field drawings-num" value={calDist} onChange={(e) => setCalDist(e.target.value)} placeholder="metres" inputMode="decimal" />
-                  <button className="btn btn-sm btn-primary" onClick={applyCalibration}>Apply</button>
+                  <span className="chip">{calPts.length}/2</span>
+                  <input className="field drawings-num" value={calDist} onChange={(e) => setCalDist(e.target.value)} placeholder="m" aria-label="Metres between the two points" inputMode="decimal" />
+                  <button className="btn btn-sm" onClick={applyCalibration} aria-label="Apply"><Icon name="check" size={14} /></button>
                 </div>
+              )}
+              {mpp && tool !== 'trace' && (
+                <button className="btn drawings-big" onClick={() => { setTool('trace'); setTrace([]); }}><Icon name="ruler" size={14} /> Trace</button>
               )}
             </section>}
 
-            {tool === 'trace' && <section className="card">
-              <h4>Trace room</h4>
-              <ol className="drawings-steps">
-                <li className={mpp ? 'done' : 'now'}>Set the scale</li>
-                <li className={trace.length >= 3 ? 'done' : mpp ? 'now' : ''}>Click room corners</li>
-                <li className={trace.length >= 3 && mpp ? 'now' : ''}>Explore in 3D</li>
-              </ol>
-              {tool !== 'trace' ? null : (
-                <>
-                  <input className="field" value={roomName} onChange={(e) => setRoomName(e.target.value)} aria-label="Room name" />
-                  <div className="list">
-                    {walls.map((w, i) => (
-                      <div key={i} className="row drawings-wrow">
-                        <span>Wall {i + 1}: {w.len.toFixed(2)} m</span>
-                        {w.match && <span className="chip chip-ok">matches {w.match.str}</span>}
-                        {w.conflict && <span className="chip chip-bad">conflict: printed {w.conflict.str}</span>}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="row">
-                    <button className="btn btn-ghost btn-sm" onClick={() => setTrace((t) => t.slice(0, -1))} disabled={!trace.length}>Undo</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setTrace([])} disabled={!trace.length}>Clear</button>
-                    <button className="btn btn-primary btn-sm" onClick={explore3d} disabled={trace.length < 3 || !mpp}>Explore in 3D</button>
-                  </div>
-                </>
-              )}
+            {tool === 'trace' && <section className="drawings-sec">
+              <input className="field" value={roomName} onChange={(e) => setRoomName(e.target.value)} aria-label="Room name" />
+              <div className="drawings-chips">
+                {walls.map((w, i) => (
+                  <span key={i} className={`chip${w.match ? ' chip-ok' : w.conflict ? ' chip-bad' : ''}`} title={w.match ? `= ${w.match.str}` : w.conflict ? `Printed ${w.conflict.str}` : undefined}>
+                    {i + 1} · {w.len.toFixed(2)} m{w.match && <Icon name="check" size={12} />}{w.conflict && <Icon name="alert" size={12} />}
+                  </span>
+                ))}
+              </div>
+              <div className="drawings-actions">
+                <button className="btn drawings-big" onClick={explore3d} disabled={trace.length < 3 || !mpp}><Icon name="cube" size={14} /> 3D</button>
+                <button className="btn btn-ghost" onClick={() => setTrace((t) => t.slice(0, -1))} disabled={!trace.length} aria-label="Undo"><Icon name="undo" size={14} /></button>
+                <button className="btn btn-ghost" onClick={() => setTrace([])} disabled={!trace.length} aria-label="Clear"><Icon name="x" size={14} /></button>
+              </div>
             </section>}
+
+            <section className="drawings-sec drawings-ask">
+              <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
+                <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask" aria-label="Ask about this drawing" />
+                <button className="btn btn-sm" disabled={asking || !q.trim()} aria-label="Ask">{asking ? <span className="intent-spin" aria-label="Working" /> : <Icon name="send" size={14} />}</button>
+              </form>
+              <div className="drawings-chips">
+                <span className="chip" title="Rooms">{st!.rooms} <Icon name="layout" size={12} /></span>
+                <span className="chip" title="Dimensions">{st!.dimensions} <Icon name="ruler" size={12} /></span>
+                {stats.asked > 0 && <span className="chip" title="Answered free">{stats.free}/{stats.asked}</span>}
+              </div>
+              {answers.map((a) => (
+                <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
+                  <div className="muted drawings-aq">{a.question}</div>
+                  <div className="drawings-at">{a.answer}</div>
+                  <div className="drawings-chips">
+                    <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
+                    {a.check && <span className={`chip ${a.check.ok ? 'chip-ok' : 'chip-bad'}`} title={`Index ${a.check.index} m², model ${a.check.model} m²`}>{a.check.index} / {a.check.model} m²</span>}
+                  </div>
+                  {(crops[a.id] ?? []).length > 0 && (
+                    <div className="drawings-crops">{crops[a.id].map((c, i) => <img key={i} src={c} alt="Source on drawing" />)}</div>
+                  )}
+                </div>
+              ))}
+            </section>
+            {sampleList}
           </aside>
         </div>
       )}

@@ -124,3 +124,27 @@
 .drawings-pic .row { gap: 6px; flex-wrap: wrap; align-items: center; }
 .drawings-underlay input[type="range"] { flex: 1; }
 .drawings-num.is-need { border-color: var(--warn, #e0a030); }
+
+/* Minimal: chips, one open button, sections on an 8px grid */
+.drawings { gap: 8px; }
+.drawings-bar { gap: 8px; padding-bottom: 0; border-bottom: 0; }
+.drawings-open { margin-left: 0; cursor: pointer; }
+.drawings-bar .btn.is-on { border-color: var(--accent); }
+.drawings-empty { margin: 0; max-width: none; gap: 8px; }
+.drawings-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.drawings-ex { cursor: pointer; border: 1px solid var(--line); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawings-ex:hover, .drawings-ex.is-on { border-color: var(--accent); }
+.drawings-x { background: none; border: 0; color: inherit; padding: 0 0 0 4px; display: inline-flex; cursor: pointer; }
+.drawings-sec { display: flex; flex-direction: column; gap: 8px; }
+.drawings-sec p, .drawings-sec h4 { margin: 0; }
+.drawings-actions { display: flex; gap: 8px; align-items: center; }
+.drawings-big { margin-top: 0; padding: 8px 16px; flex: 1; justify-content: center; }
+.drawings-side { gap: 8px; }
+.drawings-ask { position: static; }
+.drawings-underlay { gap: 8px; }
+.drawings-more { font-size: 12px; border: 0; padding: 0; }
+.drawings-more > summary { cursor: pointer; color: var(--muted); }
+.drawings-more[open] > summary { margin-bottom: 8px; }
+.drawings-more ul { margin: 0; padding-left: 16px; }
+.drawings-mini { position: static; width: 96px; }
+.drawings-note { align-self: flex-start; }

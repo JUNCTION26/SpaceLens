@@ -10,7 +10,6 @@ import { mostVisibleWall, rescaleRoom, WALL_INDEX, WALL_LABEL, type PhotoRoomEst
 import './photoroom.css';
 
 const SIDES: WallName[] = ['back', 'left', 'right'];
-const sure = (c: number) => (c >= 0.7 ? 'High' : c >= 0.45 ? 'Medium' : 'Low');
 
 /** One photo of a room becomes an editable 3D room. */
 export function PhotoRoom() {
@@ -63,7 +62,7 @@ export function PhotoRoom() {
   return (
     <div className="proom">
       <label className={`btn ${result ? '' : 'btn-primary '}proom-big proom-upload`} aria-busy={busy}>
-        {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name="image" size={16} /> {result ? 'More' : 'Photos or video'}</>}
+        {busy ? <span className="proom-spin" aria-label="Working" /> : <><Icon name={result ? 'plus' : 'image'} size={16} />{result ? <span className="sr-only">Photos or video</span> : ' Photos or video'}</>}
         <input type="file" accept="image/*,video/*" multiple disabled={busy} aria-label="Room photos or video" onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) void run(f); e.target.value = ''; }} />
       </label>
 
@@ -74,16 +73,13 @@ export function PhotoRoom() {
           <div className="proom-strip">
             {result.photos.map((p, i) => <img key={i} src={p} alt="" />)}
           </div>
-          <div className="proom-stats">
-            <div><b>{len(live, 'back').toFixed(1)} × {len(live, 'left').toFixed(1)} m</b><span>Size</span></div>
-            <div><b>{live.ceilingM.toFixed(1)} m</b><span>Ceiling</span></div>
-            <div><b>{live.furniture.length}</b><span>Items</span></div>
-            <div>
-              <b className={space.walls.some((w) => w.status === 'verified') ? 'proom-ok' : ''}>
-                {space.walls.some((w) => w.status === 'verified') ? 'Measured' : sure(result.est.confidence)}
-              </b>
-              <span>Scale</span>
-            </div>
+          <div className="proom-chips">
+            <span className="chip" title="Size">{len(live, 'back').toFixed(1)} x {len(live, 'left').toFixed(1)} m</span>
+            <span className="chip" title="Ceiling">{live.ceilingM.toFixed(1)} m <Icon name="maximize" size={12} /></span>
+            <span className="chip" title="Items">{live.furniture.length} <Icon name="sofa" size={12} /></span>
+            <span className={`chip ${space.walls.some((w) => w.status === 'verified') ? 'chip-ok' : result.est.confidence >= 0.7 ? 'chip-ok' : result.est.confidence >= 0.45 ? 'chip-warn' : 'chip-bad'}`} title="Scale">
+              {space.walls.some((w) => w.status === 'verified') ? <Icon name="check" size={12} /> : `${Math.round(result.est.confidence * 100)}%`} <Icon name="ruler" size={12} />
+            </span>
           </div>
 
           <form className="proom-scale" onSubmit={(e) => { e.preventDefault(); rescale(); }}>
@@ -92,7 +88,7 @@ export function PhotoRoom() {
             </select>
             <input inputMode="decimal" value={cm} onChange={(e) => setCm(e.target.value)} placeholder={String(Math.round(len(live, wall) * 100))} aria-label="Real length in cm" />
             <span className="muted">cm</span>
-            <button className="btn btn-sm" disabled={!(typed > 30 && typed < 3000)}>Rescale</button>
+            <button className="btn btn-sm" disabled={!(typed > 30 && typed < 3000)} aria-label="Rescale"><Icon name="check" size={14} /></button>
           </form>
 
           <button className="btn btn-primary proom-big" onClick={() => setMode('design')}>Design</button>

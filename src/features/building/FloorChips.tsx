@@ -144,26 +144,24 @@ export function FloorChips({ briefs = {} }: { briefs?: Record<string, string> })
   };
 
   return (
-    <section className="panel fl">
+    <section className="fl">
+      <div className="fl-chips" role="group" aria-label="Rooms">{model.spaces.map(chip)}</div>
       <div className="row bld-actions">
-        <button className="btn btn-primary" onClick={furnishAll} disabled={running}>
+        <button className="btn" onClick={furnishAll} disabled={running}>
           {progress && !finished ? <Ring done={progress.done} total={progress.total} /> : <Icon name="sofa" />} Furnish all
         </button>
-        {running && <button className="btn" onClick={stop} aria-label="Stop"><Icon name="x" /> Stop</button>}
+        {running && <button className="btn btn-ghost" onClick={stop} aria-label="Stop"><Icon name="x" /></button>}
       </div>
-      {bill && !running && (
-        <div className="fl-chips" aria-live="polite">
-          <span className="chip">{bill.items} <span className="sr-only">items</span><Icon name="sofa" size={12} /></span>
-          <span className="chip">{fmtSek(bill.totalSek)}</span>
-          <span className={`chip${doneRooms < model.spaces.length ? ' chip-warn' : ' chip-ok'}`}>{doneRooms}/{model.spaces.length} <span className="sr-only">rooms done</span><Icon name="layout" size={12} /></span>
-        </div>
-      )}
-      <div className="fl-chips" role="group" aria-label="Rooms">{model.spaces.map(chip)}</div>
-      <div className="fl-chips" role="group" aria-label="Building numbers">
+      <div className="fl-chips" role="group" aria-label="Building numbers" aria-live="polite">
         <span className="chip">{totalArea.toFixed(0)} m²</span>
         <span className="chip">{model.spaces.length} <span className="sr-only">rooms</span><Icon name="layout" size={12} /></span>
         <span className="chip" title="People">{safety ? safety.people : '–'} <span className="sr-only">people</span><Icon name="walk" size={12} /></span>
         <span className={`chip${longWarn ? ' chip-warn' : ''}`} title="Longest escape">{safety?.longest != null ? `${safety.longest.toFixed(0)} m` : '–'} <span className="sr-only">longest escape</span>{longWarn && <Icon name="alert" size={12} />}</span>
+        {bill && !running && <>
+          <span className="chip">{bill.items} <span className="sr-only">items</span><Icon name="sofa" size={12} /></span>
+          <span className="chip">{fmtSek(bill.totalSek)}</span>
+          <span className={`chip${doneRooms < model.spaces.length ? ' chip-warn' : ' chip-ok'}`}>{doneRooms}/{model.spaces.length} <span className="sr-only">rooms done</span><Icon name="check" size={12} /></span>
+        </>}
       </div>
     </section>
   );

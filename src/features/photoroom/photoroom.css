@@ -16,3 +16,9 @@
 @media (prefers-reduced-motion: reduce) { .proom-spin { animation-duration: 2.4s; } }
 .proom-strip { display: flex; gap: var(--s2); overflow-x: auto; }
 .proom-strip img { flex: 1 1 0; min-width: 56px; max-width: 120px; height: 64px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--line); }
+
+.proom { gap: 8px; }
+.proom-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.proom-strip { gap: 8px; }
+.proom-scale { gap: 8px; }
+.proom .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

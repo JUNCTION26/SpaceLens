@@ -52,3 +52,15 @@
 .bld-opt { background: none; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px; cursor: pointer; min-width: 0; }
 .bld-opt:hover { border-color: var(--accent, var(--line-strong)); }
 .bld-opt svg { display: block; width: 100%; height: auto; background: #fff; border-radius: 3px; }
+
+/* Minimal: one column on an 8px grid */
+.bld { gap: 8px; }
+.bld .fl { gap: 8px; }
+.fl-chips { gap: 8px; }
+.bld-actions { gap: 8px; }
+.bld-brief { gap: 8px; }
+.bld-more > summary, .bld-sub > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); padding: 4px 0; }
+.bld-more-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.bld-cards { gap: 8px; }
+.bld-stats { gap: 8px; }
+.bld-err { align-self: flex-start; }
