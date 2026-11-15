@@ -7,13 +7,24 @@ import type { LayoutCandidate } from '../../core/types';
 import { fmtSek } from '../../core/geometry';
 
 /** Puts a phase of layouts on screen at once, keeping the previewed card if it is still there. */
-export function showLayouts(res: Pick<DesignResult, 'candidates' | 'reports' | 'infeasibility'>) {
+export function showLayouts(res: Pick<DesignResult, 'candidates' | 'reports' | 'infeasibility'>, opts: { settled?: boolean } = {}) {
   const st = useStore.getState();
   const keep = st.activeCandidateId;
   useReports.getState().setReports(res.reports);
   const taste = activeProfile();
   st.setCandidates(taste ? rankByTaste(res.candidates, taste, st.model) : res.candidates, res.infeasibility ?? null);
-  if (keep && res.candidates.some((c) => c.id === keep)) st.previewCandidate(keep);
+  // The room is already furnished: later rounds only fill the Layouts list, they never swap what is on screen.
+  if (opts.settled) st.previewCandidate(null);
+  else if (keep && res.candidates.some((c) => c.id === keep)) st.previewCandidate(keep);
+}
+
+/** Furnishes the room from the first solid round: the best whole layout is applied at once (one undo step). Returns whether it did. */
+export function applyFirstRound(res: Pick<DesignResult, 'candidates' | 'reports' | 'infeasibility'>, avoid?: Array<{ id: string; x: number; y: number; rotation: number }>): boolean {
+  const best = pickAuto(res.candidates, res.reports, avoid);
+  if (!best) return false;
+  showLayouts(res);
+  useStore.getState().applyCandidate(best.id);
+  return true;
 }
 
 // ---------- pure decisions: what is final, which layout furnishes the room, what it is called ----------

@@ -9,7 +9,7 @@ import { aiReady } from '../../core/ai';
 import { applyRoomOps, wantsNewRoom } from '../agent/actions';
 import { followUpRoom, isFollowUp, resetFollowMemory, compileWithMeta, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
-import { showLayouts, isFinalResult, pickAuto, failReason, wholeRoomAsk } from '../layout/progress';
+import { showLayouts, applyFirstRound, isPartial, isFinalResult, pickAuto, failReason, wholeRoomAsk } from '../layout/progress';
 import { takePendingBrief } from '../demo/starts';
 import './intent.css';
 
@@ -120,22 +120,36 @@ export function IntentPanel() {
     setRetry(null); setChip('');
     st.setBusy('Designing');
     rs.setStages([], true);
+    // The first solid round furnishes the room at once; later rounds only fill the Layouts list, so nothing is re-shuffled.
+    let furnished = false;
+    const avoid = another ? st.model.furniture : undefined;
     try {
+      if (!aiReady()) {
+        const quick = await designRoom(st.model, r, { variants: 1, critic: false, signal: ctrl.signal, brief: briefRef.current });
+        if (runRef.current !== ctrl) return;
+        if (isFinalResult(quick)) furnished = applyFirstRound(quick, avoid);
+      }
       const res = await designRoom(st.model, r, {
         variants: 3, signal: ctrl.signal, brief: briefRef.current,
         onStage: (s) => { if (runRef.current === ctrl) useReports.getState().setStages(s); },
         // The room fills in as pieces arrive: whatever exists is previewed, never applied, until the run is final.
-        onProgress: (p) => { if (runRef.current === ctrl && p.candidates.length) showLayouts(p); },
+        onProgress: (raw) => {
+          // Only whole, solved layouts are ever shown: a half-assembled draft never reaches the room.
+          const p = { ...raw, candidates: raw.candidates.filter((c) => !isPartial(c)) };
+          if (runRef.current !== ctrl || !p.candidates.length) return;
+          if (furnished) showLayouts(p, { settled: true });
+          else furnished = applyFirstRound(p, avoid);
+        },
       });
       if (runRef.current !== ctrl) return;
-      showLayouts(res);
+      showLayouts(res, { settled: furnished });
       st.setRequirements(r);
       setTriedGen(true);
       const now = useStore.getState();
       // One sentence furnishes the room: the best final layout is applied as one undo step; the others wait on Layouts.
-      const best = isFinalResult(res) ? pickAuto(res.candidates, res.reports, another ? now.model.furniture : undefined) : null;
+      const best = !furnished && isFinalResult(res) ? pickAuto(res.candidates, res.reports, another ? now.model.furniture : undefined) : null;
       if (best) { now.applyCandidate(best.id); }
-      else {
+      else if (!furnished) {
         const pending = res.candidates.length > 0;
         setRetry({ label: 'Retry', reason: failReason({ offline: wasOffline, infeasible: !pending && !!res.infeasibility }), run: () => void generate(r) });
         if (!pending) useStore.getState().previewCandidate(null);

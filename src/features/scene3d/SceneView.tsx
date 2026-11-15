@@ -13,6 +13,7 @@ import { clearOfWalls, doorBridges, entranceSpawn, onFloor, solidSegments, space
 import { pathBetween, planTour } from '../sim/tour';
 import { applyDemoLink } from '../building/demo';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
+import { revealOrder } from '../layout/revealOrder';
 import { EYES, setViewPrefs, toggleStageFull, useViewPrefs, type ViewAngle } from '../../ui/ViewFold';
 import './scene3d.css';
 import { XRRig } from '../xr/XRRig';
@@ -369,7 +370,7 @@ function Furniture({ items, ghost, interactive, onFocus, gesture }: { items: Fur
     if (ghost) return;
     const before = seen.current;
     const now = new Map(items.map((it) => [it.id, it]));
-    const fresh = items.filter((it) => !before?.has(it.id));
+    const fresh = revealOrder(items.filter((it) => !before?.has(it.id)));
     const step = Math.min(60, 1800 / Math.max(1, fresh.length));
     fresh.forEach((it, k) => delays.current.set(it.id, REDUCED ? 0 : k * step));
     if (before && !REDUCED) {
