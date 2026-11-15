@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPrompt, isBlankFrame, describeItem } from './prompt';
+import { buildPrompt, isBlankFrame, describeItem, cacheKey, placeWords } from './prompt';
 import type { FurnitureItem, SpaceModel } from '../../core/types';
 
 const wall = { thicknessM: 0.1, sourceKind: 'manual' as const, status: 'verified' as const };
@@ -45,5 +45,34 @@ describe('blank frame check', () => {
     const d = fill(240, 240, 240, 255);
     for (let i = 0; i < 500; i++) d.set([30, 40, 50, 255], i * 4);
     expect(isBlankFrame(d)).toBe(false);
+  });
+});
+
+describe('prompt fidelity', () => {
+  const at = (id: string, name: string, x: number, y: number) => ({ ...sofa, id, name, x, y }) as FurnitureItem;
+  it('names every item once and states the count', () => {
+    const items = [at('a', 'Sofa', 0.4, 1.5), at('b', 'Table', 2, 1.5), at('c', 'Lamp', 3.8, 2.8)];
+    const p = buildPrompt({ model, furniture: items, style: 'bold' });
+    expect(p).toContain('exactly 3 items');
+    expect(p).toContain('count and the positions must not change');
+    for (const n of ['Sofa (', 'Table (', 'Lamp (']) expect(p.split(n).length - 1).toBe(1);
+    expect(p).toContain('against the left wall');
+    expect(p).toContain('in the middle of the room');
+    expect(p).toContain('front right corner');
+    expect(p).toContain('window 100 cm wide');
+  });
+  it('places items in words', () => {
+    expect(placeWords(at('a', 'Sofa', 3.9, 1.5), model.spaces[0])).toBe('against the right wall');
+  });
+});
+
+describe('cache key', () => {
+  it('is stable and changes with style, camera or furniture', () => {
+    const k = cacheKey(model, [sofa], 'cam1', 'daylight');
+    expect(cacheKey(model, [sofa], 'cam1', 'daylight')).toBe(k);
+    expect(cacheKey(model, [sofa], 'cam1', 'evening')).not.toBe(k);
+    expect(cacheKey(model, [sofa], 'cam2', 'daylight')).not.toBe(k);
+    expect(cacheKey(model, [{ ...sofa, x: 1 }], 'cam1', 'daylight')).not.toBe(k);
+    expect(cacheKey({ ...model, version: 2 }, [sofa], 'cam1', 'daylight')).not.toBe(k);
   });
 });

@@ -17,3 +17,6 @@
 .render .hist button{padding:0;border:2px solid transparent;border-radius:6px;background:none;cursor:pointer;flex:none}
 .render .hist button[aria-current=true]{border-color:#3b82f6}
 .render .hist img{display:block;height:54px;border-radius:4px}
+.ba.shimmer::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#fff5 50%,transparent 70%);background-size:200% 100%;animation:rshim 1.2s linear infinite;pointer-events:none}
+@keyframes rshim{from{background-position:200% 0}to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.ba.shimmer::after{animation:none}}

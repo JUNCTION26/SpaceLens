@@ -60,6 +60,29 @@ export function fromModel(model: SpaceModel, furniture: FurnitureItem[], width =
   return { dataUrl, width, height, source: 'model' };
 }
 
+export function fitSize(w: number, h: number, max = 1024): { width: number; height: number } {
+  const k = Math.min(1, max / Math.max(w, h, 1));
+  return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) };
+}
+
+/** Downscale to at most 1024 px on the long side and re-encode as JPEG 0.85: smaller upload, faster answer. */
+async function shrink(f: Frame): Promise<Frame> {
+  const { width, height } = fitSize(f.width, f.height);
+  try {
+    const img = new Image();
+    img.src = f.dataUrl;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = width; c.height = height;
+    const ctx = c.getContext('2d');
+    if (!ctx) return f;
+    ctx.fillStyle = '#f4f1ec';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    return { ...f, dataUrl: c.toDataURL('image/jpeg', 0.85), width, height };
+  } catch { return f; }
+}
+
 export async function captureFrame(model: SpaceModel, furniture: FurnitureItem[]): Promise<Frame> {
-  return (await fromLive()) ?? fromModel(model, furniture);
+  return shrink((await fromLive()) ?? fromModel(model, furniture));
 }

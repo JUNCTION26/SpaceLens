@@ -3,9 +3,12 @@ import { useShownFurniture, useStore } from '../../core/store';
 import { useUi } from '../../ui/uiStore';
 import { notify } from '../../ui/notify';
 import { captureFrame, type Frame } from './capture';
-import { buildPrompt, STYLES, type RenderStyle } from './prompt';
+import { buildPrompt, cacheKey, STYLES, type RenderStyle } from './prompt';
 import { generateImage, RenderError } from './generate';
 import './render.css';
+
+const cache = new Map<string, { image: string; model: string }>();
+const frameSig = (u: string) => { let h = u.length; for (let i = 0; i < u.length; i += 97) h = (Math.imul(h, 31) + u.charCodeAt(i)) | 0; return h.toString(36); };
 
 interface Shot { id: number; frame: Frame; image: string; style: RenderStyle; model: string; secs: number }
 
@@ -32,6 +35,7 @@ export function RenderPanel() {
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<Error | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
+  const [preview, setPreview] = useState<string | null>(null);
   const [current, setCurrent] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
   const seq = useRef(1);
@@ -52,8 +56,12 @@ export function RenderPanel() {
     abort.current = new AbortController();
     try {
       const frame = await captureFrame(model, furniture);
+      setPreview(frame.dataUrl);
+      const key = cacheKey(model, furniture, frameSig(frame.dataUrl), style);
+      const hit = cache.get(key);
       const prompt = buildPrompt({ model, furniture, style, requirements });
-      const out = await generateImage(frame.dataUrl, prompt, abort.current.signal);
+      const out = hit ? { dataUrl: hit.image, model: hit.model } : await generateImage(frame.dataUrl, prompt, abort.current.signal);
+      if (!hit) cache.set(key, { image: out.dataUrl, model: out.model });
       const shot: Shot = { id: seq.current++, frame, image: out.dataUrl, style, model: out.model, secs: Math.round((Date.now() - t0) / 1000) };
       setShots((s) => [shot, ...s].slice(0, 8));
       setCurrent(shot.id);
@@ -63,7 +71,7 @@ export function RenderPanel() {
       setError(err);
       const needsKey = err instanceof RenderError && ['nokey', 'quota', 'blocked'].includes(err.reason);
       notify(err.message, { tone: 'error', actions: [{ label: 'Retry', run: () => void run() }, ...(needsKey ? [{ label: 'Open settings', run: openSettings }] : [])] });
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setPreview(null); }
   };
 
   const shot = shots.find((s) => s.id === current) ?? null;
@@ -71,7 +79,7 @@ export function RenderPanel() {
     if (!shot) return;
     const a = document.createElement('a');
     a.href = shot.image;
-    a.download = `${(model.name || 'room').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-render.png`;
+    a.download = `${(model.name || 'room').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-render.${shot.image.startsWith('data:image/jpeg') ? 'jpg' : 'png'}`;
     a.click();
   };
 
@@ -93,7 +101,8 @@ export function RenderPanel() {
           <button className="chip" onClick={openSettings}>Settings</button>
         </div>
       )}
-      {shot && <Compare before={shot.frame.dataUrl} after={shot.image} />}
+      {busy && preview && <div className="ba shimmer" aria-busy="true"><img src={preview} alt="3D frame" /></div>}
+      {!busy && shot && <Compare before={shot.frame.dataUrl} after={shot.image} />}
       {shot && <div className="label">{STYLES.find((s) => s.id === shot.style)?.label}, {shot.secs}s, {shot.model}</div>}
       {shots.length > 1 && (
         <div className="hist" aria-label="Earlier renders">
