@@ -37,6 +37,6 @@
 .safety-spin { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: safety-rot .8s linear infinite; vertical-align: -1px; }
 @keyframes safety-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .safety-spin { animation: none; } }
-.safety-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.safety-title { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-width: 0; }
 .safety-country { margin: 6px 0; }
 .safety-country select { height: 32px; }

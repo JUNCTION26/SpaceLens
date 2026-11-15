@@ -147,7 +147,7 @@ export function SafetyPanel() {
             <li key={f.id} className={`safety-item sev-${f.severity}`}>
               <div className="safety-item-head">
                 <span className="safety-sev">{SEV_LABEL[f.severity]}</span>
-                <span className="safety-title" title={`${f.title}. ${f.message}`}>{f.title.split(/\s+/).length > 6 ? `${f.title.split(/\s+/).slice(0, 6).join(' ')}…` : f.title}</span>
+                <span className="safety-title" title={`${f.title}. ${f.message}`}>{f.title}</span>
               </div>
               <div className="safety-actions">
                 <button className="btn btn-sm btn-ghost" aria-pressed={shown === f.id} onClick={() => show(f)}><Icon name="eye" size={14} /><span className="sr-only">Show</span></button>
