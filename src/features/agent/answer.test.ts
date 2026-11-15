@@ -48,13 +48,13 @@ describe('answerFromModel', () => {
     expect(answerFromModel('how many checks fail', room([], { candidates: [cand], activeCandidateId: 'c1' }))).toBe('2 of 3 checks fail');
   });
   it('no checks yet', () => expect(answerFromModel('any problems?', full)).toBe('No checks run yet.'));
-  it('Swedish size', () => expect(answerFromModel('hur stor är rummets storlek?', full)).toBe('14.3 m², 3.4 by 4.2'));
+  it('Swedish size', () => expect(answerFromModel('hur stor är rummets storlek?', full)).toBe('14.3 m², 3.4 x 4.2'));
   it('Swedish area', () => expect(answerFromModel('hur stor yta har rummet', full)).toContain('14.3 m²'));
-  it('Swedish ceiling', () => expect(answerFromModel('hur hög är takhöjden', full)).toBe('2.5 m ceiling'));
-  it('Finnish size', () => expect(answerFromModel('mikä on huoneen koko', full)).toBe('14.3 m², 3.4 by 4.2'));
+  it('Swedish ceiling', () => expect(answerFromModel('hur hög är takhöjden', full)).toBe('2.5 m takhöjd'));
+  it('Finnish size', () => expect(answerFromModel('mikä on huoneen koko', full)).toBe('14.3 m², 3.4 x 4.2'));
   it('Finnish area', () => expect(answerFromModel('mikä on pinta-ala', full)).toBe('14.3 m²'));
-  it('Finnish doors', () => expect(answerFromModel('montako ovea on', full)).toBe('1 door, 0.8 m wide'));
-  it('Swedish item count', () => expect(answerFromModel('hur många möbler finns det', full)).toBe('3 items'));
+  it('Finnish doors', () => expect(answerFromModel('montako ovea on', full)).toBe('1 ovi, 0.8 m leveä'));
+  it('Swedish item count', () => expect(answerFromModel('hur många möbler finns det', full)).toBe('3 saker'));
   it('unknown falls through', () => {
     expect(answerFromModel('add a desk by the window', full)).toBeNull();
     expect(answerFromModel('make a ramen bar for 10', full)).toBeNull();
