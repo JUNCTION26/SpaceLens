@@ -1,0 +1,4 @@
+.sim-mini { position: absolute; right: 10px; bottom: 10px; width: 112px; height: 96px; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 82%, transparent); pointer-events: none; }
+.sim-mini-room { fill: var(--panel-2); stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sim-mini-trail { fill: none; stroke: var(--accent); stroke-width: 1; opacity: .5; vector-effect: non-scaling-stroke; }
+.sim-mini-me { fill: var(--accent); stroke: var(--panel); stroke-width: 1; vector-effect: non-scaling-stroke; }

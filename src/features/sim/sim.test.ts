@@ -131,7 +131,8 @@ describe('two rooms sharing a wall', () => {
     const m = pair(true);
     const t = planTour(m, buildGrid(m, []), { x: 0.8, y: 2 });
     expect(t.stops.map((s) => s.name)).toEqual(['Hall', 'Kitchen']);
-    expect(t.points.at(-1)!.x).toBeGreaterThan(4);
+    expect(Math.max(...t.points.map((q) => q.x))).toBeGreaterThan(4);
+    expect(Math.hypot(t.points.at(-1)!.x - 0.8, t.points.at(-1)!.y - 2)).toBeLessThan(0.1);
     expect(planTour(pair(false), buildGrid(pair(false), []), { x: 0.8, y: 2 }).stops.length).toBe(1);
   });
 });
