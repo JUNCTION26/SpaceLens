@@ -5,7 +5,7 @@ import { gemini, hasGemini } from '../../core/gemini';
 import { applyOp } from '../../core/ops';
 import {
   area, centroid, convexOverlap, dist, doorSwingPolygon, itemCorners, openingSegment, pointInPolygon, polygonInside, wallSegment,
-  wallInwardNormal, distPointPolygonEdges, bounds,
+  wallInwardNormal, distPointPolygonEdges, bounds, rotate as rot2,
 } from '../../core/geometry';
 import type { FurnitureItem, Op, Space, SpaceModel, Vec2 } from '../../core/types';
 import { CATALOG, catalogEntry, findByKeyword, makeItem, type CatalogEntry } from '../furniture/catalog';
@@ -16,15 +16,35 @@ import { validateLayout } from '../referee/validate';
 
 // ---- Result types ------------------------------------------------------------------------------
 
-export interface RoomEditOk { ok: true; ops: Op[]; label: string; by: 'rules' | 'ai'; notes: string[]; undo?: boolean; noChange?: boolean }
-export interface RoomEditCannot { ok: false; cannot: true; reason: string; nearest: string }
+/** Which pieces the last sentences talked about, newest first. Pass the returned value back in with the next sentence. */
+export interface RefMemory { last: string[] }
+export const emptyMemory = (): RefMemory => ({ last: [] });
+
+/** Machine-readable account of an edit: what moved, what was dropped, what was given up on the way. */
+export interface EditReport {
+  moved: Array<{ id: string; name: string; distM: number }>;
+  removed: Array<{ id: string; name: string }>;
+  added: Array<{ id: string; name: string }>;
+  rotated: string[];
+  compromises: string[];
+  freeRect?: { cx: number; cy: number; w: number; d: number };
+  freeAreaBefore?: number;
+  freeAreaAfter?: number;
+}
+export interface FailedClause { clause: string; reason: string; nearest: string }
+
+export interface RoomEditOk {
+  ok: true; ops: Op[]; label: string; by: 'rules' | 'ai'; notes: string[]; undo?: boolean; noChange?: boolean;
+  memory?: RefMemory; report?: EditReport; failed?: FailedClause[];
+}
+export interface RoomEditCannot { ok: false; cannot: true; reason: string; nearest: string; memory?: RefMemory; failed?: FailedClause[] }
 export type RoomEdit = RoomEditOk | RoomEditCannot;
 
 const cannot = (reason: string, nearest: string): RoomEditCannot => ({ ok: false, cannot: true, reason, nearest });
 
 /** What a handler produces: the whole new furniture list plus a short label. */
-interface Draft { furniture: FurnitureItem[]; label: string; notes: string[] }
-type Handler = (model: SpaceModel, clause: string, furniture: FurnitureItem[]) => Draft | RoomEditCannot | null;
+interface Draft { furniture: FurnitureItem[]; label: string; notes: string[]; focus?: string[]; compromises?: string[]; extra?: Partial<EditReport> }
+type Handler = (model: SpaceModel, clause: string, furniture: FurnitureItem[], mem: RefMemory) => Draft | RoomEditCannot | null;
 
 // ---- Small helpers -----------------------------------------------------------------------------
 
@@ -39,20 +59,20 @@ const NUM_WORDS: Record<string, number> = { one: 1, a: 1, an: 1, another: 1, two
 interface Noun { re: RegExp; cats: string[]; kw: string }
 // Most specific first: the first noun that matches a phrase wins.
 const NOUNS: Noun[] = [
-  { re: /coffee ?table|soffbord|sohvapöytä/, cats: ['coffee-table'], kw: 'coffee table' },
+  { re: /coffee ?table|soffbord|sohvapöytä|sohvapöydä/, cats: ['coffee-table'], kw: 'coffee table' },
   { re: /tv ?(unit|stand|bench)|tv-bänk|tv-taso|television/, cats: ['tv-unit'], kw: 'tv unit' },
-  { re: /night ?stand|bedside|sängbord|yöpöytä/, cats: ['nightstand'], kw: 'nightstand' },
+  { re: /night ?stand|bedside|sängbord|yöpöytä|yöpöydä/, cats: ['nightstand'], kw: 'nightstand' },
   { re: /armchair|fåtölj|nojatuoli|lounge chair/, cats: ['armchair'], kw: 'armchair' },
   { re: /sofa ?bed|sleeper/, cats: ['sofa-bed'], kw: 'sofa bed' },
   { re: /sofa|couch|soffa|sohva/, cats: ['sofa', 'sofa-bed'], kw: 'sofa' },
   { re: /desk chair|office chair|kontorsstol|työtuoli/, cats: ['chair', 'office-chair'], kw: 'desk chair' },
-  { re: /desk|skrivbord|työpöytä|kirjoituspöytä/, cats: ['desk'], kw: 'desk' },
+  { re: /desk|skrivbord|työpöytä|työpöydä|kirjoituspöytä|kirjoituspöydä/, cats: ['desk'], kw: 'desk' },
   { re: /bunk/, cats: ['bunk-bed'], kw: 'bunk bed' },
-  { re: /\bbeds?\b|säng|sänky|sängyn/, cats: ['bed', 'bunk-bed', 'crib'], kw: 'bed' },
+  { re: /\bbeds?\b|säng|sänky|sängyn|vuode/, cats: ['bed', 'bunk-bed', 'crib'], kw: 'bed' },
   { re: /stool|pall|jakkara/, cats: ['stool'], kw: 'stool' },
   { re: /bench|bänk|penkki/, cats: ['bench'], kw: 'bench' },
   { re: /chair|stol|tuoli/, cats: ['chair', 'office-chair', 'stool'], kw: 'chair' },
-  { re: /dining|table|bord|pöytä/, cats: ['table', 'cafe-table'], kw: 'table' },
+  { re: /dining|table|bord|pöytä|pöydä/, cats: ['table', 'cafe-table'], kw: 'table' },
   { re: /plant|växt|planta|kasvi|kukka/, cats: ['plant'], kw: 'plant' },
   { re: /lamp|light|lampa|lamppu|valaisin/, cats: ['lamp'], kw: 'lamp' },
   { re: /rug|carpet|matta|matto/, cats: ['rug'], kw: 'rug' },
@@ -82,11 +102,21 @@ export function findItems(furniture: FurnitureItem[], phrase: string): Furniture
 
 // ---- Geometry search ---------------------------------------------------------------------------
 
-interface Ctx { model: SpaceModel; zones: Vec2[][] }
-const ctxOf = (model: SpaceModel): Ctx => ({
-  model,
-  zones: model.openings.flatMap((o) => { const s = model.spaces.find((x) => x.id === o.spaceId); const z = s && doorSwingPolygon(s, o); return z ? [z] : []; }),
-});
+interface Ctx { model: SpaceModel; zones: Vec2[][]; approach: Vec2[][]; windowZones: Vec2[][] }
+/** The strip in front of an opening, `depth` deep, on the room side. */
+function openingStrip(s: Space, o: SpaceModel['openings'][number], depth: number): Vec2[] {
+  const g = openingSegment(s, o);
+  return [g.a, g.b, { x: g.b.x + g.inward.x * depth, y: g.b.y + g.inward.y * depth }, { x: g.a.x + g.inward.x * depth, y: g.a.y + g.inward.y * depth }];
+}
+const ctxOf = (model: SpaceModel): Ctx => {
+  const withSpace = model.openings.flatMap((o) => { const s = model.spaces.find((x) => x.id === o.spaceId); return s ? [{ o, s }] : []; });
+  return {
+    model,
+    zones: model.openings.flatMap((o) => { const s = model.spaces.find((x) => x.id === o.spaceId); const z = s && doorSwingPolygon(s, o); return z ? [z] : []; }),
+    approach: withSpace.filter(({ o }) => o.kind === 'door').map(({ o, s }) => openingStrip(s, o, 0.8)),
+    windowZones: withSpace.filter(({ o }) => o.kind === 'window').map(({ o, s }) => openingStrip(s, o, 0.4)),
+  };
+};
 const spaceAt = (model: SpaceModel, p: Vec2): Space | undefined => model.spaces.find((s) => pointInPolygon(p, s.polygon));
 const OVERLAP_TOL = 0.03;
 
@@ -131,17 +161,14 @@ function gridPoses(model: SpaceModel, item: FurnitureItem, step = 0.2): Pose[] {
   return out;
 }
 
-interface SearchOpts { walls?: boolean; grid?: boolean; wallFilter?: (space: Space, i: number) => boolean }
+interface SearchOpts { walls?: boolean; grid?: boolean; wallFilter?: (space: Space, i: number) => boolean; extra?: (p: Pose) => boolean }
 function searchPose(ctx: Ctx, item: FurnitureItem, others: FurnitureItem[], cost: (p: Pose) => number, o: SearchOpts = {}): Pose | null {
   const cands: Pose[] = [];
   if (o.walls !== false) for (const s of ctx.model.spaces) for (let i = 0; i < s.polygon.length; i++) if (!o.wallFilter || o.wallFilter(s, i)) cands.push(...wallPoses(s, i, item));
   if (o.grid) cands.push(...gridPoses(ctx.model, item));
-  let best: Pose | null = null, bc = Infinity;
-  for (const p of cands) {
-    const c = cost(p);
-    if (c < bc && fitsAt(ctx, item, p, others)) { best = p; bc = c; }
-  }
-  return best;
+  const scored = cands.map((p) => ({ p, c: cost(p) })).sort((a, b) => a.c - b.c);
+  for (const s of scored) if (Number.isFinite(s.c) && fitsAt(ctx, item, s.p, others) && (!o.extra || o.extra(s.p))) return s.p;
+  return null;
 }
 
 const centreOf = (m: SpaceModel): Vec2 => centroid((m.spaces[0] ?? { polygon: [{ x: 0, y: 0 }] }).polygon);
@@ -684,7 +711,7 @@ export function validateRoomOps(model: SpaceModel, ops: Op[]): Validated {
     const kept = out.filter((o) => {
       const id = o.type === 'PLACE_OBJECT' ? o.item.id : 'id' in o ? o.id : '';
       const bad = o.type !== 'REMOVE_OBJECT' && blockers.has(id);
-      if (bad) dropped.push(`kept clear of door: ${id}`);
+      if (bad) dropped.push(`kept clear of a door or window: ${id}`);
       return !bad;
     });
     return { ops: kept, dropped };
