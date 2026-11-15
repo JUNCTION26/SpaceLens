@@ -15,6 +15,7 @@ const files = import.meta.glob([
   '../features/agent/AgentDock.tsx',
   '../features/render/RenderPanel.tsx',
   '../features/budget/BudgetPanel.tsx',
+  '../features/movein/MoveInPanel.tsx',
 ]) as Record<string, Loader>;
 
 function optional(path: string, name: string): ComponentType | null {
@@ -30,6 +31,7 @@ export const OPTIONAL_PANELS: Record<string, ComponentType | null> = {
   safety: optional('../features/safety/SafetyPanel.tsx', 'SafetyPanel'),
   render: optional('../features/render/RenderPanel.tsx', 'RenderPanel'),
   budget: optional('../features/budget/BudgetPanel.tsx', 'BudgetPanel'),
+  movein: optional('../features/movein/MoveInPanel.tsx', 'MoveInPanel'),
 };
 
 export const AgentDock = optional('../features/agent/AgentDock.tsx', 'AgentDock') as ComponentType<{ overlay?: boolean }> | null;
