@@ -25,8 +25,8 @@ export function SharePoll() {
   };
   return (
     <>
-      <button className="export-file" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite" aria-label="Poll" title="Poll">
-        <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'layout'} size={18} /><span>Poll</span>
+      <button className="export-file" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite" aria-label="Vote" title="Vote">
+        <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'layout'} size={18} /><span>Vote</span>
       </button>
       {pollLink && <QrShare link={pollLink} hideButton />}
     </>

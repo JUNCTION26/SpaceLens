@@ -1,14 +1,14 @@
-.poll-overlay { position: fixed; inset: 0; z-index: 90; background: var(--bg); overflow: auto; padding: var(--s6) var(--s4); }
+.poll-overlay { position: fixed; top: 0; bottom: 0; left: var(--nav-w); width: var(--panel-w); z-index: 5; border-right: 1px solid var(--line); box-sizing: border-box; background: var(--bg); overflow: auto; padding: var(--s5) var(--s3); }
 .poll-close { position: absolute; top: var(--s3); right: var(--s3); }
-.poll-grid { max-width: 1100px; margin: var(--s5) auto 0; display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.poll-grid { margin: var(--s5) 0 0; display: grid; gap: var(--s3); grid-template-columns: 1fr; }
 .poll-card { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column; }
 .poll-card.win { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 30%, transparent); }
 .poll-card.mine { border-color: var(--accent); }
 .poll-plan { width: 100%; aspect-ratio: 4 / 3; background: var(--plan-bg); display: block; object-fit: contain; }
 .poll-room { fill: var(--plan-floor); stroke: var(--plan-wall); stroke-width: .06; }
 .poll-item { fill: color-mix(in srgb, var(--accent) 45%, transparent); stroke: var(--accent); stroke-width: .03; }
-.poll-card figcaption { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: var(--s2) var(--s3); padding: var(--s3) var(--s4); font-size: var(--fs-lg); }
-.poll-card figcaption .btn { grid-column: 1 / -1; min-height: 40px; }
+.poll-card figcaption { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: var(--s2) var(--s3); padding: var(--s3) var(--s4); font-size: var(--fs); }
+.poll-card figcaption .btn { grid-column: 1 / -1; min-height: var(--ctl); }
 .poll-price { color: var(--muted); font-size: var(--fs); }
 .poll-count { font-weight: var(--fw-strong); min-width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
 .poll-empty { display: grid; place-items: center; min-height: 50vh; color: var(--muted); }
