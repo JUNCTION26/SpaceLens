@@ -100,7 +100,7 @@ COORDINATES: metres. Origin at the floor centre of the footprint. +x right, +y U
 ${KIT_GUIDE}
 
 MATERIALS (ids only): ${MATERIAL_IDS.join(', ')}. color and accent are hex. Use the exact hex values in the request line for the parts that carry them: a coloured request must look that colour at a glance, never beige or grey.
-QUALITY: real proportions (seat 42-47 cm high, desk and table tops 72-76 cm, mattress top 45-55 cm, counters 90-110 cm, shelves 30-38 cm apart, boards 1.8-2.5 cm). Capture what makes THIS object recognisable: signature silhouette, theme, palette and details. Exact numbers and counts the person gives are law. ${BUDGET[tier]}; base and legs first, then body, then details.
+QUALITY: real proportions (seat 42-47 cm high, desk and table tops 72-76 cm, mattress top 45-55 cm, counters 90-110 cm, shelves 30-38 cm apart, boards 1.8-2.5 cm). Capture what makes THIS object recognisable: signature silhouette, theme, palette and details. Exact numbers and counts the person gives are law. SUPPORT: nothing floats. Every item overlaps or touches another item or the floor: drums, speakers and tanks sit ON a stand, frame or legs that reach y=0; a cymbal or shelf sits on top of the tube that carries it; stands and posts go THROUGH the thing they hold. Equipment made of loose pieces (drum kit, instrument stand, cart) still needs a base, frame or a stand under every piece. ${BUDGET[tier]}; base and legs first, then body, then details.
 semantics: {category (desk, table, sofa, armchair, chair, office-chair, bed, bunk-bed, crib, bookshelf, wardrobe, dresser, cabinet, tv-unit, counter, bench, lamp, piano, ...), role (seating|surface|storage|sleeping|decor|lighting|appliance|divider|floor), wallBacked, frontClearanceM, sideClearanceM, pairsWith [categories], faces (room|window|screen|table|none), description (one plain sentence)}.`;
 }
 
@@ -388,12 +388,12 @@ async function withRepair(first: { data: unknown; model: string }, parsed: Parse
 
 /** The detail pass: a stronger model refines the same object; the result replaces the draft only when valid. */
 async function refine(prev: { f: Finished; data: unknown; model: string }, prompt: string, parsed: ParsedRequest, want: Want, opts: GenerateOpts, system: string, signal: AbortSignal) {
-  const text = `Here is a fast first draft of "${prompt}" as JSON. Refine THE SAME object into a finished one: keep its overall size and character, improve proportions against real-world dimensions, add parts (up to 40 items in total; real hardware, trim, supports, panels, small accessories that belong to it), choose better materials, and print real words on signs, screens, labels or logos with the text field where the object has any. Every part must touch another part or the floor. Fix anything that does not match the request.
+  const text = `Here is a fast first draft of "${prompt}" as JSON. Refine THE SAME object into a finished one: keep its overall size and character, improve proportions against real-world dimensions, add parts (up to 40 items in total; real hardware, trim, supports, panels, small accessories that belong to it), choose better materials, and print real words on signs, screens, labels or logos with the text field where the object has any. Every part must touch another part or the floor, and never return fewer items than the draft has. Fix anything that does not match the request.
 ${requestLines(parsed, want.size)}
 ${JSON.stringify(prev.data)}`;
   const res = await ai<unknown>({ task: 'smart', system, parts: [{ text }], schema: SPEC_JSON_SCHEMA, signal, temperature: 0.35 });
   const g = finish(res.data, parsed, want);
-  const better = g.ok && g.spec.parts.length >= prev.f.spec.parts.length;
+  const better = g.spec.parts.length >= prev.f.spec.parts.length && (g.ok || (g.issues.length <= prev.f.issues.length && g.issues.length < 3));
   return { took: better, f: better ? g : prev.f, data: better ? res.data : prev.data, model: better ? res.model : prev.model, detailModel: res.model };
 }
 
