@@ -1,11 +1,11 @@
 .shop { display: flex; flex-direction: column; gap: 10px; min-width: 0; font-size: 13px; }
-.shop-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.shop-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
 .shop-input { display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel); }
 .shop-input svg { opacity: .55; flex: none; }
-.shop-input input { border: 0; padding: 0; min-height: calc(var(--ctl) - 2px); background: none; box-shadow: none; }
+.shop-input { min-width: 0; }
+.shop-input.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.shop-input input { flex: 1; min-width: 0; border: 0; padding: 0; min-height: calc(var(--ctl) - 2px); background: none; box-shadow: none; }
 .shop-input:focus-within { border-color: var(--accent); }
-.shop-drop { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; text-align: center; }
-.shop-drop:hover, .shop-drop.over { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .shop-fine { font-size: 12px; color: var(--muted); }
 .shop-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .shop-err { color: var(--bad); }
@@ -45,3 +45,12 @@
 .shop-verdict summary { cursor: pointer; font-weight: 550; }
 
 .shop-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shop-more { position: relative; }
+.shop-more > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 8px; list-style: none; }
+.shop-more > summary::-webkit-details-marker { display: none; }
+.shop-more[open] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
+.find-ok { display: inline-flex; color: var(--ok); }
+.shop-edit { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.shop-title, .shop-verdict li, .shop-tips li { overflow-wrap: anywhere; }
+.shop-err { overflow-wrap: anywhere; font-size: 12px; }

@@ -276,6 +276,7 @@ export function StorePanel() {
                     </div>
                   </div>
                 )}
+                {st?.stage === 'size' && st.message && <small className="shop-err" role="status">{st.message}</small>}
                 {st?.stage === 'image' && (
                   <div className="shop-size-form">
                     <button className="btn btn-sm" onClick={() => void build(c.key)}>Build from title</button>
@@ -305,7 +306,7 @@ export function StorePanel() {
                 </div>
                 {tips === c.key && (() => {
                   const n = negotiationNotes(c, cards, rateMap());
-                  return <details className="shop-tips"><summary className="shop-fine">More</summary><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></details>;
+                  return <div className="shop-tips"><ul>{n.notes.map((x, i) => <li key={i}>{x}</li>)}</ul></div>;
                 })()}
               </div>
             </li>
