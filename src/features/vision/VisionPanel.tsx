@@ -16,11 +16,11 @@ async function timed<T>(parts: GeminiPart[], opts: Parameters<typeof gemini>[1])
   return { data, info: { model: getState().settings.geminiModel, ms: Math.round(performance.now() - t0), tokens: usage.inputTokens + usage.outputTokens - before } };
 }
 
-function PhotoInput({ onFile, label }: { onFile: (f: File) => void; label: string }) {
+function PhotoInput({ onFile, label, busy }: { onFile: (f: File) => void; label: string; busy?: boolean }) {
   return (
-    <label className="btn">
+    <label className="btn" aria-busy={busy} style={busy ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
       {label}
-      <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
+      <input type="file" accept="image/*" capture="environment" disabled={busy} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
     </label>
   );
 }
@@ -71,11 +71,11 @@ function FurnitureFromPhoto() {
   return (
     <div className="vision-body">
       <input aria-label="Known size" placeholder="cm" value={known} onChange={(e) => setKnown(e.target.value)} />
-      <PhotoInput label={busy ? 'Looking...' : 'Photo'} onFile={run} />
+      <PhotoInput label="Photo" busy={busy} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {est && (
         <div className="vision-result">
-                    <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
+          <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')} <span className="muted">cm</span>
           <details className="small"><summary>More</summary><p className="muted">{est.reasoning}</p></details>
@@ -123,7 +123,7 @@ function RoomCheck() {
 
   return (
     <div className="vision-body">
-      <PhotoInput label={busy ? 'Comparing...' : 'Photo'} onFile={run} />
+      <PhotoInput label="Photo" busy={busy} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {issues && (issues.length === 0 ? <p className="small"><Icon name="check" size={16} /><span className="sr-only">No differences</span></p> : (
         <ul className="small">{issues.map((x, i) => <li key={i} title={`${x.detail} ${x.suggestion}`}><strong>{x.kind}</strong></li>)}</ul>

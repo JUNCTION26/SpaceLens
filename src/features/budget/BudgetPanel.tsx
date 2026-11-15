@@ -88,7 +88,7 @@ export function BudgetPanel() {
       <details className="budget-block budget-more">
         <summary>More</summary>
         <button type="button" className="btn budget-wide" onClick={run} disabled={busy}>
-          <Icon name="sparkles" />{busy ? 'Working' : 'Optimise'}
+          <Icon name="sparkles" />Optimise
         </button>
 
       {result && (
@@ -150,7 +150,7 @@ export function BudgetPanel() {
         <ul className="budget-list">
           {reasons.map((a) => <li key={a.itemId} className="budget-reason">{a.text}</li>)}
         </ul>
-        {aiReady() && <button type="button" className="btn btn-sm" onClick={polish} disabled={polishing}>{polishing ? 'Rewording' : 'Reword'}</button>}
+        {aiReady() && <button type="button" className="btn btn-sm" onClick={polish} disabled={polishing} aria-busy={polishing}>Reword</button>}
       </div>
       </details>
       )}
