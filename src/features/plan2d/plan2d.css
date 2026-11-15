@@ -187,7 +187,13 @@ circle.plan2d-mark-hit { stroke: none; }
 .plan2d-edit-hint.is-error { color: var(--bad); }
 .plan2d-edit .field[aria-invalid] { border-color: var(--bad); }
 
+.plan2d-item.is-drag .plan2d-item-body { filter: drop-shadow(0 6px 10px rgb(0 0 0 / .28)); }
+.plan2d-item.is-blocker .plan2d-item-body { stroke: var(--bad); stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
+.plan2d-pop { transform-box: fill-box; transform-origin: center; }
+.plan2d.is-live .plan2d-pop { animation: plan2d-pop 220ms var(--ease) both; }
+@keyframes plan2d-pop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
+  .plan2d-pop { animation: none !important; }
   .plan2d-mark-dot, .plan2d-tick, .plan2d-fixghosts, .plan2d-item.is-focus .plan2d-ring { animation: none; }
   .plan2d-item.is-drag .plan2d-item-body { transition: none; }
 }

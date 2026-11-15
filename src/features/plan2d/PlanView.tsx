@@ -16,6 +16,7 @@ import { SPEC_DND, specDrag } from './dnd';
 import { counts, useProblems } from '../problems/store';
 import { ProblemCard } from '../problems/ProblemCard';
 import { SEVERITY_ORDER, type GhostPose, type Problem, type ProblemSeverity } from '../problems/types';
+import { dampBox, lerpPose, pinchView, staggerDelay } from './motion';
 import { chipBox, pickChips, placeRoomLabels, type ChipIn } from './labelLayout';
 import './plan2d.css';
 
@@ -39,14 +40,17 @@ function useGlide(target: FurnitureItem[], frozen: boolean, lastShown: React.Mut
       far = Math.max(far, Math.hypot(f.x - o.x, f.y - o.y), Math.abs(shortest(o.rotation, f.rotation)) * 0.3);
     }
     if (frozen || far < 0.004 || prefersReduced()) { setFrame(target); return; }
-    const dur = Math.min(440, 140 + far * 500), t0 = performance.now();
+    const dur = 350, t0 = performance.now();
+    const movers = target.filter((f) => { const o = from.get(f.id); return o && (Math.hypot(f.x - o.x, f.y - o.y) > 0.004 || Math.abs(shortest(o.rotation, f.rotation)) > 0.01); });
+    const delay = new Map(movers.map((f, i) => [f.id, staggerDelay(i, movers.length)]));
+    const total = dur + Math.max(0, ...delay.values());
     const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
-      setFrame(k >= 1 ? target : target.map((f) => {
+      const el = t - t0;
+      setFrame(el >= total ? target : target.map((f) => {
         const o = from.get(f.id); if (!o) return f;
-        return { ...f, x: o.x + (f.x - o.x) * e, y: o.y + (f.y - o.y) * e, rotation: o.rotation + shortest(o.rotation, f.rotation) * e };
+        return { ...f, ...lerpPose(o, f, el, dur, delay.get(f.id) ?? 0) };
       }));
-      if (k < 1) raf.current = requestAnimationFrame(step);
+      if (el < total) raf.current = requestAnimationFrame(step);
     };
     raf.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf.current);
@@ -209,11 +213,12 @@ export function PlanView() {
   lastShown.current = furniture;
 
   // Live overlap and outside tests, used while dragging (the full checks run in the background).
-  const { outside, overlapsWith } = useMemo(() => {
+  const { outside, overlapsWith, blockers } = useMemo(() => {
     const out = new Set<string>();
     const withMap = new Map<string, string[]>();
-    if (drag?.kind !== 'item' && drag?.kind !== 'rotate') return { outside: out, overlapsWith: withMap };
-    const push = (a: FurnitureItem, b: FurnitureItem) => { const l = withMap.get(a.id) ?? []; l.push(b.name); withMap.set(a.id, l); };
+    const blk = new Set<string>();
+    if (drag?.kind !== 'item' && drag?.kind !== 'rotate') return { outside: out, overlapsWith: withMap, blockers: blk };
+    const push = (a: FurnitureItem, b: FurnitureItem) => { const l = withMap.get(a.id) ?? []; l.push(b.name); withMap.set(a.id, l); blk.add(a.id); blk.add(b.id); };
     const cs = furniture.map((f) => itemCorners(f));
     const soft = (f: FurnitureItem) => f.category === 'rug' || !!catalogEntry(f.catalogId)?.overlaps;
     for (let i = 0; i < furniture.length; i++) {
@@ -223,7 +228,7 @@ export function PlanView() {
       }
       if (spaces.length && !spaces.some((s) => polygonInside(cs[i], s.polygon))) out.add(furniture[i].id);
     }
-    return { outside: out, overlapsWith: withMap };
+    return { outside: out, overlapsWith: withMap, blockers: blk };
   }, [furniture, spaces, drag?.kind]);
   const dragIds = drag?.kind === 'item' ? drag.ids : drag?.kind === 'rotate' ? [drag.id] : [];
   const dragBad = dragIds.some((id) => outside.has(id) || overlapsWith.has(id));
@@ -278,17 +283,30 @@ export function PlanView() {
   const isSel = (kind: string, id: string) => selection?.kind === kind && selId === id;
 
   // Smoothly animate the view box to a target.
+  // Critically damped (about 180 ms) so zoom, pan and fit all ease the same way.
+  const vbNow = useRef(vb); vbNow.current = vb;
+  const goal = useRef<VB | null>(null);
+  const vel = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const stopGlide = () => { cancelAnimationFrame(anim.current); anim.current = 0; goal.current = null; vel.current = { x: 0, y: 0, w: 0, h: 0 }; };
   const animateTo = (target: VB) => {
-    cancelAnimationFrame(anim.current);
-    const from = { ...vb }; const t0 = performance.now();
+    goal.current = target;
+    if (prefersReduced()) { cancelAnimationFrame(anim.current); anim.current = 0; setVb(target); return; }
+    if (anim.current) return;
+    let last = performance.now();
     const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / 280); const e = 1 - Math.pow(1 - k, 3);
-      setVb({ x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, w: from.w + (target.w - from.w) * e, h: from.h + (target.h - from.h) * e });
-      if (k < 1) anim.current = requestAnimationFrame(step);
+      const r = dampBox(vbNow.current, vel.current, goal.current ?? vbNow.current, t - last); last = t;
+      vbNow.current = r.box; vel.current = r.vel; setVb(r.box);
+      if (r.done) { anim.current = 0; goal.current = null; } else anim.current = requestAnimationFrame(step);
     };
     anim.current = requestAnimationFrame(step);
   };
   const animRef = useRef(animateTo); animRef.current = animateTo;
+  const fitAnimated = () => animRef.current(fitBox(useStore.getState().model.spaces));
+  const [live, setLive] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setLive(true), 700); return () => clearTimeout(t); }, []);
+  const holdKeys = useRef({ space: false });
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const press = useRef<{ timer?: ReturnType<typeof setTimeout>; x: number; y: number }>({ x: 0, y: 0 });
 
   // Keep a newly selected item clear of the inspector sheet that opens over the stage.
   useEffect(() => {
@@ -314,7 +332,7 @@ export function PlanView() {
 
   // Other parts of the app can ask the plan to reset its view.
   useEffect(() => {
-    const onReset = () => fit();
+    const onReset = () => fitAnimated();
     window.addEventListener('spacelens:reset-view', onReset);
     return () => window.removeEventListener('spacelens:reset-view', onReset);
   }, [fit]);
@@ -417,14 +435,25 @@ export function PlanView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hold space to pan with the primary button.
+  useEffect(() => {
+    const typing = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable); };
+    const dn = (e: KeyboardEvent) => { if (e.code === 'Space' && !typing(e.target)) { holdKeys.current.space = true; e.preventDefault(); } };
+    const up = (e: KeyboardEvent) => { if (e.code === 'Space') holdKeys.current.space = false; };
+    window.addEventListener('keydown', dn); window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+  }, []);
+
   // Wheel zoom (non-passive).
   useEffect(() => {
     const el = svgRef.current; if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      const k = Math.exp(e.deltaY * 0.0015);
-      setVb((cur) => zoomAt(cur, r, e.clientX, e.clientY, k, size));
+      // Trackpad pinch arrives as ctrl + wheel with small deltas; a mouse wheel in lines is scaled up.
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+      const k = Math.exp(dy * (e.ctrlKey ? 0.01 : 0.0015));
+      animRef.current(zoomAt(goal.current ?? vbNow.current, r, e.clientX, e.clientY, k, size));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -481,6 +510,8 @@ export function PlanView() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button === 2) return;
+    if (e.button === 1) e.preventDefault();
+    stopGlide(); clearTimeout(press.current.timer);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     if (pointers.current.size === 2) {
@@ -491,6 +522,7 @@ export function PlanView() {
     const target = (e.target as Element).closest('[data-hit]') as HTMLElement | null;
     const hit = target?.getAttribute('data-hit') ?? '';
     const p = toPlan(e.clientX, e.clientY);
+    if (e.button === 1 || holdKeys.current.space) { setMenu(null); setD({ kind: 'pan', start: { x: e.clientX, y: e.clientY }, vb: view, sx: px, sy: px }); return; }
     if (hit.startsWith('mk:')) { openCard(hit.slice(3), true); return; }
     if (card && !hit.startsWith('f:')) closeCard();
     if (hit.startsWith('v:')) {
@@ -520,6 +552,17 @@ export function PlanView() {
         for (const gid of ids) { const g = furniture.find((x) => x.id === gid); if (g) origins[gid] = { x: g.x, y: g.y }; }
         setD({ kind: 'item', id, ids, origins, off: sub({ x: f.x, y: f.y }, p), pos: { x: f.x, y: f.y }, moved: false, guides: [], wall: null, snap: null, start: { x: e.clientX, y: e.clientY } });
       }
+      if (e.pointerType !== 'mouse') {
+        // Long press selects the item and shows its actions.
+        const rr = svgRef.current!.getBoundingClientRect();
+        press.current = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+          const cur = dragRef.current;
+          if (cur && !(cur.kind === 'item' && !cur.moved)) return;
+          setD(null); setMulti([id]); select({ kind: 'furniture', id });
+          setMenu({ id, sx: press.current.x - rr.left, sy: press.current.y - rr.top });
+          try { navigator.vibrate?.(10); } catch { /* not supported */ }
+        }, 480) };
+      }
     } else if (hit.startsWith('o:')) {
       select({ kind: 'opening', id: hit.slice(2) });
     } else if (hit.startsWith('w:')) {
@@ -534,17 +577,15 @@ export function PlanView() {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (press.current.timer && Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 8) clearTimeout(press.current.timer);
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch.current && pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y); const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const st = pinch.current; const k = st.d / Math.max(d, 1);
-      const mpp = st.vb.w / size.w;
+      const st = pinch.current;
       const r = svgRef.current!.getBoundingClientRect();
-      // Keep plan point under the original centre under the new centre.
-      const anchor = { x: st.vb.x + (st.c.x - r.left) * mpp, y: st.vb.y + (st.c.y - r.top) * mpp };
-      const nw = st.vb.w * k, nh = st.vb.h * k, nm = mpp * k;
-      setVb({ x: anchor.x - (c.x - r.left) * nm, y: anchor.y - (c.y - r.top) * nm, w: nw, h: nh });
+      // Zoom around the pinch centre; the angle between the fingers is ignored.
+      setVb(pinchView(st.vb, st.d, st.c, d, c, r, size.w));
       return;
     }
     const d = dragRef.current;
@@ -597,6 +638,7 @@ export function PlanView() {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    clearTimeout(press.current.timer);
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     const d = dragRef.current; setD(null);
@@ -624,7 +666,19 @@ export function PlanView() {
       setMulti(next); select(next.length ? { kind: 'furniture', id: next[0] } : null);
     }
     if (d.kind === 'rotate') { ensureEditable(); useStore.getState().dispatch({ type: 'UPDATE_OBJECT', id: d.id, patch: { rotation: d.rot } }); }
-    if (d.kind === 'pan' && Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) < 4) select(null);
+    if (d.kind === 'pan' && Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) < 4) {
+      select(null);
+      // Double-tap on touch zooms to the room under the finger, or back to the whole plan.
+      if (e.pointerType !== 'mouse') {
+        const now = performance.now(), lt = lastTap.current;
+        if (lt && now - lt.t < 320 && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) < 28) {
+          lastTap.current = null;
+          const q = toPlan(e.clientX, e.clientY);
+          const room = model.spaces.find((sp) => pointInPolygon(q, sp.polygon));
+          if (room) { const b = aabb(room.polygon); const pad = 0.4; animRef.current({ x: b.minX - pad, y: b.minY - pad, w: b.maxX - b.minX + pad * 2, h: b.maxY - b.minY + pad * 2 }); } else fitAnimated();
+        } else lastTap.current = { t: now, x: e.clientX, y: e.clientY };
+      }
+    }
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
@@ -703,7 +757,7 @@ export function PlanView() {
   const stroke = (k = 1) => k * px;
 
   return (
-    <div className={`plan2d${sketching ? ' plan2d-drawing' : ''}`}
+    <div className={`plan2d${sketching ? ' plan2d-drawing' : ''}${live ? ' is-live' : ''}`}
       onDragOver={(e) => {
         const isSpec = e.dataTransfer.types.includes(SPEC_DND);
         if (!e.dataTransfer.types.includes(CATALOG_DND) && !isSpec) return;
@@ -874,7 +928,7 @@ export function PlanView() {
           return (
             <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))}
               drag={dragging ? (dragBad ? 'bad' : 'ok') : null} focus={focusIds.has(f.id) || card?.key === `f:${f.id}`}
-              hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} />
+              hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} blocker={dragBad && !dragging && blockers.has(f.id)} />
           );
         })}
 
@@ -1059,7 +1113,7 @@ export function PlanView() {
       })()}
 
       <div className="plan2d-toolbar" role="toolbar" aria-label="Plan tools">
-        <button className="plan2d-tb" onClick={fit} aria-label="Fit plan to view" data-tip="Fit to view (F)"><Icon name="maximize" /></button>
+        <button className="plan2d-tb" onClick={fitAnimated} aria-label="Fit plan to view" data-tip="Fit to view (F)"><Icon name="maximize" /></button>
         <div className="plan2d-layers">
           <button className={`plan2d-tb${layersOpen ? ' is-on' : ''}`} onClick={() => setLayersOpen((v) => !v)} aria-haspopup="menu" aria-expanded={layersOpen} aria-label="Layers" data-tip="Layers"><Icon name="layout" /></button>
           {layersOpen && (
@@ -1181,15 +1235,16 @@ function Heat({ grid }: { grid: NonNullable<import('../../core/types').Analysis[
   return <g pointerEvents="none">{cells}</g>;
 }
 
-function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover }: {
-  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; drag: 'ok' | 'bad' | null; focus: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean;
+function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker }: {
+  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; drag: 'ok' | 'bad' | null; focus: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean; blocker?: boolean;
 }) {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
   const ring = sel || focus;
   return (
     <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`}
-      className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}`}>
+      className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}${blocker ? ' is-blocker' : ''}`}>
+      <g className="plan2d-pop">
       {ring && <rect x={-w / 2 - 5 * px} y={-d / 2 - 5 * px} width={w + 10 * px} height={d + 10 * px} rx={4 * px} className="plan2d-ring" strokeWidth={2 * px} pointerEvents="none" />}
       {layers.clearance && c && (
         <rect x={-w / 2 - c.left} y={-d / 2 - c.back} width={w + c.left + c.right} height={d + c.back + c.front}
@@ -1211,6 +1266,7 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover }: {
           </circle>
         </g>
       )}
+      </g>
     </g>
   );
 }
