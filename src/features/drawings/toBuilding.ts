@@ -10,7 +10,7 @@
 import type { Evidence, Measurement, Opening, Space, SpaceModel, Vec2, WallMeta } from '../../core/types';
 import type { PagePaths, P } from './pdfPaths';
 import type { TextItem } from './textCore';
-import { extractPlan, polyArea, type ExtractOptions, type PlanGeometry } from './extract';
+import { extractPlan, polyArea, type ExtractOptions, type PlanGeometry, type ScaleEstimate } from './extract';
 import { OUTDOOR_PURPOSES, purposeOf } from './purpose';
 import type { DrawingDoc } from './drawingIndex';
 
@@ -31,6 +31,28 @@ export interface RoomReport {
   outline: Vec2[];
   /** Room centre in model metres. */
   centre: Vec2;
+}
+
+/** Machine-readable check of one built plan: what was found and what looks wrong. */
+export interface QualityReport {
+  rooms: number;
+  roomsWithPrintedArea: number;
+  medianAreaErrorPct: number | null;
+  maxAreaErrorPct: number | null;
+  /** Rooms whose area is off the printed area by more than 5%. */
+  areaOutliers: Array<{ spaceId: string; name: string; errorPct: number }>;
+  doorsPerRoom: Array<{ spaceId: string; name: string; doors: number }>;
+  roomsWithoutDoor: string[];
+  /** Rooms with no door path to the largest connected group of rooms. */
+  unreachable: string[];
+  overlapping: Array<{ a: string; b: string; overlapM2: number }>;
+  scale: { mPerPt: number | null; confidence: number; estimates: ScaleEstimate[]; disagreementPct: number };
+  wallThicknessM: number;
+  excluded?: PlanGeometry['excluded'];
+  /** Plain-language problems, empty when nothing looks wrong. */
+  flags: string[];
+  /** 0..1, a blend of area agreement, door coverage, reachability and scale agreement. */
+  score: number;
 }
 
 export interface BuildReport {
@@ -55,6 +77,7 @@ export interface BuildReport {
   warnings: string[];
   /** Walls in normalised page coordinates, for the overlay. */
   wallsNorm: Vec2[][];
+  quality?: QualityReport;
 }
 
 export interface BuildOptions extends ExtractOptions {
@@ -78,6 +101,82 @@ function pointInRing(p: P, ring: P[]): boolean {
     if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
   }
   return inside;
+}
+
+
+function polyInside(p: Vec2, poly: Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Area (m2) shared by two polygons, by sampling the first on a 10 cm grid. */
+function overlapArea(a: Vec2[], b: Vec2[]): number {
+  const xs = a.map((p) => p.x), ys = a.map((p) => p.y);
+  const bx = b.map((p) => p.x), by = b.map((p) => p.y);
+  const x0 = Math.max(Math.min(...xs), Math.min(...bx)), x1 = Math.min(Math.max(...xs), Math.max(...bx));
+  const y0 = Math.max(Math.min(...ys), Math.min(...by)), y1 = Math.min(Math.max(...ys), Math.max(...by));
+  if (x1 <= x0 || y1 <= y0) return 0;
+  const h = 0.1; let n = 0;
+  for (let y = y0 + h / 2; y < y1; y += h) for (let x = x0 + h / 2; x < x1; x += h) if (polyInside({ x, y }, a) && polyInside({ x, y }, b)) n++;
+  return n * h * h;
+}
+
+export function qualityOf(reports: RoomReport[], model: SpaceModel, plan: PlanGeometry): QualityReport {
+  const flags: string[] = [];
+  const errs = reports.filter((r) => r.errorPct != null).map((r) => Math.abs(r.errorPct!));
+  const doorCount = new Map<string, number>();
+  for (const sp of model.spaces) doorCount.set(sp.id, 0);
+  const byDoor = new Map<string, string[]>();
+  for (const o of model.openings) if (o.kind === 'door') {
+    doorCount.set(o.spaceId, (doorCount.get(o.spaceId) ?? 0) + 1);
+    const k = o.id.split('~')[0];
+    byDoor.set(k, [...(byDoor.get(k) ?? []), o.spaceId]);
+  }
+  // rooms joined through any door that touches both
+  const parent = new Map(model.spaces.map((s) => [s.id, s.id]));
+  const find = (x: string): string => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x)!)!); x = parent.get(x)!; } return x; };
+  for (const ids of byDoor.values()) for (let i = 1; i < ids.length; i++) parent.set(find(ids[i]), find(ids[0]));
+  const comp = new Map<string, string[]>();
+  for (const s of model.spaces) { const r = find(s.id); comp.set(r, [...(comp.get(r) ?? []), s.id]); }
+  const biggest = [...comp.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+  const nameOf = (id: string) => reports.find((r) => r.spaceId === id)?.name ?? id;
+  const unreachable = model.spaces.length > 1 ? model.spaces.filter((s) => !biggest.includes(s.id)).map((s) => s.id) : [];
+  const roomsWithoutDoor = model.spaces.filter((s) => !doorCount.get(s.id)).map((s) => s.id);
+  const overlapping: QualityReport['overlapping'] = [];
+  for (let i = 0; i < model.spaces.length; i++) for (let j = i + 1; j < model.spaces.length; j++) {
+    const a = model.spaces[i], b = model.spaces[j];
+    const ov = overlapArea(a.polygon, b.polygon);
+    const small = Math.min(Math.abs(polyArea(a.polygon)), Math.abs(polyArea(b.polygon)));
+    if (ov > 0.3 && ov > small * 0.05) overlapping.push({ a: a.id, b: b.id, overlapM2: Math.round(ov * 100) / 100 });
+  }
+  const areaOutliers = reports.filter((r) => r.errorPct != null && Math.abs(r.errorPct) > 5).map((r) => ({ spaceId: r.spaceId, name: r.name, errorPct: r.errorPct! }));
+  const ev = plan.scaleEvidence ?? [];
+  const conf = ev.length ? Math.max(...ev.map((e) => e.confidence)) : 0;
+  const dis = plan.scaleDisagreementPct ?? 0;
+  if (areaOutliers.length) flags.push(`${areaOutliers.length} room${areaOutliers.length > 1 ? 's' : ''} differ from the printed area by more than 5%: ${areaOutliers.map((o) => `${o.name} ${o.errorPct > 0 ? '+' : ''}${o.errorPct}%`).join(', ')}.`);
+  if (roomsWithoutDoor.length) flags.push(`No door found for ${roomsWithoutDoor.map(nameOf).join(', ')}.`);
+  if (unreachable.length) flags.push(`${unreachable.map(nameOf).join(', ')} cannot be reached through doors from the main group of rooms.`);
+  if (overlapping.length) flags.push(`${overlapping.length} pair${overlapping.length > 1 ? 's' : ''} of rooms overlap.`);
+  if (dis > 8) flags.push(`Scale estimates disagree by ${Math.round(dis)}%.`);
+  if (!errs.length) flags.push('No printed room areas to check the sizes against.');
+  const n = Math.max(1, reports.length);
+  const areaScore = errs.length ? Math.max(0, 1 - (median(errs) ?? 0) / 10) : 0.5;
+  const score = Math.max(0, Math.min(1,
+    0.4 * areaScore + 0.2 * (1 - roomsWithoutDoor.length / n) + 0.15 * (1 - unreachable.length / n) + 0.1 * (overlapping.length ? 0 : 1) + 0.15 * Math.min(1, Math.max(0, 1 - dis / 20)) * (conf >= 0.3 ? 1 : 0.5)));
+  return {
+    rooms: reports.length, roomsWithPrintedArea: errs.length,
+    medianAreaErrorPct: errs.length ? Math.round((median(errs) ?? 0) * 10) / 10 : null,
+    maxAreaErrorPct: errs.length ? Math.round(Math.max(...errs) * 10) / 10 : null,
+    areaOutliers, doorsPerRoom: model.spaces.map((s) => ({ spaceId: s.id, name: nameOf(s.id), doors: doorCount.get(s.id) ?? 0 })),
+    roomsWithoutDoor, unreachable, overlapping,
+    scale: { mPerPt: plan.mPerPt, confidence: Math.round(conf * 100) / 100, estimates: ev, disagreementPct: Math.round(dis * 10) / 10 },
+    wallThicknessM: Math.round(plan.wallThicknessPt * (plan.mPerPt ?? 0) * 1000) / 1000,
+    excluded: plan.excluded, flags, score: Math.round(score * 100) / 100,
+  };
 }
 
 export function buildFromPaths(pp: PagePaths, items: TextItem[], page: number, opts: BuildOptions = {}): { model: SpaceModel; report: BuildReport; plan: PlanGeometry } {
@@ -248,7 +347,7 @@ export function buildFromPaths(pp: PagePaths, items: TextItem[], page: number, o
       const sp = spaces[h.ri];
       openings.push({
         id: `${doorId}~${sp.id}`, kind: 'door', spaceId: sp.id, wallIndex: h.wi, offsetM: r3(h.off * m), widthM: r3(L * m),
-        heightM: 2.05, sillM: 0, swing: inside ? 'in' : 'none', hinge: hingeAtStart ? 'start' : 'end',
+        heightM: 2.05, sillM: 0, swing: inside ? 'in' : 'out', hinge: hingeAtStart ? 'start' : 'end',
         sourceKind: 'pdf-annotation', status: 'estimated', measurementId: ms.id,
       });
       reports[h.ri].doors++;
@@ -288,6 +387,7 @@ export function buildFromPaths(pp: PagePaths, items: TextItem[], page: number, o
       medianAreaErrorPct: median(withArea.map((r) => Math.abs(r.errorPct!))),
       verified: withArea.filter((r) => r.status === 'verified').length, withPrintedArea: withArea.length,
       ms: Math.round(plan.ms + (t1 - t0)),
+      quality: qualityOf(reports, model, plan),
     },
     plan,
   };

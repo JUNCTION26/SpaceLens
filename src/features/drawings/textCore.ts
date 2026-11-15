@@ -22,6 +22,7 @@ const ROOM_WORDS = [
   // German / Italian / French (Swiss plans)
   'zimmer','schlafzimmer','wohnen','wohnzimmer','küche','bad','korridor','gang','flur','reduit','réduit','balkon','terrasse','loggia','treppenhaus','eingangshalle','büro','bürofläche','abstellraum','keller','essen','waschküche','gewerbe',
   'stanza','soggiorno','cucina','bagno','corridoio','ripostiglio','balcone','terrazza','ufficio','ingresso','disimpegno','camera',
+  'dusche','duschbad','toilette','garderobe','wardrobe','tuulikaappi','autotalli','bastu','sov','vrk','vh','kt','tk','ph','kk','gard','garderob','hwr','hauswirtschaftsraum','technik','technikraum','schlafen','kinderzimmer','gästezimmer','klädkammare','tvättstuga','vindfång','pannhuone','lämpöhuone',
   'chambre','séjour','cuisine','salle','couloir','balcon','escalier','bureau','dégagement','hall','cave',
 ];
 

@@ -2,6 +2,18 @@
 
 const RULES: Array<[RegExp, string, string]> = [
   // [pattern, purpose, English name]
+  // Printed abbreviations (Finnish, Swedish, German, English plans) must match the whole label.
+  [/^(oh|vrk|lr|wz)\.?$/, 'living', 'Living room'],
+  [/^(mh|sov|sk|sz|br|bed)\.?$/, 'bedroom', 'Bedroom'],
+  [/^(kt|kk|k|kök|kit|ktt|kü)\.?$/, 'kitchen', 'Kitchen'],
+  [/^(kh|ph|sh|wc\/d|wc\/kph|wc\/dusch|du)\.?$/, 'bathroom', 'Bathroom'],
+  [/^(et|tk|tuulikaappi|hall|vindfång|vindfang|ent|gd)\.?$/, 'hallway', 'Hallway'],
+  [/^(vh|kl|gard|garderob|garderobe|wh|ar|abst|vaatehuone|klädkammare|walk-in closet|wardrobe|dressing|ankleide|tekn|tech|technik|hwr|hw)\.?$/, 'storage', 'Storage'],
+  [/^(khh|tvv|tv|waschk|waschküche)\.?$/, 'utility', 'Laundry'],
+  [/^(sauna|bastu)$/, 'bathroom', 'Sauna'],
+  [/(garage|autotalli|carport|parkering|bilplats)/, 'storage', 'Garage'],
+  [/(wohnküche|wohnkuche|open kitchen|avokeittiö|avokeittio)/, 'living', 'Living and kitchen'],
+  [/(suihku|pesuhuone|dusch|duschraum|sanitär|sanitar|restroom|lavatory)/, 'bathroom', 'Bathroom'],
   [/^(wohnen\/essen|wohn.?\/?ess|living\/dining|séjour\/repas|soggiorno\/pranzo)/, 'living', 'Living and dining'],
   [/(wohnen|wohnzimmer|living|séjour|sejour|salon|soggiorno|vardagsrum|olohuone|allrum)/, 'living', 'Living room'],
   [/(küche|kuche|kitchen|cuisine|cucina|kök|kok|keittiö|keittio|kitchenette|kochen)/, 'kitchen', 'Kitchen'],

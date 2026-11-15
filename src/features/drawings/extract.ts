@@ -11,6 +11,7 @@ import type { TextItem } from './textCore';
 import { extractRooms } from './answer';
 
 export interface Door { hinge: P; tip: P; jamb: P; widthPt: number }
+export interface ScaleEstimate { source: 'printed' | 'dimensions' | 'areas' | 'doors'; mPerPt: number; /** 0..1 */ confidence: number; used: number; rejected: number; note: string }
 export interface WindowGeom { a: P; b: P; depthPt: number }
 export interface RoomGeom {
   id: string;
@@ -40,6 +41,14 @@ export interface PlanGeometry {
   mPerPt: number | null;
   scaleSource: 'printed' | 'areas' | 'none';
   scaleN?: number;
+  /** Every independent scale estimate (printed ratio, dimension strings, printed areas, door widths) with its confidence. */
+  scaleEvidence?: ScaleEstimate[];
+  /** Largest relative gap between two estimates that carry weight, percent (0 when only one exists). */
+  scaleDisagreementPct?: number;
+  /** Segments excluded as non-wall linework, by reason. */
+  excluded?: { border: number; titleBlock: number; furniture: number; hatch: number; dimension: number };
+  /** Door leaves that sit in a gap with no drawn swing (symbol-less openings). */
+  gaps?: Array<{ a: P; b: P; widthPt: number }>;
   /** Ratio fitted from printed room areas (metres per point), for cross-checking the printed scale. */
   areaFitMPerPt?: number;
   walls: P[][];
@@ -144,7 +153,7 @@ function closedShapes(p: VPath): Shape[] {
   return out;
 }
 
-function findWalls(paths: VPath[], tMin: number, tMax: number, pageArea: number): { rings: P[][]; source: PlanGeometry['wallSource']; thickness: number; thick90: number; styles: Set<string> } {
+function findWalls(paths: VPath[], tMin: number, tMax: number, pageArea: number, mPerPt: number | null = null, W = 0, H = 0): { rings: P[][]; source: PlanGeometry['wallSource']; thickness: number; thick90: number; styles: Set<string>; excluded?: PlanGeometry['excluded'] } {
   const groups = new Map<string, { shapes: Shape[]; key: string; filled: boolean }>();
   for (const p of paths) {
     const filled = p.paint !== 'stroke';
@@ -172,6 +181,13 @@ function findWalls(paths: VPath[], tMin: number, tMax: number, pageArea: number)
     return { rings, source: 'filled', thickness: median(ts), thick90: ts[Math.floor(ts.length * 0.9)] ?? 0, styles: new Set(keep.map((x) => x.g.key)) };
   }
   const outlined = scored.filter((x) => !x.g.filled).sort((a, b) => b.run - a.run)[0];
+  // double lines: two parallel strokes a wall-thickness apart
+  if (W > 0) {
+    const pl = pairedLineWalls(paths, tMin, tMax, mPerPt, W, H);
+    if (pl.rings.length && pl.length > Math.sqrt(pageArea) * 0.8 && (!outlined || pl.length > outlined.run * 0.7)) {
+      return { rings: pl.rings, source: 'strokes', thickness: pl.thickness, thick90: pl.thickness, styles: new Set(), excluded: pl.excluded };
+    }
+  }
   if (outlined && outlined.run > Math.sqrt(pageArea) * 0.8) {
     const ts = outlined.wallish.map((s) => s.t).sort((a, b) => a - b);
     return { rings: outlined.wallish.map((s) => s.ring), source: 'outlined', thickness: median(ts), thick90: ts[Math.floor(ts.length * 0.9)] ?? 0, styles: new Set([outlined.g.key]) };
@@ -187,6 +203,88 @@ function findWalls(paths: VPath[], tMin: number, tMax: number, pageArea: number)
     return { rings, source: 'strokes', thickness: thick, thick90: thick, styles: new Set(chosen.map(styleKey)) };
   }
   return { rings: [], source: 'none', thickness: 0, thick90: 0, styles: new Set() };
+}
+
+
+/**
+ * Double-line walls: two long parallel strokes a wall-thickness apart. Each pair becomes one
+ * rectangle (the wall's centre band with its thickness). Short strokes (hatching, symbols),
+ * strokes belonging to small closed shapes (furniture, fixtures) and clusters that sit in the
+ * sheet margin (border, title block) are left out and counted.
+ */
+export function pairedLineWalls(paths: VPath[], tMin: number, tMax: number, mPerPt: number | null, W: number, H: number): { rings: P[][]; thickness: number; length: number; excluded: NonNullable<PlanGeometry['excluded']> } {
+  const excluded = { border: 0, titleBlock: 0, furniture: 0, hatch: 0, dimension: 0 };
+  const minLen = Math.max(tMax * 1.2, mPerPt ? 0.7 / mPerPt : tMax * 1.2);
+  const smallShape = mPerPt ? 3.2 / mPerPt : tMax * 4;
+  const none = { rings: [] as P[][], thickness: 0, length: 0, excluded };
+  interface Seg { a: P; b: P; ang: number; len: number }
+  const segs: Seg[] = [];
+  for (const p of paths) {
+    if (p.paint === 'fill' || p.dashed || p.curves > 0 || p.lw > tMax) continue;
+    p.subs.forEach((sub, si) => {
+      const bb = bboxOf(sub);
+      const isClosed = p.closed[si] || (sub.length > 3 && dist(sub[0], sub[sub.length - 1]) < 0.5);
+      const diag = Math.hypot(bb.x1 - bb.x0, bb.y1 - bb.y0);
+      if (isClosed && diag > Math.hypot(W, H) * 0.7) { excluded.border++; return; }
+      if (isClosed && diag < smallShape) { excluded.furniture++; return; }
+      for (let i = 0; i + 1 < sub.length; i++) {
+        const a = sub[i], b = sub[i + 1], len = dist(a, b);
+        if (len < minLen) { if (len > 0.5) excluded.hatch++; continue; }
+        let ang = Math.atan2(b.y - a.y, b.x - a.x); if (ang < 0) ang += Math.PI; if (ang >= Math.PI) ang -= Math.PI;
+        segs.push({ a, b, ang, len });
+      }
+    });
+  }
+  if (segs.length > 9000 || segs.length < 2) return none;
+  const tolA = (1.5 * Math.PI) / 180;
+  const pairs: Array<{ a: P; b: P; t: number; len: number }> = [];
+  for (let i = 0; i < segs.length; i++) {
+    const si = segs[i];
+    const ux = Math.cos(si.ang), uy = Math.sin(si.ang), nx = -uy, ny = ux;
+    const i0 = si.a.x * ux + si.a.y * uy, i1 = si.b.x * ux + si.b.y * uy;
+    const io = si.a.x * nx + si.a.y * ny;
+    const ilo = Math.min(i0, i1), ihi = Math.max(i0, i1);
+    for (let j = i + 1; j < segs.length; j++) {
+      const sj = segs[j];
+      const da = Math.abs(sj.ang - si.ang);
+      if (Math.min(da, Math.PI - da) > tolA) continue;
+      const jo = (sj.a.x * nx + sj.a.y * ny + sj.b.x * nx + sj.b.y * ny) / 2;
+      const d = Math.abs(jo - io);
+      if (d < tMin || d > tMax) continue;
+      const j0 = sj.a.x * ux + sj.a.y * uy, j1 = sj.b.x * ux + sj.b.y * uy;
+      const lo = Math.max(ilo, Math.min(j0, j1)), hi = Math.min(ihi, Math.max(j0, j1));
+      if (hi - lo < minLen * 0.6) continue;
+      const mid = (io + jo) / 2;
+      pairs.push({ a: { x: lo * ux + mid * nx, y: lo * uy + mid * ny }, b: { x: hi * ux + mid * nx, y: hi * uy + mid * ny }, t: d, len: hi - lo });
+    }
+  }
+  if (!pairs.length) return none;
+  // cluster rectangles that touch; drop clusters in the margin or much smaller than the main one
+  const n = pairs.length;
+  const parent = Array.from({ length: n }, (_, k) => k);
+  const find = (k: number): number => { while (parent[k] !== k) { parent[k] = parent[parent[k]]; k = parent[k]; } return k; };
+  const boxes = pairs.map((q) => { const e = q.t * 1.2; return { x0: Math.min(q.a.x, q.b.x) - e, y0: Math.min(q.a.y, q.b.y) - e, x1: Math.max(q.a.x, q.b.x) + e, y1: Math.max(q.a.y, q.b.y) + e }; });
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const A = boxes[i], B = boxes[j];
+    if (A.x0 <= B.x1 && B.x0 <= A.x1 && A.y0 <= B.y1 && B.y0 <= A.y1) parent[find(i)] = find(j);
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) { const r = find(i); const g = groups.get(r); if (g) g.push(i); else groups.set(r, [i]); }
+  const lenOf = (g: number[]) => g.reduce((s, k) => s + pairs[k].len, 0);
+  const biggest = Math.max(...[...groups.values()].map(lenOf));
+  const keep: number[] = [];
+  for (const g of groups.values()) {
+    const L = lenOf(g);
+    const bx0 = Math.min(...g.map((k) => boxes[k].x0)), bx1 = Math.max(...g.map((k) => boxes[k].x1)), by0 = Math.min(...g.map((k) => boxes[k].y0)), by1 = Math.max(...g.map((k) => boxes[k].y1));
+    const inMargin = bx1 < W * 0.05 || bx0 > W * 0.95 || by1 < H * 0.05 || by0 > H * 0.95;
+    const title = L < biggest && bx0 > W * 0.55 && by0 > H * 0.78 && bx1 - bx0 < W * 0.45;
+    if (inMargin) { excluded.border += g.length; continue; }
+    if (title) { excluded.titleBlock += g.length; continue; }
+    if (L < biggest * 0.15) { excluded.dimension += g.length; continue; }
+    keep.push(...g);
+  }
+  const ts = keep.map((k) => pairs[k].t).sort((x, y) => x - y);
+  return { rings: keep.map((k) => segRing(pairs[k].a, pairs[k].b, pairs[k].t)), thickness: ts.length ? ts[Math.floor(ts.length / 2)] : 0, length: keep.reduce((s, k) => s + pairs[k].len, 0), excluded };
 }
 
 function segRing(a: P, b: P, w: number): P[] {
@@ -553,6 +651,75 @@ function cleanRing(ring: P[], eps: number): P[] {
   return r.length >= 3 ? r : ring;
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Scale: independent estimates, each with confidence, compared with one another.
+
+/** Least squares through the origin (value = k * length) with iterative outlier rejection. */
+export function robustRatio(samples: Array<{ len: number; val: number }>, tol = 0.1): { k: number; used: number; rejected: number; spreadPct: number } | null {
+  let pts = samples.filter((s) => s.len > 0 && s.val > 0);
+  if (!pts.length) return null;
+  const fit = (a: typeof pts) => a.reduce((s, x) => s + x.len * x.val, 0) / a.reduce((s, x) => s + x.len * x.len, 0);
+  let k = fit(pts);
+  for (let it = 0; it < 6 && pts.length > 2; it++) {
+    const res = pts.map((p) => Math.abs((p.len * k) / p.val - 1));
+    const med = median(res);
+    const cut = Math.max(tol, med * 3);
+    const next = pts.filter((_, i) => res[i] <= cut);
+    if (next.length === pts.length || next.length < 2) break;
+    pts = next; k = fit(pts);
+  }
+  const spread = pts.length > 1 ? Math.sqrt(pts.reduce((s, p) => s + ((p.len * k) / p.val - 1) ** 2, 0) / pts.length) * 100 : 0;
+  return { k, used: pts.length, rejected: samples.length - pts.length, spreadPct: spread };
+}
+
+function scaleEvidenceFor(o: { scaleN?: number; areaPairs: number[]; rooms: RoomGeom[]; doors: Door[]; items: TextItem[]; W: number; H: number; ref: number | null }): ScaleEstimate[] {
+  const out: ScaleEstimate[] = [];
+  if (o.scaleN) out.push({ source: 'printed', mPerPt: o.scaleN * PAPER_M_PER_PT, confidence: 0.7, used: 1, rejected: 0, note: `1:${o.scaleN}` });
+  if (o.areaPairs.length >= 1) {
+    const m = median(o.areaPairs);
+    const spread = o.areaPairs.length > 1 ? median(o.areaPairs.map((v) => Math.abs(v / m - 1))) : 0.1;
+    out.push({ source: 'areas', mPerPt: m, confidence: Math.max(0.15, Math.min(0.9, (0.4 + 0.1 * Math.min(o.areaPairs.length, 5)) * (1 - Math.min(0.8, spread * 6)))), used: o.areaPairs.length, rejected: 0, note: `${o.areaPairs.length} printed area${o.areaPairs.length > 1 ? 's' : ''}, spread ${(spread * 100).toFixed(1)}%` });
+  }
+  // dimension strings matched to room edges, guided by the best scale so far
+  const ref = o.ref ?? (out.length ? out[0].mPerPt : null);
+  if (ref) {
+    const dims = o.items.filter((i) => i.kind === 'dimension' && i.value && i.value >= 0.5 && i.value <= 30);
+    const samples: Array<{ len: number; val: number }> = [];
+    const edges: Array<{ a: P; b: P; len: number }> = [];
+    for (const r of o.rooms) for (let i = 0; i < r.polygon.length; i++) { const a = r.polygon[i], b = r.polygon[(i + 1) % r.polygon.length]; edges.push({ a, b, len: dist(a, b) }); }
+    for (const d of dims) {
+      const c = { x: (d.x + d.w / 2) * o.W, y: (d.y + d.h / 2) * o.H };
+      let best: { len: number; score: number } | null = null;
+      for (const e of edges) {
+        const r = (e.len * ref) / d.value!;
+        if (r < 0.85 || r > 1.18) continue;
+        const mid = { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 };
+        const dd = dist(mid, c) * ref;
+        if (dd > 2.5) continue;
+        const score = Math.abs(r - 1) + dd * 0.05;
+        if (!best || score < best.score) best = { len: e.len, score };
+      }
+      if (best) samples.push({ len: best.len, val: d.value! });
+    }
+    const f = samples.length >= 2 ? robustRatio(samples, 0.06) : null;
+    if (f && f.used >= 2) out.push({ source: 'dimensions', mPerPt: f.k, confidence: Math.max(0.2, Math.min(0.95, 0.5 + 0.1 * f.used - f.spreadPct / 20)), used: f.used, rejected: f.rejected, note: `${f.used} dimension strings matched to walls, spread ${f.spreadPct.toFixed(1)}%` });
+  }
+  if (o.doors.length >= 2) {
+    // swing radius = leaf width; interior doors are 0.8 to 0.9 m, so this is only a weak check
+    const w = median(o.doors.map((d) => d.widthPt));
+    if (w > 0) out.push({ source: 'doors', mPerPt: 0.85 / w, confidence: Math.min(0.25, 0.1 + 0.03 * o.doors.length), used: o.doors.length, rejected: 0, note: `median leaf ${Math.round(w)} pt taken as 0.85 m` });
+  }
+  return out;
+}
+
+function disagreement(e: ScaleEstimate[]): number {
+  const w = e.filter((x) => x.confidence >= 0.3);
+  if (w.length < 2) return 0;
+  const lo = Math.min(...w.map((x) => x.mPerPt)), hi = Math.max(...w.map((x) => x.mPerPt));
+  return (hi / lo - 1) * 100;
+}
+
 export interface ExtractOptions {
   /** Metres per page point, when the caller knows it (overrides the printed scale). */
   mPerPt?: number;
@@ -581,7 +748,7 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   const diag = Math.hypot(W, H);
   const tMin = mPerPt ? 0.04 / mPerPt : diag * 0.0006;
   const tMax = mPerPt ? 0.9 / mPerPt : diag * 0.02;
-  const wall = findWalls(pp.paths, tMin, tMax, pageArea);
+  const wall = findWalls(pp.paths, tMin, tMax, pageArea, mPerPt, W, H);
   const empty = (reason: string): PlanGeometry => ({
     page, pageW: W, pageH: H, angle: 0, mPerPt, scaleSource, scaleN, walls: [], wallSource: 'none', wallThicknessPt: 0,
     doors: [], windows: [], rooms: [], failed: [], warnings: [...warnings, reason], ms: 0,
@@ -728,6 +895,13 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
     warnings.push(`The printed scale and the printed room areas disagree by ${Math.round(Math.abs(areaFit / mPerPt - 1) * 100)}%. Using the room areas.`);
     mPerPt = areaFit; scaleSource = 'areas';
   }
+  const evidence = scaleEvidenceFor({ scaleN, areaPairs: pairs, rooms, doors, items: pageItems, W, H, ref: mPerPt });
+  const scaleDisagreementPct = evidence.length > 1 ? disagreement(evidence) : 0;
+  if (scaleDisagreementPct > 8 && !warnings.some((w) => w.includes('disagree'))) warnings.push(`Scale estimates disagree by ${Math.round(scaleDisagreementPct)}%: ${evidence.map((e) => `${e.source} ${e.note}`).join('; ')}.`);
+  if (!mPerPt) {
+    const best = [...evidence].sort((a, b) => b.confidence - a.confidence)[0];
+    if (best && best.confidence >= 0.3) { mPerPt = best.mPerPt; scaleSource = best.source === 'areas' ? 'areas' : 'printed'; warnings.push(`Scale taken from ${best.source} (${best.note}); confidence ${Math.round(best.confidence * 100)}%.`); }
+  }
   if (!mPerPt) warnings.push('No printed scale and no printed room areas: sizes are unknown.');
   if (failed.length) warnings.push(`${failed.length} labelled room${failed.length > 1 ? 's' : ''} could not be closed.`);
 
@@ -735,6 +909,7 @@ export function extractPlan(pp: PagePaths, items: TextItem[], page: number, opts
   return {
     page, pageW: W, pageH: H, angle, mPerPt, scaleSource, scaleN, areaFitMPerPt: areaFit,
     walls: wall.rings, wallSource: wall.source, wallThicknessPt: wallT,
+    scaleEvidence: evidence, scaleDisagreementPct, excluded: wall.excluded,
     doors, windows, rooms, failed, warnings, ms: Math.round(t1 - t0),
   };
 }
