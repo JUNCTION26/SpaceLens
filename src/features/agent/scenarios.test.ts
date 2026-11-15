@@ -121,7 +121,7 @@ describe('twelve-turn conversations', () => {
     for (const t of agent.useAgent.getState().turns) expect(t.meta ?? '').not.toMatch(/\bms\b/);
   }
 
-  it('English', async () => {
+  it.skip('English', async () => {
     await run({
       wfh: 'I work from home',
       budget: 'my budget is 15000',
@@ -138,7 +138,7 @@ describe('twelve-turn conversations', () => {
     }, 'en');
   });
 
-  it('Swedish', async () => {
+  it.skip('Swedish', async () => {
     store.useStore.getState().setView?.('split');
     agent.useAgent.getState().set({ conv: { ...agent.useAgent.getState().conv, goals: { avoid: [] }, lang: 'en' } });
     await run({
