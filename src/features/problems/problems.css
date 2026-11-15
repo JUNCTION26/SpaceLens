@@ -19,7 +19,7 @@
 .pb-fixes { display: flex; flex-wrap: wrap; gap: 6px; }
 .pb-fix {
   min-height: 28px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel);
-  color: var(--text); font: 500 12px/1.3 var(--font); cursor: pointer; text-align: left; max-width: 100%;
+  color: var(--text); font: 560 12px/1.3 var(--font); cursor: pointer; text-align: left; max-width: 100%;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .pb-fix:hover, .pb-fix:focus-visible { background: var(--hover); border-color: var(--accent); outline: none; }

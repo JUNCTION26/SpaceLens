@@ -3,7 +3,7 @@
 .home-hero { flex: 1; display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 1fr); gap: clamp(32px, 6vw, 88px); align-items: center; width: 100%; max-width: 1120px; margin: 0 auto; padding: 24px 0 48px; }
 .home-copy { display: flex; flex-direction: column; align-items: flex-start; }
 .home-copy h1 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.12; font-weight: var(--fw-strong); letter-spacing: -0.025em; }
-.home-pitch { margin: 16px 0 28px; color: var(--muted); font-size: var(--fs-lg); line-height: 1.55; max-width: 40ch; }
+.home-pitch { margin: 16px 0 28px; color: var(--muted); font-size: var(--fs); line-height: 1.55; max-width: 40ch; }
 .home-cta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; }
 .home-cta .btn-primary svg { margin-right: -4px; }
 .home-start { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
@@ -25,7 +25,7 @@
 .hero-floor, .hero-ceil { stroke-dasharray: 1; stroke-dashoffset: 1; animation: heroDraw 1.2s var(--ease) forwards; }
 .hero-ceil { animation-delay: .8s; stroke: var(--plan-ink) !important; }
 .hero-walls { opacity: 0; stroke: var(--plan-ink) !important; animation: heroFade .5s ease-out .6s forwards; }
-.hero-label { font: 500 7px var(--font); fill: var(--muted); font-variant-numeric: tabular-nums; }
+.hero-label { font: 560 7px var(--font); fill: var(--muted); font-variant-numeric: tabular-nums; }
 .hero-furn { opacity: 0; animation: heroFurn .5s var(--ease) forwards; }
 .hero-furn path { stroke: var(--plan-ink); }
 .hero-svg .hf-top { fill: color-mix(in srgb, var(--plan-ink) 14%, var(--plan-floor)); }

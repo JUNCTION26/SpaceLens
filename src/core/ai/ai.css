@@ -1,4 +1,4 @@
-.ai-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: var(--fs-sm); cursor: pointer; font-variant-numeric: tabular-nums; }
+.ai-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: var(--fs-sm); cursor: pointer; font-variant-numeric: tabular-nums; }
 .ai-chip:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .ai-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted, #8a8f98); }
 .ai-chip.ok .dot { background: var(--ok, #3ba776); }

@@ -11,7 +11,7 @@
 .furniture-card:hover, .furniture-card:focus-visible { border-color: var(--accent); }
 .furniture-card:active { cursor: grabbing; }
 .furniture-fp { width: 36px; height: 36px; flex: none; color: var(--text); margin-bottom: 4px; }
-.furniture-name { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.furniture-name { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
 .furniture-meta { font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
 .furniture-sel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; }
 .furniture-head { display: flex; justify-content: space-between; gap: 8px; }

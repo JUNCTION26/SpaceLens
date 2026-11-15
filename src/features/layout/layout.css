@@ -6,7 +6,7 @@
 .layout-compare { display: flex; flex-wrap: wrap; gap: 8px; }
 .layout-compare figure { margin: 0; padding: 4px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .layout-compare figure.on { border-color: var(--accent); }
-.layout-compare figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+.layout-compare figcaption { font-size: 12px; color: var(--muted); text-align: center; }
 .layout-cards { display: flex; flex-direction: column; gap: 8px; }
 .layout-card { display: flex; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
 .layout-card:hover { border-color: color-mix(in srgb, var(--text) 25%, var(--line)); }

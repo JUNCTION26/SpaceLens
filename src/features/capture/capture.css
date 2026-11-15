@@ -43,13 +43,13 @@
 .capture-steps { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
 .capture-steps li { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.75rem; color: var(--muted, inherit); opacity: 0.6; }
 .capture-steps li b { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--line); font-size: 0.8rem; }
-.capture-steps li.is-on { opacity: 1; font-weight: 600; }
+.capture-steps li.is-on { opacity: 1; font-weight: 560; }
 .capture-steps li.is-on b { border-color: var(--accent); background: var(--accent); color: #fff; }
 .capture-steps li.is-done { opacity: 1; }
 .capture-steps li.is-done b { border-color: var(--accent); color: var(--accent); }
 .capture-progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .capture-progress i { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
-.capture-hint { margin: 0; font-weight: 600; }
+.capture-hint { margin: 0; font-weight: 560; }
 .capture-nav { justify-content: space-between; gap: 8px; }
 .capture-nav .btn { min-height: 44px; min-width: 96px; }
 .capture-illus { width: 100%; max-width: 240px; height: auto; align-self: center; }
@@ -57,7 +57,7 @@
 .il-sheet { fill: #fff; stroke: var(--warn); stroke-width: 1.5; }
 .il-wall { stroke: var(--line); stroke-width: 1.5; }
 .il-dot { fill: var(--accent); stroke: #fff; stroke-width: 1; }
-.il-num { font-size: 6px; fill: #fff; text-anchor: middle; dominant-baseline: middle; font-weight: 700; }
+.il-num { font-size: 6px; fill: #fff; text-anchor: middle; dominant-baseline: middle; font-weight: 560; }
 .il-arrow { stroke: var(--warn); stroke-width: 1.2; fill: none; }
 .il-head { fill: var(--warn); }
 .chip-ai { background: color-mix(in srgb, var(--accent-2) 18%, transparent); color: var(--text); border-color: var(--accent-2); }
@@ -90,12 +90,12 @@
 .capture-method small { color: var(--muted); font-size: 12px; }
 .capture-chev { color: var(--muted); }
 .capture-head { align-items: center; gap: 8px; }
-.capture-title { font-weight: 600; font-size: 13px; }
+.capture-title { font-weight: 560; font-size: 13px; }
 .capture-more { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .capture-more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .capture-more[open] > summary { margin-bottom: 8px; }
 .capture-tile { border-width: 1px; min-height: 52px; padding: 6px 4px; }
 .capture-tile svg { width: 24px; height: 20px; }
-.capture-steps li b { width: 18px; height: 18px; border-width: 1px; font-size: 11px; }
+.capture-steps li b { width: 18px; height: 18px; border-width: 1px; font-size: 12px; }
 .capture-progress { height: 1px; }
-.capture-hint { font-weight: 500; font-size: 13px; }
+.capture-hint { font-weight: 560; font-size: 13px; }

@@ -12,7 +12,7 @@
 .plan2d-opening { stroke: var(--text); fill: none; stroke-width: .012; }
 .plan2d-opening.is-sel { stroke: var(--accent); }
 .plan2d-swing { fill: none; stroke-dasharray: .04 .03; stroke-width: .008; opacity: .7; }
-.plan2d-room-label { fill: var(--text); font-weight: 600; pointer-events: none; }
+.plan2d-room-label { fill: var(--text); font-weight: 560; pointer-events: none; }
 .plan2d-room-area { fill: var(--muted); font-weight: 400; font-family: var(--mono); }
 .plan2d-dim { stroke: var(--muted); stroke-width: .006; }
 .plan2d-dim-verified { stroke: var(--text); }
@@ -29,11 +29,11 @@
 .plan2d-item.is-preview .plan2d-item-body { fill-opacity: .4; }
 .plan2d-front { stroke: var(--accent-2); }
 .plan2d-clear { fill: var(--accent); fill-opacity: .06; stroke: var(--accent); pointer-events: none; }
-.plan2d-item-label { fill: var(--text); font-weight: 500; }
+.plan2d-item-label { fill: var(--text); font-weight: 560; }
 .plan2d-rot { fill: var(--panel); stroke: var(--accent); cursor: crosshair; }
 .plan2d-vertex { fill: var(--panel); stroke: var(--accent); cursor: move; }
 .plan2d-vertex.is-sel { fill: var(--accent); }
-.plan2d-live { fill: var(--accent); font-family: var(--mono); font-weight: 600; pointer-events: none; }
+.plan2d-live { fill: var(--accent); font-family: var(--mono); font-weight: 560; pointer-events: none; }
 .plan2d-route polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; opacity: .85; }
 .plan2d-route.is-ok polyline, .plan2d-route.is-ok circle { stroke: var(--ok); }
 .plan2d-route.is-fail polyline, .plan2d-route.is-fail circle { stroke: var(--bad); }
@@ -43,10 +43,10 @@
 .plan2d-passage polygon { fill: var(--accent); fill-opacity: .06; stroke: var(--accent); stroke-opacity: .5; }
 .plan2d-passage.is-fail polygon { fill: var(--bad); stroke: var(--bad); }
 .plan2d-blocked circle { fill: var(--bad); }
-.plan2d-blocked text { fill: var(--bad); font-weight: 600; }
+.plan2d-blocked text { fill: var(--bad); font-weight: 560; }
 .plan2d-sight.is-ok { stroke: var(--ok); stroke-dasharray: .05 .04; }
 .plan2d-sight.is-fail { stroke: var(--bad); stroke-dasharray: .05 .04; }
-.plan2d-hl-label { font-weight: 600; pointer-events: none; }
+.plan2d-hl-label { font-weight: 560; pointer-events: none; }
 .plan2d-toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; padding: 4px 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 20px); }
 
 .plan2d-sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
@@ -58,14 +58,14 @@
 .plan2d-edit { position: absolute; transform: translate(-50%, -50%); display: flex; gap: 6px; align-items: center; padding: 6px 8px; z-index: 5; }
 .plan2d-edit .field { width: 80px; font-family: var(--mono); }
 .plan2d-edit-label { font-size: 12px; }
-.plan2d-edit-hint { font-size: 11px; }
+.plan2d-edit-hint { font-size: 12px; }
 
 /* The shared .panel class stacks children vertically; the floating toolbar is a row. */
 
 .plan2d-legend.panel { gap: 4px; }
 
 .plan2d-guide { stroke: var(--accent-2); }
-.plan2d-over { fill: var(--bad); font-weight: 600; }
+.plan2d-over { fill: var(--bad); font-weight: 560; }
 .plan2d-halo { paint-order: stroke; stroke: var(--bg); stroke-width: .02; }
 .plan2d-marquee { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); }
 .plan2d-ghost { fill: var(--accent); fill-opacity: .15; stroke: var(--accent); }
@@ -114,7 +114,7 @@
 .plan2d-toolbar { position: absolute; top: 12px; left: 12px; transform: none; display: flex; gap: 2px; align-items: center; padding: 3px; z-index: 3; flex-wrap: nowrap; max-width: none;
   background: var(--overlay); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .plan2d-sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
-.plan2d-tb { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); cursor: pointer; font: 560 12px var(--font); }
+.plan2d-tb { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted); cursor: pointer; font: 560 12px var(--font); }
 .plan2d-tb svg { width: 16px; height: 16px; }
 .plan2d-tb:hover:not(:disabled), .plan2d-tb:focus-visible, .plan2d-tb.is-on { background: var(--hover); color: var(--text); }
 .plan2d-tb.is-on { background: var(--press); }
