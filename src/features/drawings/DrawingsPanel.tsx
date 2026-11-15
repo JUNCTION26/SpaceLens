@@ -460,7 +460,6 @@ export function DrawingsPanel() {
           ) : proposals ? (
             <>
               <div className="drawings-chips">
-                <span className="chip">{proposals.length} <Icon name="layout" size={12} /></span>
                 {proposals.map((r, i) => (
                   <span key={i} className="chip" title={r.name}>
                     {r.name}{r.areaM2 ? ` ${r.areaM2} m²` : ''}
@@ -490,9 +489,6 @@ export function DrawingsPanel() {
       )}
       {rep && rep.ok && (
         <>
-          <div className="drawings-chips">
-
-          </div>
           <div className="drawings-chips" role="group" aria-label="Rooms">
             {rep.rooms.map((r) => (
               <button key={r.spaceId} className={`chip drawings-ex${pickRoom === r.spaceId ? ' is-on' : ''}${r.printedArea != null && r.status !== 'verified' ? ' chip-bad' : ''}`} aria-pressed={pickRoom === r.spaceId}

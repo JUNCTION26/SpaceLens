@@ -43,11 +43,11 @@
 .drawings-sheet.is-anim { transition: transform .5s ease; }
 .drawings-ask { position: sticky; top: 0; z-index: 2; }
 .drawings-ov { fill-opacity: .14; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
-.ov-room { fill: #2f80ed; stroke: #2f80ed; color: #2f80ed; }
-.ov-area { fill: #27ae60; stroke: #27ae60; color: #27ae60; }
-.ov-dimension { fill: #f2994a; stroke: #f2994a; color: #f2994a; }
-.ov-scale { fill: #9b51e0; stroke: #9b51e0; color: #9b51e0; }
-.ov-tag { fill: #eb5757; stroke: #eb5757; color: #eb5757; }
+.ov-room { fill: var(--accent); stroke: var(--accent); color: var(--accent); }
+.ov-area { fill: var(--ok); stroke: var(--ok); color: var(--ok); }
+.ov-dimension { fill: var(--warn); stroke: var(--warn); color: var(--warn); }
+.ov-scale { fill: var(--accent-2); stroke: var(--accent-2); color: var(--accent-2); }
+.ov-tag { fill: var(--bad); stroke: var(--bad); color: var(--bad); }
 .drawings-hover { fill: color-mix(in srgb, var(--warn) 25%, transparent); stroke: var(--warn); stroke-width: 3px; vector-effect: non-scaling-stroke; animation: drawings-pulse 1.2s ease-in-out infinite; }
 .drawings-legend { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 8px; font-size: 12px; background: var(--panel); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); }
 .drawings-legend span { font-weight: 560; }
@@ -148,3 +148,12 @@
 .drawings-more ul { margin: 0; padding-left: 16px; }
 .drawings-mini { position: static; width: 96px; }
 .drawings-note { align-self: flex-start; }
+
+/* Consistent control height, focus and disabled states */
+.drawings-big { min-height: var(--ctl); padding: 0 16px; }
+.drawings-num, .drawings .field { height: var(--ctl); }
+.drawings-sample { min-height: var(--ctl); padding: 0 12px; }
+.drawings-bar .btn { min-height: var(--ctl); }
+.drawings :focus-visible { outline: var(--focus-ring-width, 2px) solid var(--focus-ring, var(--accent)); outline-offset: 1px; }
+.drawings .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.drawings.is-drop { outline-color: var(--accent); }
