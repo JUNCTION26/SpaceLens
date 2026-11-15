@@ -4,7 +4,7 @@ import { dataUrlToInlineData } from '../../core/gemini';
 import { getState } from '../../core/store';
 import type { SpaceModel } from '../../core/types';
 import { strongCall } from './strong';
-import { buildPhotoRoom, parseEstimate, PHOTO_ROOM_PROMPT, PHOTO_ROOM_SCHEMA, type PhotoRoomEstimate } from './room';
+import { buildPhotoRoom, parseEstimate, MULTI_PHOTO_ROOM_PROMPT, PHOTO_ROOM_PROMPT, PHOTO_ROOM_SCHEMA, type PhotoRoomEstimate } from './room';
 
 /** Draws an image file into a JPEG data URL no larger than `max` pixels on its long side. */
 export async function shrinkImage(file: Blob, max: number, quality = 0.85): Promise<string> {
@@ -19,10 +19,12 @@ export async function shrinkImage(file: Blob, max: number, quality = 0.85): Prom
   } finally { URL.revokeObjectURL(url); }
 }
 
-/** Asks Gemini for the room behind one photo (data URL). Throws a safe message on failure. */
-export async function estimateRoom(photo: string, opts: { prefer?: string[]; signal?: AbortSignal } = {}): Promise<PhotoRoomEstimate & { model: string }> {
-  const r = await strongCall<unknown>({ parts: [dataUrlToInlineData(photo), { text: PHOTO_ROOM_PROMPT }], schema: PHOTO_ROOM_SCHEMA, thinking: 'low', temperature: 0.2 }, { prefer: opts.prefer, signal: opts.signal });
-  return { ...parseEstimate(r.data), model: r.model };
+/** Asks Gemini for the room behind one photo or several photos of the same room (data URLs) in a single call. */
+export async function estimateRoom(photos: string | string[], opts: { prefer?: string[]; signal?: AbortSignal } = {}): Promise<PhotoRoomEstimate & { model: string }> {
+  const list = (Array.isArray(photos) ? photos : [photos]).slice(0, MAX_PHOTOS);
+  const prompt = list.length > 1 ? MULTI_PHOTO_ROOM_PROMPT : PHOTO_ROOM_PROMPT;
+  const r = await strongCall<unknown>({ parts: [...list.map(dataUrlToInlineData), { text: prompt }], schema: PHOTO_ROOM_SCHEMA, thinking: 'low', temperature: 0.2 }, { prefer: opts.prefer, signal: opts.signal });
+  return { ...parseEstimate(r.data), photoCount: list.length, model: r.model };
 }
 
 /** Replaces each 'other' item with a custom object built to its estimated size, a few at a time. */
@@ -43,10 +45,14 @@ export async function forgeUnknowns(model: SpaceModel, max = 4): Promise<void> {
   }));
 }
 
-/** The whole flow for one photo file: shrink, estimate, build. */
-export async function photoToRoom(file: Blob): Promise<{ model: SpaceModel; estimate: PhotoRoomEstimate; photo: string }> {
-  const photo = await shrinkImage(file, 1280);
-  const estimate = await estimateRoom(photo);
-  const thumb = await shrinkImage(file, 480, 0.75);
-  return { model: buildPhotoRoom(estimate, { photoUrl: thumb }), estimate, photo: thumb };
+export const MIN_PHOTOS = 2;
+export const MAX_PHOTOS = 6;
+
+/** The whole flow for one or several photo files of the same room: shrink, one vision call, build. */
+export async function photoToRoom(files: Blob | Blob[]): Promise<{ model: SpaceModel; estimate: PhotoRoomEstimate; photo: string; photos: string[] }> {
+  const list = (Array.isArray(files) ? files : [files]).slice(0, MAX_PHOTOS);
+  const big = await Promise.all(list.map((f) => shrinkImage(f, 1280)));
+  const estimate = await estimateRoom(big);
+  const thumbs = await Promise.all(list.map((f) => shrinkImage(f, 480, 0.75)));
+  return { model: buildPhotoRoom(estimate, { photoUrl: thumbs[0] }), estimate, photo: thumbs[0], photos: thumbs };
 }

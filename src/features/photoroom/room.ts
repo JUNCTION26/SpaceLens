@@ -37,6 +37,9 @@ export interface PhotoRoomEstimate {
   roomType: string; widthM: number; depthM: number; ceilingM: number;
   /** 0..1, how sure the model is about the size. */
   confidence: number; cues: string[];
+  /** 0..1 per wall: how sure the model is about that wall's length (several photos can see some walls better than others). */
+  wallConfidence: Record<WallName, number>;
+  photoCount: number;
   openings: PhotoOpening[]; furniture: PhotoItem[];
 }
 
@@ -49,6 +52,11 @@ export const PHOTO_ROOM_SCHEMA = {
     roomType: { type: 'STRING' },
     cues: { type: 'ARRAY', items: { type: 'STRING' } },
     widthM: { type: 'NUMBER' }, depthM: { type: 'NUMBER' }, ceilingM: { type: 'NUMBER' }, confidence: { type: 'NUMBER' },
+    wallConfidence: {
+      type: 'OBJECT',
+      properties: { back: { type: 'NUMBER' }, right: { type: 'NUMBER' }, front: { type: 'NUMBER' }, left: { type: 'NUMBER' } },
+      required: WALLS,
+    },
     openings: {
       type: 'ARRAY',
       items: {
@@ -75,8 +83,8 @@ export const PHOTO_ROOM_SCHEMA = {
       },
     },
   },
-  required: ['roomType', 'cues', 'widthM', 'depthM', 'ceilingM', 'confidence', 'openings', 'furniture'],
-  propertyOrdering: ['roomType', 'cues', 'widthM', 'depthM', 'ceilingM', 'confidence', 'openings', 'furniture'],
+  required: ['roomType', 'cues', 'widthM', 'depthM', 'ceilingM', 'confidence', 'wallConfidence', 'openings', 'furniture'],
+  propertyOrdering: ['roomType', 'cues', 'widthM', 'depthM', 'ceilingM', 'confidence', 'wallConfidence', 'openings', 'furniture'],
 };
 
 export const PHOTO_ROOM_PROMPT = `One photo of a real room. Rebuild its floor plan as a rectangle, seen from where the camera stands:
@@ -99,6 +107,15 @@ small decor and wall art. For each: label (2 or 3 words, like "grey sofa"), kind
 widthM along its front, depthM front to back, heightM, the floor position of its centre as fractions x (0 = left wall, 1 = right
 wall) and y (0 = back wall, 1 = front wall), "against" = the wall its back touches or "none", "facing" = where its front points,
 color as a hex code of its main colour, material in one word. Only list what you actually see.`;
+
+/** Several photos (or video frames) of the same room, answered once as a single consistent room. */
+export const MULTI_PHOTO_ROOM_PROMPT = `${PHOTO_ROOM_PROMPT}
+
+Several photos follow, all of the SAME room from different spots, in no fixed order. Return ONE room, not one per photo.
+Pick the camera position of the photo that shows the most of the room and use its back, left, right and front walls for the whole answer.
+Match walls, windows, doors and furniture across photos by what they look like and where they stand, and list each real object once.
+Use every photo to fix the true length of each wall and to place things that the first view hides. Trust a photo with a door or known object in full view most.
+wallConfidence: for each of back, right, front, left, 0 to 1, how sure you are of that wall's length (low for a wall no photo shows, 0.3 or less).`;
 
 const num = (v: unknown, lo: number, hi: number, dflt: number) => {
   const n = typeof v === 'number' ? v : parseFloat(String(v));
@@ -134,9 +151,13 @@ export function parseEstimate(raw: unknown): PhotoRoomEstimate {
       color: hex(f.color), material: typeof f.material === 'string' ? f.material.slice(0, 24) : '',
     };
   });
+  const confidence = num(r.confidence, 0, 1, 0.4);
+  const wc = (r.wallConfidence && typeof r.wallConfidence === 'object' ? r.wallConfidence : {}) as Record<string, unknown>;
   return {
     roomType: typeof r.roomType === 'string' ? r.roomType.slice(0, 40) : 'room',
-    widthM, depthM, ceilingM: num(r.ceilingM, 2.1, 4.5, 2.5), confidence: num(r.confidence, 0, 1, 0.4),
+    widthM, depthM, ceilingM: num(r.ceilingM, 2.1, 4.5, 2.5), confidence,
+    wallConfidence: Object.fromEntries(WALLS.map((w) => [w, num(wc[w], 0, 1, confidence)])) as Record<WallName, number>,
+    photoCount: Math.round(num(r.photoCount, 1, 6, 1)),
     cues: Array.isArray(r.cues) ? r.cues.filter((c) => typeof c === 'string').slice(0, 8) as string[] : [],
     openings, furniture,
   };
@@ -190,10 +211,10 @@ export function buildPhotoRoom(est: PhotoRoomEstimate, opts: { photoUrl?: string
   const W = +est.widthM.toFixed(2), D = +est.depthM.toFixed(2);
   const spaceId = uid('sp');
   const evId = uid('ev');
-  const tol = (l: number) => +(0.1 + (1 - est.confidence) * 0.25 * l).toFixed(2);
+  const tol = (l: number, w: WallName) => +(0.1 + (1 - Math.min(est.confidence, est.wallConfidence?.[w] ?? est.confidence)) * 0.25 * l).toFixed(2);
   const measurements: Measurement[] = WALLS.map((w, i) => ({
     id: uid('m'), label: WALL_LABEL[w], valueM: i % 2 ? D : W, sourceKind: 'photo-inferred', status: 'estimated',
-    toleranceM: tol(i % 2 ? D : W), evidenceIds: [evId], targetId: `${spaceId}:${i}`,
+    toleranceM: tol(i % 2 ? D : W, w), evidenceIds: [evId], targetId: `${spaceId}:${i}`,
   }));
   const walls: WallMeta[] = WALLS.map((_, i) => ({ thicknessM: 0.12, sourceKind: 'photo-inferred', status: 'estimated', measurementId: measurements[i].id }));
   const openings: Opening[] = est.openings.map((o) => {
@@ -212,7 +233,7 @@ export function buildPhotoRoom(est: PhotoRoomEstimate, opts: { photoUrl?: string
     openings,
     furniture: est.furniture.map((f) => itemFromPhoto(f, W, D)),
     measurements,
-    evidence: [{ id: evId, kind: 'photo', label: 'Room photo', imageUrl: opts.photoUrl, note: est.cues.join(', '), createdAt: Date.now() }],
+    evidence: [{ id: evId, kind: 'photo', label: est.photoCount > 1 ? `Room photos (${est.photoCount})` : 'Room photo', imageUrl: opts.photoUrl, note: est.cues.join(', '), createdAt: Date.now() }],
   };
 }
 

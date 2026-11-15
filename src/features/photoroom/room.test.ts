@@ -11,6 +11,22 @@ const raw = {
   ],
 };
 
+describe('several photos', () => {
+  it('reads per-wall confidence and widens the tolerance of unseen walls', () => {
+    const e = parseEstimate({ ...raw, confidence: 0.8, photoCount: 3, wallConfidence: { back: 0.9, left: 0.2, right: 'x' } });
+    expect(e.wallConfidence).toEqual({ back: 0.9, right: 0.8, front: 0.8, left: 0.2 });
+    expect(e.photoCount).toBe(3);
+    const m = buildPhotoRoom(e);
+    const tol = (label: string) => m.measurements.find((x) => x.label === label)!.toleranceM!;
+    expect(tol('Left wall')).toBeGreaterThan(tol('Back wall'));
+    expect(m.evidence[0].label).toBe('Room photos (3)');
+  });
+  it('falls back to overall confidence', () => {
+    expect(parseEstimate(raw).wallConfidence.left).toBe(0.6);
+    expect(parseEstimate(raw).photoCount).toBe(1);
+  });
+});
+
 describe('photo room', () => {
   it('cleans a raw answer', () => {
     const e = parseEstimate({ widthM: 99, depthM: 'x', confidence: 3, openings: [{ kind: 'hatch', wall: 'up', at: 2 }], furniture: [{ kind: 'spaceship', color: 'red', heightM: 9 }] });
