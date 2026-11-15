@@ -63,7 +63,7 @@ export function buildPrompt({ model, furniture, style, requirements }: PromptInp
   if (requirements?.style) lines.push(`Interior style: ${requirements.style}.`);
   if (requirements?.purpose) lines.push(`The room is used for: ${requirements.purpose}.`);
   lines.push(`Lighting: ${preset.light}.`);
-  lines.push('Strict rules: keep the room geometry, the camera angle and every object position, size and orientation exactly as in the reference image. Do not add or remove furniture. No people, no pets, no text, no logos, no watermarks. Photographic realism, natural materials, soft shadows.');
+  lines.push('Strict rules: keep the room geometry, the camera position and framing, the image proportions, and every object position, size and orientation exactly as in the reference image. Match the reference pixel for pixel in layout: each wall, window, door and piece of furniture must sit where it sits in the reference, at the same relative size. Do not add or remove furniture. No people, no pets, no text, no logos, no watermarks. Photographic realism, natural materials, soft shadows.');
   return lines.join('\n');
 }
 
