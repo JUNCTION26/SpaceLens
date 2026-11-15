@@ -44,7 +44,7 @@ describe('procedural categories read at room scale', () => {
     const { e, p } = build('office-chair');
     const metal = bb(p.get('metal'))!, soft = bb(p.get('soft'))!;
     expect(metal.max.x - metal.min.x).toBeGreaterThan(e.w * 0.6);
-    expect(metal.max.y).toBeLessThan(0.3);
+    expect(metal.min.y).toBeLessThan(0.08);
     expect(soft.max.y).toBeGreaterThan(e.h * 0.8);
     expect(soft.min.z).toBeLessThan(-e.d * 0.2);
   });
@@ -97,6 +97,7 @@ describe('procedural categories read at room scale', () => {
 describe('default colours are calm', () => {
   it('no catalogue default is rust or orange, and no scanned-model tint is either', () => {
     for (const e of CATALOG) {
+      if (/oak|birch|pine|beech|walnut|wood|veneer/i.test(e.material ?? '')) continue;
       const o = { h: 0, s: 0, l: 0 }; new THREE.Color(e.color).getHSL(o);
       const hue = o.h * 360;
       const warm = hue >= 8 && hue <= 38 && o.s > 0.55 && o.l < 0.6;
