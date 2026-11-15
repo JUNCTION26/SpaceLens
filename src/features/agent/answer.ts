@@ -2,6 +2,11 @@
 // Answers are short and lead with the number. Unknown questions return null and fall through.
 import { bounds, perimeter, signedArea } from '../../core/geometry';
 import type { FurnitureItem, LayoutCandidate, Requirements, SpaceModel } from '../../core/types';
+import { answerBuilding, type Answer } from './buildingAnswers';
+
+export type { Answer, Highlight } from './buildingAnswers';
+
+const ORDER_RE = /^(please )?(add|put|place|move|remove|delete|make|build|create|rotate|turn|lägg|flytta|ta bort|lisää|siirrä|poista)(?![\p{L}])/u;
 
 export interface AnswerState {
   model: SpaceModel;
@@ -70,12 +75,27 @@ function gap(a: FurnitureItem, b: FurnitureItem): number {
 
 const COUNT_Q = 'how many|number of|count|antal|hur många|montako|kuinka monta';
 
-/** Answer a simple question about the room, or null when it is not one. */
+/** Answer a question about the room or the whole plan, with what to light up; null when it is not one. */
+export function answerWithHighlight(question: string, state: AnswerState): Answer | null {
+  const t = question.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!t || ORDER_RE.test(t)) return null;
+  const plan = answerBuilding(t, state.model);
+  if (plan) return plan;
+  const text = answerFromRoom(question, state);
+  return text == null ? null : { text };
+}
+
+/** Text-only version of answerWithHighlight, for callers that do not draw highlights. */
 export function answerFromModel(question: string, state: AnswerState): string | null {
+  return answerWithHighlight(question, state)?.text ?? null;
+}
+
+/** Answer a simple question about the room, or null when it is not one. */
+function answerFromRoom(question: string, state: AnswerState): string | null {
   const t = question.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!t) return null;
   // Orders are for the command path, not questions.
-  if (/^(please )?(add|put|place|move|remove|delete|make|build|create|rotate|turn|lägg|flytta|ta bort|lisää|siirrä|poista)(?![\p{L}])/u.test(t)) return null;
+  if (ORDER_RE.test(t)) return null;
   const { model } = state;
   const space = model.spaces[0];
   if (!space) return null;
