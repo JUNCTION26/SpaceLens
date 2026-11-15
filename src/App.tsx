@@ -22,7 +22,7 @@ import { Settings } from './ui/Settings';
 import { applyDeepLink, resolveNav, useUi } from './ui/uiStore';
 import { Sidebar, MobileNav, SectionTabs } from './ui/Sidebar';
 import { Icon } from './ui/icons';
-import { SearchResults, useSearchHotkeys } from './features/command/CommandPalette';
+import { SearchResults, closeSearch, useSearchHotkeys } from './features/command/CommandPalette';
 import { DemoRunner } from './features/demo/DemoRunner';
 import { VisionPanel } from './features/vision/VisionPanel';
 import { VoiceAdd } from './features/voice/VoiceAdd';
@@ -56,16 +56,6 @@ const VIEWS = [['2d', '2D'], ['split', 'Split'], ['3d', '3D']] as const;
 function InspectorSection() {
   const selection = useStore((s) => s.selection);
   const select = useStore((s) => s.select);
-  useEffect(() => {
-    if (!selection) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if ((e.target as HTMLElement)?.closest?.('input, textarea, select')) return;
-      select(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selection, select]);
   if (!selection) return null;
   return (
     <section className="inspector-section" aria-label="Inspector">
@@ -96,6 +86,14 @@ function Workspace() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const t = e.target as HTMLElement;
+      if (e.key === 'Escape' && !e.defaultPrevented && !t?.closest?.('input, textarea, select, [contenteditable]')) {
+        // One step back at a time: search, then the selection, then settings.
+        const ui = useUi.getState();
+        if (ui.searchOpen) closeSearch();
+        else if (useStore.getState().selection) useStore.getState().select(null);
+        else if (ui.settingsOpen) ui.setSettingsOpen(false);
+        return;
+      }
       if (t?.closest?.('input, textarea, select, [contenteditable]')) return;
       if (!mod && !e.altKey && e.key === '?') { e.preventDefault(); useUi.getState().setSettingsOpen(true); return; }
       if (!mod && !e.altKey && /^[1-4]$/.test(e.key)) { setMode(MODE_KEYS[Number(e.key) - 1]); return; }

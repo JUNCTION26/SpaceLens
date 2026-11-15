@@ -19,21 +19,14 @@ const SHORTCUTS: Array<[string, string]> = [
 
 /** Settings as the left panel content; the gear or any destination leaves it. */
 export function Settings() {
-  const setOpen = useUi((s) => s.setSettingsOpen);
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
   const [, tick] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 1000);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || (e.target as HTMLElement)?.closest?.('input, textarea, select')) return;
-      if (useStore.getState().selection) return;
-      setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => { clearInterval(id); window.removeEventListener('keydown', onKey); };
-  }, [setOpen]);
+    return () => clearInterval(id);
+  }, []);
 
   const reset = () => {
     const s = useStore.getState();
