@@ -162,16 +162,32 @@ export function MoveInPanel() {
   return (
     <div className="movein">
       <div className="movein-bar">
-        <button className="btn btn-sm" onClick={togglePlay} aria-label={running ? 'Pause' : 'Play'}><Icon name={running ? 'pause' : 'play'} size={14} /></button>
-        <button className="btn btn-sm btn-ghost" onClick={end} disabled={!active} aria-label="Stop"><Icon name="x" size={14} /></button>
+        <button className="btn btn-sm btn-primary" onClick={togglePlay} aria-label={running ? 'Pause' : 'Play'}><Icon name={running ? 'pause' : 'play'} size={14} /></button>
         <input className="movein-scrub" type="range" min={0} max={tl.total} step={0.01} value={t} onChange={(e) => scrub(Number(e.target.value))} aria-label="Timeline" />
-        <span className="movein-chip" aria-label="Delivered">{frame.placed.length + frame.stopped.length}/{plan.items.length}</span>
-        {active && frame.slot?.tilt && frame.p < 0.5 && <span className="movein-chip warn" aria-label="Tilt"><Icon name="rotate" size={12} /></span>}
-        {active && frame.slot && !frame.slot.enters && <span className="movein-chip bad pulse" aria-label="Won't fit"><Icon name="x" size={12} /></span>}
         <span className="movein-speeds" role="group" aria-label="Speed">
           {SPEEDS.map((v) => <button key={v} className="btn btn-sm btn-ghost" aria-pressed={speed === v} onClick={() => setSpeed(v)}>{v}x</button>)}
         </span>
+        <button className="btn btn-sm btn-ghost" onClick={end} disabled={!active} aria-label="Stop"><Icon name="x" size={14} /></button>
       </div>
+      <div className="movein-bar">
+        <span className="movein-chip" aria-label="Delivered">{frame.placed.length + frame.stopped.length}/{plan.items.length}</span>
+        {active && frame.slot?.tilt && frame.p < 0.5 && <span className="movein-chip warn" aria-label="Tilt"><Icon name="rotate" size={12} /></span>}
+        {active && frame.slot && !frame.slot.enters && <span className="movein-chip bad pulse" aria-label="Won't fit"><Icon name="x" size={12} /></span>}
+      </div>
+      <ol className="movein-list">
+        {plan.items.map((m, i) => (
+          <li key={m.id} className={`movein-row v-${m.verdict}${picked === m.id ? ' on' : ''}${active ? (landed(m.id) ? ' landed' : frame.slot?.id === m.id ? ' now' : ' later') : ''}`}>
+            <button className="movein-main" onClick={() => show(m)} aria-label={`${m.name}, ${VERDICT_LABEL[m.verdict]}, ${m.tight}`}>
+              <span className="movein-n">{active && landed(m.id) ? <Icon name={frame.placed.includes(m.id) ? 'check' : 'x'} size={12} /> : i + 1}</span>
+              <Icon name={m.name.toLowerCase().includes('sofa') ? 'sofa' : 'cube'} size={16} />
+              <span className="movein-name">{m.name}</span>
+              <span className="movein-tag" title={VERDICT_LABEL[m.verdict]}><Icon name={VERDICT_ICON[m.verdict]} size={14} /></span>
+              {m.verdict !== 'fits' && <span className="movein-door"><Icon name="door" size={12} />{m.tight}</span>}
+            </button>
+            <button className="btn btn-sm btn-ghost" aria-pressed={m.flat} onClick={() => toggleFlat(m.id)}>Flat-pack</button>
+          </li>
+        ))}
+      </ol>
       {active && frame.done && (
         <div className="movein-summary" aria-label="Summary">
           <span className="movein-chip ok" aria-label="Fits"><Icon name="check" size={12} />{summary.fits}</span>
@@ -181,20 +197,6 @@ export function MoveInPanel() {
           {summary.widest && <span className="movein-chip" aria-label="Widest item and tightest door"><Icon name="door" size={12} />{summary.widest.name} · {summary.widest.door}</span>}
         </div>
       )}
-      <ol className="movein-list">
-        {plan.items.map((m, i) => (
-          <li key={m.id} className={`movein-row v-${m.verdict}${picked === m.id ? ' on' : ''}${active ? (landed(m.id) ? ' landed' : frame.slot?.id === m.id ? ' now' : ' later') : ''}`}>
-            <button className="movein-main" onClick={() => show(m)} aria-label={`${m.name}, ${VERDICT_LABEL[m.verdict]}, ${m.tight}`}>
-              <span className="movein-n">{active && landed(m.id) ? <Icon name={frame.placed.includes(m.id) ? 'check' : 'x'} size={12} /> : i + 1}</span>
-              <Icon name={m.name.toLowerCase().includes('sofa') ? 'sofa' : 'cube'} size={16} />
-              <span className="movein-name">{m.name}</span>
-              <span className="movein-tag"><Icon name={VERDICT_ICON[m.verdict]} size={12} />{VERDICT_LABEL[m.verdict]}</span>
-              {m.verdict !== 'fits' && <span className="movein-door"><Icon name="door" size={12} />{m.tight}</span>}
-            </button>
-            <button className="btn btn-sm btn-ghost" aria-pressed={m.flat} onClick={() => toggleFlat(m.id)}>Flat-pack</button>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }

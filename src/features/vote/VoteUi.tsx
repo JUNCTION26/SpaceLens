@@ -18,18 +18,17 @@ export function SharePoll() {
     try {
       const { link } = await createPoll(model, candidates);
       setPollLink(link);
-      try { await navigator.clipboard.writeText(link); } catch { /* QR card shows the link */ }
+      try { await navigator.clipboard.writeText(link); } catch { /* the code below shows the link */ }
       setState('done');
     } catch { setState('fail'); }
     setTimeout(() => setState('idle'), 2500);
   };
   return (
     <>
-      <button className="btn btn-sm btn-ghost" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite">
-        <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'share'} size={14} />
-        {state === 'done' ? 'Copied' : state === 'fail' ? 'Failed' : 'Share'}
+      <button className="export-file" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite" aria-label="Poll" title="Poll">
+        <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'layout'} size={18} /><span>Poll</span>
       </button>
-      {pollLink && <QrShare link={pollLink} />}
+      {pollLink && <QrShare link={pollLink} hideButton />}
     </>
   );
 }

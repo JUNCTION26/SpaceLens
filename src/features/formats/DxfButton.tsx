@@ -1,7 +1,8 @@
+import { Icon } from '../../ui/icons';
 import { modelToDxf } from './dxfWrite';
 import type { SpaceModel } from '../../core/types';
 
-export function DxfButton({ model }: { model: SpaceModel }) {
+export function DxfButton({ model, className }: { model: SpaceModel; className?: string }) {
   const download = () => {
     const blob = new Blob([modelToDxf(model)], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
@@ -11,5 +12,5 @@ export function DxfButton({ model }: { model: SpaceModel }) {
     a.click();
     URL.revokeObjectURL(url);
   };
-  return <button type="button" onClick={download}>Download DXF</button>;
+  return <button type="button" className={className} onClick={download} title="DXF"><Icon name="ruler" size={18} /><span>DXF</span></button>;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useShownFurniture, useStore } from '../../core/store';
 import { useUi } from '../../ui/uiStore';
-import { notify } from '../../ui/notify';
+import { Icon } from '../../ui/icons';
 import { captureFrame, type Frame } from './capture';
 import { buildPrompt, cacheKey, STYLES, type RenderStyle } from './prompt';
 import { generateImage, RenderError } from './generate';
@@ -69,8 +69,6 @@ export function RenderPanel() {
       if ((e as Error).name === 'AbortError') return;
       const err = e instanceof Error ? e : new Error('The render failed.');
       setError(err);
-      const needsKey = err instanceof RenderError && ['nokey', 'quota', 'blocked'].includes(err.reason);
-      notify(err.message, { tone: 'error', actions: [{ label: 'Retry', run: () => void run() }, ...(needsKey ? [{ label: 'Open settings', run: openSettings }] : [])] });
     } finally { setBusy(false); setPreview(null); }
   };
 
@@ -83,27 +81,28 @@ export function RenderPanel() {
     a.click();
   };
 
+  const word = error instanceof RenderError ? ({ nokey: 'Key', quota: 'Quota', blocked: 'Blocked' } as Record<string, string>)[error.reason] ?? 'Failed' : 'Failed';
+  const needsKey = error instanceof RenderError && ['nokey', 'quota', 'blocked'].includes(error.reason);
+
   return (
     <div className="render">
-      <h2>Render</h2>
       <div className="row" role="group" aria-label="Style">
         {STYLES.map((s) => <button key={s.id} className="chip" aria-pressed={style === s.id} onClick={() => setStyle(s.id)}>{s.label}</button>)}
       </div>
       <div className="row">
-        <button className="go" disabled={busy} onClick={() => void run()}>{busy ? `Rendering... ${secs}s` : 'Render this view'}</button>
-        {busy && <button className="chip" onClick={() => abort.current?.abort()}>Cancel</button>}
-        {shot && <button className="chip" onClick={download}>Download</button>}
+        <button className="go" disabled={busy} onClick={() => void run()}>{busy ? `${secs}s` : 'Render'}</button>
+        {busy && <button className="chip" onClick={() => abort.current?.abort()} aria-label="Cancel"><Icon name="x" size={14} /></button>}
       </div>
       {error && (
         <div className="msg" role="alert" aria-label={error.message}>
-          <span title={error.message}>Failed</span>{' '}
-          <button className="chip" onClick={() => void run()}>Retry</button>{' '}
-          <button className="chip" onClick={openSettings}>Settings</button>
+          <span title={error.message}>{word}</span>{' '}
+          <button className="chip" onClick={() => void run()} aria-label="Retry"><Icon name="redo" size={14} /></button>{' '}
+          {needsKey && <button className="chip" onClick={openSettings} aria-label="Settings"><Icon name="settings" size={14} /></button>}
         </div>
       )}
       {busy && preview && <div className="ba shimmer" aria-busy="true"><img src={preview} alt="3D frame" /></div>}
       {!busy && shot && <Compare before={shot.frame.dataUrl} after={shot.image} />}
-      {shot && <div className="label">{STYLES.find((s) => s.id === shot.style)?.label}, {shot.secs}s, {shot.model}</div>}
+      {shot && <div className="row"><button className="chip" onClick={download} aria-label="Download" title="Download"><Icon name="download" size={14} /></button></div>}
       {shots.length > 1 && (
         <div className="hist" aria-label="Earlier renders">
           {shots.map((s) => <button key={s.id} aria-current={s.id === current} aria-label={`Render ${s.id}`} onClick={() => setCurrent(s.id)}><img src={s.image} alt="" /></button>)}

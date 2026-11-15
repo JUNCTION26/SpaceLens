@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Icon } from '../../ui/icons';
 import type { FurnitureItem, SpaceModel } from '../../core/types';
 
 interface Props {
@@ -7,10 +8,12 @@ interface Props {
   item?: FurnitureItem;
   className?: string;
   label?: string;
+  /** Icon-above-label layout for the Files grid. */
+  inline?: boolean;
 }
 
 /** Plain button: builds the USDZ on demand and opens it in AR (iPhone) or downloads it. */
-export function ArButton({ model, item, className, label }: Props) {
+export function ArButton({ model, item, className, label, inline = true }: Props) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const run = async () => {
@@ -23,7 +26,7 @@ export function ArButton({ model, item, className, label }: Props) {
   };
   return (
     <button type="button" className={className} onClick={run} disabled={busy} aria-live="polite">
-      {busy ? 'Preparing...' : failed ? 'Retry' : label ?? 'View in AR'}
+      {inline ? <><Icon name={failed ? 'alert' : 'eye'} size={18} /><span>{label ?? 'AR'}</span></> : busy ? '...' : failed ? 'Retry' : label ?? 'AR'}
     </button>
   );
 }

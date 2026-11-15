@@ -1,12 +1,12 @@
 .export { display: grid; gap: 12px; font-size: 13px; }
-.export-primary { width: 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; }
-.export-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
-.export-list li + li { border-top: 1px solid var(--line); }
-.export-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.export-row:hover, .export-row:focus-visible { background: var(--panel-2); }
-.export-row svg { color: var(--muted, currentColor); opacity: .8; flex: none; }
-.export-name { flex: 1; }
-.export-size { font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+.export-block { display: grid; gap: 6px; }
+.export-block h3 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.export-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.export-file { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 56px; min-width: 0; padding: 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.export-file:hover:not(:disabled), .export-file:focus-visible, .export-file[aria-pressed=true] { background: var(--panel-2); }
+.export-file.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.export-file:disabled { opacity: .6; cursor: progress; }
+.export-err { color: var(--bad); font-size: 12px; }
 .export-preview { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
 .export-preview svg { width: 100%; height: auto; max-height: 160px; display: block; }
 .export-more { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: inherit; font: inherit; opacity: .75; cursor: pointer; justify-self: start; }
@@ -22,8 +22,6 @@
 .export-rates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 12px; }
 .export-rates input { width: 100%; }
 
-.export-ifc button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-weight: var(--fw-strong); font-size: var(--fs-sm); white-space: nowrap; cursor: pointer; }
-.export-ifc button:hover { background: var(--panel-2); }
 .export .row { flex-wrap: wrap; }
 .export-table td { overflow-wrap: anywhere; }
 .shoplist { font-size: 12px; overflow-x: auto; }

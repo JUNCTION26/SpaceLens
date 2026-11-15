@@ -1,7 +1,8 @@
+import { Icon } from '../../ui/icons';
 import { modelToIfc } from './ifcWrite';
 import type { SpaceModel } from '../../core/types';
 
-export function IfcButton({ model }: { model: SpaceModel }) {
+export function IfcButton({ model, className }: { model: SpaceModel; className?: string }) {
   const download = () => {
     const blob = new Blob([modelToIfc(model)], { type: 'application/x-step' });
     const url = URL.createObjectURL(blob);
@@ -11,5 +12,5 @@ export function IfcButton({ model }: { model: SpaceModel }) {
     a.click();
     URL.revokeObjectURL(url);
   };
-  return <button type="button" onClick={download}>Download IFC</button>;
+  return <button type="button" className={className} onClick={download} title="IFC"><Icon name="cube" size={18} /><span>IFC</span></button>;
 }

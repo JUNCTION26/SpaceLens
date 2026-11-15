@@ -6,12 +6,13 @@ import { useMemo, useRef, useState } from 'react';
 import { useShownFurniture, useStore } from '../../core/store';
 import { fmtSek } from '../../core/geometry';
 import { planToSvg, uncertainWalls, type PlanOptions } from './svg';
-import { scheduleCsv, itemPrice } from './csv';
+import { itemPrice } from './csv';
 import { quantities } from './quantities';
 import { exportGlb } from './glb';
 import { validateModel } from './validate';
 import { shareLink } from './share';
 import { QrShare } from './QrShare';
+import { SharePoll } from '../vote/VoteUi';
 import { Icon } from '../../ui/icons';
 import './export.css';
 
@@ -25,14 +26,11 @@ function download(name: string, data: Blob | string, type = 'text/plain') {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-const kb = (n: number) => (n < 1024 ? `${Math.max(1, Math.round(n))} B` : n < 1048576 ? `~${Math.round(n / 1024)} KB` : `~${(n / 1048576).toFixed(1)} MB`);
-
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 export function ExportPanel() {
   const model = useStore((s) => s.model);
   const dispatch = useStore((s) => s.dispatch);
-  const toast = useStore((s) => s.toast);
   const furniture = useShownFurniture();
   const candidates = useStore((s) => s.candidates);
   const activeId = useStore((s) => s.activeCandidateId);
@@ -41,27 +39,33 @@ export function ExportPanel() {
   const svg = useMemo(() => planToSvg(model, furniture), [model, furniture]);
   const preview = useMemo(() => planToSvg(model, furniture, new Date(), layers), [model, furniture, layers]);
   const checks = candidates.find((c) => c.id === activeId)?.checks ?? [];
-  const csv = useMemo(() => scheduleCsv(furniture), [furniture]);
-  const json = useMemo(() => JSON.stringify(model, null, 2), [model]);
+    const json = useMemo(() => JSON.stringify(model, null, 2), [model]);
   const q = useMemo(() => quantities(model), [model]);
   const [rates, setRates] = useState({ floor: '', paint: '', skirting: '' });
   const [shared, setShared] = useState(false);
+  const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const base = `${slug(model.name)}-v${model.version}`;
 
   const openPrint = (title: string, body: string, css: string) => {
-    const w = window.open('', '_blank');
-    if (!w) { toast('Allow pop-ups', 'warn'); return; }
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:12px Helvetica,Arial,sans-serif;color:#111}${css}
-td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collapse:collapse;width:100%}h3{margin:6mm 0 2mm;font-size:13px}</style></head>
-<body>${body}<script>window.onload=function(){window.print()}</script></body></html>`);
-    w.document.close();
+    const f = document.createElement('iframe');
+    f.setAttribute('aria-hidden', 'true');
+    f.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(f);
+    const d = f.contentDocument;
+    if (!d || !f.contentWindow) { f.remove(); setErr('Failed'); return; }
+    d.open();
+    d.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:12px Helvetica,Arial,sans-serif;color:#111}${css}
+td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collapse:collapse;width:100%}h3{margin:6mm 0 2mm;font-size:13px}</style></head><body>${body}</body></html>`);
+    d.close();
+    const w = f.contentWindow;
+    setTimeout(() => { w.focus(); w.print(); setTimeout(() => f.remove(), 60000); }, 150);
   };
   const total = furniture.reduce((t, f) => t + itemPrice(f), 0);
   const schedTable = () => `<table><tr><th>Name</th><th>Category</th><th>W × D × H cm</th><th>Price</th><th>Price status</th></tr>${furniture.map((f) => `<tr><td>${esc(f.name)}</td><td>${esc(f.category)}</td><td>${Math.round(f.w * 100)} × ${Math.round(f.d * 100)} × ${Math.round(f.h * 100)}</td><td>${f.owned ? 'Owned' : fmtSek(itemPrice(f))}</td><td>${f.priceStatus}</td></tr>`).join('')}<tr><th colspan="3">Total</th><th>${fmtSek(total)}</th><th></th></tr></table>`;
 
   const printPdf = () => openPrint(`${model.name} v${model.version}`,
-    `${svg}<h3 style="page-break-before:always">Furniture schedule</h3>${schedTable()}<p>Prices are estimates unless marked. From version ${model.version}.</p>`,
+    `${svg}<h3 style="page-break-before:always">Furniture schedule</h3>${schedTable()}`,
     '@page{size:A4 landscape;margin:12mm}svg{width:100%;height:auto;max-height:170mm}');
 
   const printSheet = () => {
@@ -76,23 +80,20 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
     ].map((t) => `<li>${t}</li>`).join('');
     openPrint(`${model.name} room sheet`,
       `<h2 style="margin:0 0 2mm">${esc(model.name)} <small style="font-weight:400;color:#666">Room sheet · v${model.version}</small></h2>${svg}
-<div class="cols"><div><h3>Furniture schedule</h3>${schedTable()}</div><div><h3>Quantities</h3><table>${qt}</table><h3>Checks</h3><ul>${checkLines}</ul>
-<p style="color:#666">Check values marked ?</p></div></div>`,
+<div class="cols"><div><h3>Furniture schedule</h3>${schedTable()}</div><div><h3>Quantities</h3><table>${qt}</table><h3>Checks</h3><ul>${checkLines}</ul></div></div>`,
       '@page{size:A4 portrait;margin:10mm}svg{width:100%;height:auto;max-height:150mm}.cols{display:grid;grid-template-columns:3fr 2fr;gap:6mm;font-size:10px}ul{padding-left:4mm;margin:0}');
   };
 
   const glb = async () => {
-    try { download(`${base}.glb`, await exportGlb(model, furniture)); } catch { toast('Export failed', 'error'); }
+    try { download(`${base}.glb`, await exportGlb(model, furniture)); } catch { setErr('Failed'); }
   };
 
   const importJson = async (file: File) => {
     try {
       const m = validateModel(JSON.parse(await file.text()));
       dispatch({ type: 'REPLACE_MODEL', model: m });
-      toast(`Imported ${m.name}`, 'ok');
-    } catch (e) {
-      toast(`Import failed: ${e instanceof Error && !(e instanceof SyntaxError) ? e.message : 'not valid JSON.'}`, 'error');
-    }
+      setErr('');
+    } catch { setErr('Failed'); }
   };
 
   const share = async () => {
@@ -101,9 +102,8 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       history.replaceState(null, '', url);
       await navigator.clipboard.writeText(url).catch(() => undefined);
       setShared(true);
-      toast('Link copied', 'ok');
       setTimeout(() => setShared(false), 4000);
-    } catch { toast('Link failed', 'error'); }
+    } catch { setErr('Failed'); }
   };
 
   const num = (s: string) => (s.trim() === '' ? null : Number(s));
@@ -115,13 +115,13 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
   ];
   const anyCost = qRows.some((r) => r[2] !== null);
 
-  const glbEst = 2000 + furniture.length * 1500 + model.spaces.reduce((t, sp) => t + sp.walls.length * 900, 0);
-  const rows: Array<{ k: string; icon: string; name: string; desc: string; size: string; run: () => void }> = [
-    { k: 'svg', icon: 'image', name: 'SVG', desc: 'Dimensioned plan', size: kb(svg.length), run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
-    { k: 'csv', icon: 'grid', name: 'CSV', desc: `${furniture.length} items, ${fmtSek(total)}`, size: kb(csv.length), run: () => download(`${base}-schedule.csv`, csv, 'text/csv') },
-    { k: 'glb', icon: 'cube', name: '3D model', desc: 'GLB for Blender or SketchUp', size: kb(glbEst), run: () => void glb() },
-    { k: 'json', icon: 'file', name: 'Project file', desc: 'Re-importable JSON', size: kb(json.length), run: () => download(`${base}.json`, json, 'application/json') },
-    { k: 'link', icon: 'share', name: 'Share link', desc: 'Read-only, no photos', size: '', run: () => void share() },
+  const files: Array<{ k: string; icon: string; name: string; run: () => void; primary?: boolean }> = [
+    { k: 'pdf', icon: 'download', name: 'PDF', run: printPdf, primary: true },
+    { k: 'sheet', icon: 'file', name: 'Sheet', run: printSheet },
+    { k: 'svg', icon: 'image', name: 'Image', run: () => download(`${base}.svg`, svg, 'image/svg+xml') },
+    { k: 'glb', icon: 'cube', name: '3D', run: () => void glb() },
+    { k: 'json', icon: 'file', name: 'Project', run: () => download(`${base}.json`, json, 'application/json') },
+    { k: 'import', icon: 'plus', name: 'Import', run: () => fileRef.current?.click() },
   ];
   const [more, setMore] = useState(false);
   const toggle = (k: keyof PlanOptions, label: string) => (
@@ -130,29 +130,40 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
 
   return (
     <div className="export">
-      <button className="btn btn-primary export-primary" onClick={printPdf}><Icon name="download" size={14} />Download PDF</button>
-
-      <ul className="export-list">
-        {rows.map((r) => (
-          <li key={r.k}>
-            <button className="export-row" onClick={r.run} title={r.desc}>
-              <Icon name={r.icon} size={15} />
-              <span className="export-name">{r.k === 'link' && shared ? 'Link copied' : r.name}</span>
-            </button>
-          </li>
-        ))}
-        <li>
-          <button className="export-row" onClick={() => fileRef.current?.click()}>
-            <Icon name="plus" size={15} /><span className="export-name">Import</span>
+      <section className="export-block" aria-label="Share">
+        <h3>Share</h3>
+        <div className="export-grid">
+          <button className="export-file" onClick={() => void share()} aria-label="Copy link" title="Copy link">
+            <Icon name={shared ? 'check' : 'share'} size={18} /><span>Link</span>
           </button>
-          <input ref={fileRef} type="file" accept=".json,application/json" hidden
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
-        </li>
-      </ul>
+          <QrShare getLink={() => shareLink(model)} />
+          <SharePoll />
+        </div>
+      </section>
 
-      <QrShare getLink={() => shareLink(model)} />
+      <section className="export-block" aria-label="Files">
+        <h3>Files</h3>
+        <div className="export-grid">
+          {files.map((r) => (
+            <button key={r.k} className={`export-file${r.primary ? ' primary' : ''}`} onClick={r.run} title={r.name}>
+              <Icon name={r.icon} size={18} /><span>{r.name}</span>
+            </button>
+          ))}
+          <IfcButton model={model} className="export-file" />
+          <DxfButton model={model} className="export-file" />
+          <ArButton model={model} className="export-file" label="AR" />
+        </div>
+        <input ref={fileRef} type="file" accept=".json,application/json" hidden
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
+        <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+      </section>
 
-      <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+      <section className="export-block" aria-label="List">
+        <h3>List</h3>
+        <ShoppingList model={model} />
+      </section>
+
+      {err && <div className="export-err" role="alert">{err}</div>}
 
       <button className="export-more" aria-expanded={more} onClick={() => setMore(!more)}>
         <Icon name={more ? 'chevronDown' : 'chevronRight'} size={14} />More
@@ -162,15 +173,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
           <div className="export-toggles">
             {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
           </div>
-          <div className="row">
-            <button className="btn btn-sm" onClick={printSheet}>Room sheet</button>
-            <ArButton model={model} className="btn btn-sm" label="View in AR" />
-            <span className="export-ifc"><IfcButton model={model} /></span>
-            <span className="export-ifc"><DxfButton model={model} /></span>
-          </div>
-          <div className="export-label">Shopping list</div>
-          <ShoppingList model={model} />
-          <div className="export-label">Quantities (estimate)</div>
+          <div className="export-label">Quantities</div>
           <table className="export-table">
             <tbody>
               {qRows.map(([k, v, cost]) => (
