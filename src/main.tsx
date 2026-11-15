@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './ui/styles.css';
 import './ui/mobile.css';
+import { startTasteLogging } from './features/taste/signals';
+
+startTasteLogging();
 
 // Development-only handle so the browser test scripts in scripts/e2e can read and drive state.
 // A module that fails to load leaves its entry undefined and is listed in `failed`, so one broken feature
