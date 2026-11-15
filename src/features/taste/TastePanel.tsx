@@ -27,12 +27,12 @@ export function TastePanel() {
         </label>
         <button className="taste-reset" aria-label="Reset" title="Reset" onClick={clearSignals} disabled={!p.events}><Icon name="rotate" size={14} /></button>
       </div>
-      {rows.map((r) => (
-        <div key={r.hi} className={`taste-row${r.c < MIN_C ? ' unlearned' : ''}`}>
+      {rows.filter((r) => r.c >= MIN_C).map((r) => (
+        <div key={r.hi} className="taste-row">
           <Icon name={r.icon} size={14} />
-          <span className="taste-name">{r.c < MIN_C ? r.hi : r.v >= 0.5 ? r.hi : r.lo}</span>
+          <span className="taste-name">{r.v >= 0.5 ? r.hi : r.lo}</span>
           <span className="taste-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.v * 100)} aria-label={`${r.hi} or ${r.lo}`}>
-            <i style={{ width: r.c < MIN_C ? 0 : `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
+            <i style={{ width: `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
           </span>
         </div>
       ))}
