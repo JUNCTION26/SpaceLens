@@ -156,3 +156,24 @@ export function diffRequirements(a: Requirements, b: Requirements): string[] {
 }
 
 export { refineRoom, refineRoomOffline, refineRoomAI, validateRoomOps, ROOM_PATCH_SCHEMA, type RoomEdit } from './roomEdit';
+
+// ---- Follow-up memory: "it" in "move it a bit left" means the piece the last sentence touched. ----
+import { emptyMemory, refineRoom as refineRoomWith, roomSizeEdit, type RefMemory, type RoomEdit as RoomEditResult } from './roomEdit';
+import type { FurnitureItem } from '../../core/types';
+
+let followMemory: RefMemory = emptyMemory();
+export const getFollowMemory = (): RefMemory => followMemory;
+/** Forget the last piece: call when the room is cleared or a new design starts. */
+export function resetFollowMemory(): void { followMemory = emptyMemory(); }
+
+/** A room-size sentence applies even to an empty room; any other follow-up needs furniture to talk about. */
+export function isFollowUp(model: SpaceModel, text: string): boolean {
+  return model.furniture.length > 0 || roomSizeEdit(model, text) !== null;
+}
+
+/** One follow-up sentence with the remembered piece passed in and updated from the answer. */
+export async function followUpRoom(model: SpaceModel, text: string, previous?: FurnitureItem[]): Promise<RoomEditResult> {
+  const r = await refineRoomWith(model, text, { previous, memory: followMemory });
+  if (r.memory) followMemory = r.memory;
+  return r;
+}

@@ -7,7 +7,7 @@ import { designRoom, type Stage } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
 import { aiReady } from '../../core/ai';
 import { applyRoomOps, wantsNewRoom } from '../agent/actions';
-import { refineRoom, compileWithMeta, type CompileMeta } from './refine';
+import { followUpRoom, isFollowUp, resetFollowMemory, compileWithMeta, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
 import { showLayouts, isFinalResult, pickAuto, failReason, wholeRoomAsk } from '../layout/progress';
 import { takePendingBrief } from '../demo/starts';
@@ -57,10 +57,10 @@ export function IntentPanel() {
   /** A follow-up on a room that has furniture: change it in place, one undo step. Returns true when handled. */
   async function followUp(q: string): Promise<boolean> {
     const st = useStore.getState();
-    if (!st.model.furniture.length || wantsNewRoom(q)) return false;
+    if (!isFollowUp(st.model, q) || wantsNewRoom(q)) return false;
     setCompiling(true);
     try {
-      const r = await refineRoom(st.model, q, { previous: st.past.at(-1)?.furniture });
+      const r = await followUpRoom(st.model, q, st.past.at(-1)?.furniture);
       if (!r.ok) { setCannot({ nearest: r.nearest, label: r.reason }); setChip(''); return true; }
       setCannot(null);
       if (r.undo && !r.ops.length) useStore.getState().undo();
@@ -76,7 +76,7 @@ export function IntentPanel() {
   function wholeRoom(kind: 'again' | 'reset'): boolean {
     const st = useStore.getState();
     if (kind === 'reset') {
-      runRef.current?.abort();
+      runRef.current?.abort(); resetFollowMemory();
       if (st.model.furniture.length) st.dispatch({ type: 'SET_FURNITURE', items: [], label: 'Started over' });
       st.setCandidates([]); st.setRequirements(null);
       useReports.getState().setStages([], false);
@@ -97,7 +97,7 @@ export function IntentPanel() {
     if (whole && wholeRoom(whole)) return;
     if (!fresh && await followUp(q)) return;
     setCompiling(true);
-    briefRef.current = q;
+    briefRef.current = q; resetFollowMemory();
     try {
       const { req: r, meta: m } = await compileWithMeta(q, useStore.getState().model);
       setReq(r); setMeta(m); setTriedGen(false);
