@@ -84,7 +84,7 @@ export async function critique(model: SpaceModel, candidate: LayoutCandidate, re
   }
 
   const t0 = performance.now();
-  const res = await withTimeout(ai<Record<string, unknown>>({ task, system: SYSTEM, parts, schema: CRITIC_SCHEMA, signal: opts.signal, temperature: 0.2 }), opts.timeoutMs ?? 25000, opts.signal);
+  const res = await withTimeout(ai<Record<string, unknown>>({ task, system: SYSTEM, parts, schema: CRITIC_SCHEMA, signal: opts.signal, temperature: 0.2, priority: 'low' }), opts.timeoutMs ?? 45000, opts.signal);
   const raw = res.data ?? {};
   const known = new Set(items.map((f) => f.id));
   const decisions: DesignCritique['decisions'] = [];
