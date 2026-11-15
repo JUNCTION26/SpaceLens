@@ -11,3 +11,13 @@
 .v-tilt .movein-tag, .v-assemble .movein-tag { color: var(--warn); }
 .v-wont .movein-tag { color: var(--bad); }
 .movein-empty { margin: 0; display: grid; place-items: center; color: var(--faint); padding: var(--s5); }
+.movein-bar, .movein-summary { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; margin-bottom: var(--s2); }
+.movein-scrub { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.movein-speeds { display: inline-flex; gap: 2px; }
+.movein-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-sm); color: var(--muted); }
+.movein-chip.ok { color: var(--ok); } .movein-chip.warn { color: var(--warn); } .movein-chip.bad { color: var(--bad); }
+.movein-chip.pulse { animation: movein-pulse 0.6s ease-in-out infinite alternate; }
+.movein-row.later { opacity: 0.5; } .movein-row.now { border-color: var(--accent); } .movein-row.landed .movein-n { color: var(--ok); }
+.v-wont.landed .movein-n { color: var(--bad); }
+@keyframes movein-pulse { from { box-shadow: 0 0 0 0 transparent; } to { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 35%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .movein-chip.pulse { animation: none; } }
