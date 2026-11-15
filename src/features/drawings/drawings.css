@@ -43,11 +43,11 @@
 .drawings-sheet.is-anim { transition: transform .5s ease; }
 .drawings-ask { position: sticky; top: 0; z-index: 2; }
 .drawings-ov { fill-opacity: .14; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
-.ov-room, .lg-room { fill: #2f80ed; stroke: #2f80ed; color: #2f80ed; }
-.ov-area, .lg-area { fill: #27ae60; stroke: #27ae60; color: #27ae60; }
-.ov-dimension, .lg-dimension { fill: #f2994a; stroke: #f2994a; color: #f2994a; }
-.ov-scale, .lg-scale { fill: #9b51e0; stroke: #9b51e0; color: #9b51e0; }
-.ov-tag, .lg-tag { fill: #eb5757; stroke: #eb5757; color: #eb5757; }
+.ov-room { fill: #2f80ed; stroke: #2f80ed; color: #2f80ed; }
+.ov-area { fill: #27ae60; stroke: #27ae60; color: #27ae60; }
+.ov-dimension { fill: #f2994a; stroke: #f2994a; color: #f2994a; }
+.ov-scale { fill: #9b51e0; stroke: #9b51e0; color: #9b51e0; }
+.ov-tag { fill: #eb5757; stroke: #eb5757; color: #eb5757; }
 .drawings-hover { fill: color-mix(in srgb, var(--warn) 25%, transparent); stroke: var(--warn); stroke-width: 3px; vector-effect: non-scaling-stroke; animation: drawings-pulse 1.2s ease-in-out infinite; }
 .drawings-legend { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 8px; font-size: 12px; background: var(--panel); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); }
 .drawings-legend span { font-weight: 560; }
