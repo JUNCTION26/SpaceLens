@@ -7,13 +7,15 @@ export function SeverityDot({ severity }: { severity: Problem['severity'] }) {
   return <i className={`pb-dot pb-${severity}`} aria-hidden="true" />;
 }
 
+const clipWords = (t: string, n = 4) => { const w = t.split(/\s+/); return w.length > n ? `${w.slice(0, n).join(' ')}…` : t; };
+
 /** Fix buttons: hovering one previews it on the plan, clicking applies it. */
 export function FixButtons({ problem, max = 3, compact = false }: { problem: Problem; max?: number; compact?: boolean }) {
   const setPreview = useProblems((s) => s.setPreview);
   const applyFix = useProblems((s) => s.applyFix);
   const finding = useProblems((s) => s.finding);
   const fixes = problem.fixes.slice(0, max);
-  if (!fixes.length) return finding ? <span className="pb-finding" aria-live="polite">Finding fixes</span> : null;
+  if (!fixes.length) return finding ? <span className="pb-finding" role="status" aria-label="Finding fixes" /> : null;
   const run = (f: Fix) => () => applyFix(problem, f);
   return (
     <div className={`pb-fixes${compact ? ' is-compact' : ''}`}>
@@ -23,31 +25,17 @@ export function FixButtons({ problem, max = 3, compact = false }: { problem: Pro
           onPointerEnter={() => setPreview(f)} onPointerLeave={() => setPreview(null)}
           onFocus={() => setPreview(f)} onBlur={() => setPreview(null)}
           onClick={run(f)}
-          title={f.kind === 'go' ? undefined : f.safe ? 'Safe fix' : undefined}>
-          {f.label}
+          title={f.label}>
+          {clipWords(f.label)}
         </button>
       ))}
     </div>
   );
 }
 
-/** Compact card: what is wrong in one sentence, then one to three fixes. */
-export function ProblemCard({ problems, style, onEnter, onLeave, onClose }: {
+/** The hover card used to float over the plan. Problems and their fixes now live only in the checks list in the left panel. */
+export function ProblemCard(_props: {
   problems: Problem[]; style?: React.CSSProperties; onEnter?: () => void; onLeave?: () => void; onClose?: () => void;
 }) {
-  const shown = problems.slice(0, 1);
-  const more = problems.length - shown.length;
-  return (
-    <div className="pb-card" role="dialog" aria-label="Problem and fixes" style={style}
-      onPointerEnter={onEnter} onPointerLeave={onLeave} onPointerDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => { if (e.key === 'Escape') onClose?.(); }}>
-      {shown.map((p) => (
-        <div key={p.id} className="pb-card-row">
-          <p className="pb-card-title" title={p.title}><SeverityDot severity={p.severity} />{p.title.split(/\s+/).length > 6 ? `${p.title.split(/\s+/).slice(0, 6).join(' ')}…` : p.title}</p>
-          <FixButtons problem={p} max={2} />
-        </div>
-      ))}
-      {more > 0 && <button type="button" className="pb-more" onClick={() => window.dispatchEvent(new Event('spacelens:checks'))}>{more} more</button>}
-    </div>
-  );
+  return null;
 }

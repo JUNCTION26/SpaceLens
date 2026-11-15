@@ -17,3 +17,11 @@
 .drill-shut { stroke: var(--bad); fill: none; stroke-linecap: round; pointer-events: none; }
 @keyframes drill-pulse { 0%, 100% { transform: scale(.85); opacity: .5; } 50% { transform: scale(1.15); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .drill-bottleneck { animation: none; } }
+
+/* Minimal layout: the primary Drill button leads, results are chips in the panel. */
+.drill { flex-direction: column; align-items: stretch; margin: 0; gap: 8px; }
+.drill-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.drill-main .drill-go { flex: 1 1 auto; justify-content: center; }
+.drill-chips { display: flex; }
+/* The clock lives in the panel chip; the on-plan copy stays readable to screen readers only. */
+.drill-chip { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0 !important; border: 0 !important; background: none !important; color: transparent !important; }

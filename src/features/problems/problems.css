@@ -30,10 +30,10 @@
 .pb-fix.is-remove:hover, .pb-fix.is-remove:focus-visible { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: none; }
 .pb-fixes.is-compact .pb-fix { min-height: 26px; padding: 4px 8px; }
 .pb-finding { font-size: var(--fs-sm); color: var(--muted); }
-.pb-finding::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: pb-dots 1.2s steps(4) infinite; }
+.pb-finding { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: pb-rot .8s linear infinite; }
 
 @keyframes pb-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
-@keyframes pb-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@keyframes pb-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .pb-card { animation: none; } .pb-fix { transition: none; } }
 
 /* Phones: the card docks above the bottom bar so a sheet never hides it. */

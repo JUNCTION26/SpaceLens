@@ -1,7 +1,8 @@
+import type { ReactNode } from 'react';
 import { create } from 'zustand';
 import { useStore } from '../../core/store';
 import { Icon } from '../../ui/icons';
-import { runDrill, type DrillResult } from './drill';
+import { fmtClock, runDrill, type DrillResult } from './drill';
 import './drill.css';
 
 interface DrillState {
@@ -25,7 +26,7 @@ export const useDrill = create<DrillState>((set) => ({
   replay: () => set((s) => ({ runKey: s.runKey + 1 })),
 }));
 
-export function DrillButton() {
+export function DrillButton({ onStart, extra }: { onStart?: () => void; extra?: ReactNode }) {
   const model = useStore((s) => s.model);
   const select = useStore((s) => s.select);
   const { result, block, people, setBlock, setPeople } = useDrill();
@@ -46,22 +47,34 @@ export function DrillButton() {
     if (fix.itemId) select({ kind: 'furniture', id: fix.itemId });
     else if (fix.openingId) select({ kind: 'opening', id: fix.openingId });
   };
+  const go = () => { if (result) useDrill.getState().replay(); else start(); onStart?.(); };
 
   return (
     <div className="drill" role="group" aria-label="Fire drill">
-      <button type="button" className="btn drill-go" onClick={() => (result ? useDrill.getState().replay() : start())} aria-label={result ? 'Replay drill' : 'Start drill'}>
-        <Icon name="play" size={14} /> <span>{result ? 'Replay' : 'Drill'}</span>
-      </button>
-      <button type="button" className={`btn drill-block${block ? ' on' : ''}`} aria-pressed={block} aria-label="Block an exit" onClick={() => { setBlock(!block); if (result) start(!block); }}>
-        Block exit
-      </button>
-      <span className="drill-step" role="group" aria-label="Occupants">
-        <button type="button" className="btn" aria-label="Fewer people" onClick={() => step(-1)}>−</button>
-        <output aria-live="polite">{shown || 'Auto'}</output>
-        <button type="button" className="btn" aria-label="More people" onClick={() => step(1)}>+</button>
-      </span>
-      {fix && <button type="button" className="btn drill-fix" onClick={pickFix}>{fix.label}</button>}
-      {result && <button type="button" className="btn drill-clear" aria-label="Clear drill" onClick={() => useDrill.getState().set(null)}>×</button>}
+      <div className="drill-main">
+        <button type="button" className="btn btn-primary drill-go" onClick={go} aria-label={result ? 'Replay drill' : 'Start drill'}>
+          <Icon name="play" size={14} /> <span>Drill</span>
+        </button>
+        <span className="drill-step" role="group" aria-label="People">
+          <button type="button" className="btn" aria-label="Fewer people" onClick={() => step(-1)}>{'−'}</button>
+          <output aria-live="polite">{shown || 'Auto'}</output>
+          <button type="button" className="btn" aria-label="More people" onClick={() => step(1)}>+</button>
+        </span>
+        <button type="button" className={`btn drill-block${block ? ' on' : ''}`} aria-pressed={block} aria-label="Block an exit" onClick={() => { setBlock(!block); if (result) start(!block); }}>
+          Block exit
+        </button>
+        {result && <button type="button" className="btn btn-ghost drill-clear" aria-label="Clear drill" title="Clear" onClick={() => useDrill.getState().set(null)}><Icon name="x" size={14} /></button>}
+      </div>
+      {(result || extra) && (
+        <div className="safety-chips drill-chips" aria-live="polite">
+          {result && <span className={`safety-chip ${result.pass && result.allOut ? 'ok' : 'bad'}`} title="Time out">{fmtClock(result.totalS)}</span>}
+          {result && <span className="safety-chip" title="People">{result.occupants}</span>}
+          {extra}
+        </div>
+      )}
+      {fix && <button type="button" className="btn drill-fix" onClick={pickFix}>{clipWords(fix.label)}</button>}
     </div>
   );
 }
+
+const clipWords = (t: string, n = 4) => { const w = t.split(/\s+/); return w.length > n ? `${w.slice(0, n).join(' ')}…` : t; };

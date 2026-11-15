@@ -50,3 +50,20 @@
 .safety-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; }
 .safety-chip.ok { color: var(--ok, inherit); }
 .safety-chip.bad { color: var(--warn); }
+
+/* Minimal layout: one row per finding, chips for results, one closed fold. */
+.safety-country .report-btn { width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.safety-item { flex-direction: row; align-items: center; gap: 6px; padding: 6px 0; }
+.safety-item:first-child { padding-top: 2px; }
+.safety-item .safety-title { flex: 1; font-weight: var(--fw-normal, 400); -webkit-line-clamp: 1; }
+.safety-sevdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--accent, #6e8bff); }
+.sev-critical .safety-sevdot { background: var(--bad); }
+.sev-important .safety-sevdot { background: var(--warn); }
+.safety-adv { display: flex; flex-direction: column; gap: 6px; }
+.safety-adv-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.safety-more > summary { cursor: pointer; color: var(--muted); }
+.safety-fold { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.safety-sub { font-size: 12px; color: var(--muted); }
+.safety-sub-fold > summary { cursor: pointer; color: var(--muted); }
+.safety-chip.ok { border-color: var(--ok); }
+.safety-chip.bad { border-color: var(--warn); }

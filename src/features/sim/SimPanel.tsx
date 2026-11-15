@@ -29,6 +29,10 @@ export function SimPanel() {
   const setAnalysis = useStore((s) => s.setAnalysis);
   const toggleLayer = useStore((s) => s.toggleLayer);
   const [fitOpen, setFitOpen] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [seated, setSeated] = useState(false);
+  const changeSpeed = (v: number) => { setSpeed(v); window.dispatchEvent(new CustomEvent('spacelens:walk-speed', { detail: v })); };
+  const changeSeated = (v: boolean) => { setSeated(v); window.dispatchEvent(new CustomEvent('spacelens:walk-seated', { detail: v })); };
   const furniture = useShownFurniture();
 
   const [profile, setProfile] = useState<BodyProfileId>('adult');
@@ -114,22 +118,16 @@ export function SimPanel() {
       <button className="btn btn-primary sim-walk" onClick={() => window.dispatchEvent(new Event('spacelens:walk'))}>
         <Icon name="walk" size={14} /> Walk
       </button>
-
-      <div className="sim-seg" role="group" aria-label="Who is moving">{PROFILES.map((pr) => (
-        <button key={pr.id} className={pr.id === profile ? 'on' : ''} aria-pressed={pr.id === profile} title={pr.note} onClick={() => setProfile(pr.id)}>{pr.label}</button>
-      ))}</div>
-
-      <div className="sim-line" aria-live="polite">
-        {showSpin && routesBusy ? <span className="muted" aria-label="Checking"><span className="sim-spin" aria-hidden="true" /></span>
-          : !rs.length ? <span className="muted">No doors yet</span>
-          : <>
-            <span className={`sim-dot ${bad.length ? 'bad' : 'ok'}`} aria-hidden="true" />
-            <span title={worst ? `Narrowest ${worst.narrowestM!.toFixed(2)} m, needs ${p.widthM.toFixed(2)} m` : undefined}>{bad.length ? `${bad.length} blocked` : 'All reachable'}
-              {worst && <span className="muted"> · {worst.narrowestM!.toFixed(2)} m</span>}
-              {turn && !turn.ok && <span className="muted"> · No turn</span>}
-            </span>
-            {worst?.narrowestAt && <button className="icon-btn" title="Show narrowest spot" aria-label="Show narrowest spot" aria-pressed={focusId === worst.id && layers.routes} onClick={() => showSpot(worst.id)}><Icon name="eye" size={14} /></button>}
-          </>}
+      <div className="sim-actions">
+        <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent('spacelens:auto-tour', { detail: { record: false } }))}><Icon name="play" size={14} /> Tour</button>
+        <button className="btn" onClick={() => window.dispatchEvent(new CustomEvent('spacelens:auto-tour', { detail: { record: true } }))}><Icon name="camera" size={14} /> Record</button>
+      </div>
+      <div className="sim-prefs">
+        <label className="sim-toggle"><span>Speed</span>
+          <input type="range" min={0.5} max={2} step={0.25} value={speed} aria-label="Speed" onChange={(e) => changeSpeed(Number(e.target.value))} />
+          <output>{speed}x</output>
+        </label>
+        <label className="sim-toggle"><input type="checkbox" checked={seated} onChange={(e) => changeSeated(e.target.checked)} /> Seated</label>
       </div>
 
       <div className="sim-row">
@@ -161,6 +159,22 @@ export function SimPanel() {
       <details className="sim-more">
         <summary>More</summary>
         <div className="sim-body">
+          <div className="sim-seg" role="group" aria-label="Who is moving">{PROFILES.map((pr) => (
+            <button key={pr.id} className={pr.id === profile ? 'on' : ''} aria-pressed={pr.id === profile} title={pr.note} onClick={() => setProfile(pr.id)}>{pr.label}</button>
+          ))}</div>
+
+          <div className="sim-line" aria-live="polite">
+            {showSpin && routesBusy ? <span className="muted" aria-label="Checking"><span className="sim-spin" aria-hidden="true" /></span>
+              : !rs.length ? null
+              : <>
+                <span className={`sim-dot ${bad.length ? 'bad' : 'ok'}`} aria-hidden="true" />
+                <span title={worst ? `Narrowest ${worst.narrowestM!.toFixed(2)} m, needs ${p.widthM.toFixed(2)} m` : undefined}>{bad.length ? `${bad.length} blocked` : 'Clear'}
+                  {worst && <span className="muted"> · {worst.narrowestM!.toFixed(2)} m</span>}
+                  {turn && !turn.ok && <span className="muted"> · No turn</span>}
+                </span>
+                {worst?.narrowestAt && <button className="icon-btn" title="Show narrowest spot" aria-label="Show narrowest spot" aria-pressed={focusId === worst.id && layers.routes} onClick={() => showSpot(worst.id)}><Icon name="eye" size={14} /></button>}
+              </>}
+          </div>
           <div className="sim-layers">{LAYERS.map(([k, l]) => (
             <label key={k} className="sim-toggle"><input type="checkbox" checked={layers[k]} onChange={() => toggleLayer(k)} /> {l}</label>
           ))}</div>

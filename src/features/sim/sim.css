@@ -26,3 +26,11 @@
 .sim-spin { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--line); border-top-color: var(--text); border-radius: 50%; animation: sim-rot .8s linear infinite; vertical-align: -1px; }
 @keyframes sim-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sim-spin { animation: none; } }
+
+/* Minimal layout: Walk leads, Tour and Record beside each other, then speed and seated. */
+.sim { display: flex; flex-direction: column; gap: 10px; }
+.sim-actions { display: flex; gap: 6px; }
+.sim-actions .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.sim-prefs { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.sim-prefs .sim-toggle { gap: 6px; }
+.sim-prefs input[type="range"] { width: 90px; }
