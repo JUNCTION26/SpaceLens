@@ -1,6 +1,5 @@
 import { shortRelax } from '../layout/relax';
 import { useEffect, useRef, useState } from 'react';
-import { notify } from '../../ui/notify';
 import { useStore } from '../../core/store';
 import type { Requirements } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
@@ -13,14 +12,10 @@ import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } fro
 import { Icon } from '../../ui/icons';
 import { showLayouts } from '../layout/progress';
 import { takePendingBrief } from '../demo/starts';
-import { apiBase } from '../../core/ai/transport';
 import './intent.css';
 
-const EXAMPLES = [
-  'Home office for two, keep my desk, clear route to the window, under 12 000 kr',
-  'Bedroom I can also work in, sofa bed, 90 cm route',
-  'Small cafe for 12 guests',
-];
+const two = (t: string) => t.split(/\s+/).slice(0, 2).join(' ');
+const EXAMPLES = ['Home office', 'Bedroom', 'Cafe'];
 
 export function IntentPanel() {
   const model = useStore((s) => s.model);
@@ -37,6 +32,7 @@ export function IntentPanel() {
   const [refining, setRefining] = useState(false);
   const [adjust, setAdjust] = useState(false);
   const [chip, setChip] = useState('');
+  const [retry, setRetry] = useState<{ label: string; run: () => void } | null>(null);
   const [cannot, setCannot] = useState<{ nearest: string; label: string } | null>(null);
   const [thread, setThread] = useState<Array<{ ask: string; reply: string; diff: string[]; meta: CompileMeta }>>([]);
   const compileRef = useRef<(t?: string) => Promise<void>>(async () => {});
@@ -83,6 +79,7 @@ export function IntentPanel() {
   async function compile(input?: string) {
     const q = input ?? text;
     if (!q.trim()) return;
+    setRetry(null);
     if (await followUp(q)) return;
     setCompiling(true);
     briefRef.current = q;
@@ -92,10 +89,7 @@ export function IntentPanel() {
       if (r.items.length) void generate(r);
     } catch (e) {
       console.error(e);
-      notify('Brief not read', { tone: 'warn', actions: [
-        { label: 'Try again', primary: true, run: () => void compileRef.current(q) },
-        ...(useStore.getState().settings.geminiKey || apiBase() ? [] : [{ label: 'Add a Gemini key', run: () => useUi.getState().setSettingsOpen(true) }]),
-      ] });
+      setChip(''); setRetry({ label: 'Retry', run: () => void compileRef.current(q) });
     }
     finally { setCompiling(false); }
   }
@@ -112,7 +106,7 @@ export function IntentPanel() {
       if (diff.length) { setReq(next); if (next.items.length) void generate(next); }
     } catch (e) {
       console.error(e);
-      notify('Change not applied', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void refine(ask) }] });
+      setRetry({ label: 'Retry', run: () => void refine(ask) });
     }
     finally { setRefining(false); }
   }
@@ -141,16 +135,15 @@ export function IntentPanel() {
       st.setRequirements(r);
       setTriedGen(true);
       if (res.candidates.length) {
-        st.toast(`${res.candidates.length} layout${res.candidates.length > 1 ? 's' : ''} ready`, 'ok');
         useUi.getState().setTab('design', 'layouts');
       } else {
-        notify('Does not fit', { tone: 'warn', actions: [{ label: 'See options', primary: true, run: () => useUi.getState().setTab('design', 'layouts') }] });
+        useUi.getState().setTab('design', 'layouts');
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         console.error(e);
         // Rule-based layouts already on screen stay; a late model phase failing is not worth a warning.
-        if (!useStore.getState().candidates.length) notify('Layouts failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
+        if (!useStore.getState().candidates.length) setRetry({ label: 'Retry', run: () => void generate(r) });
       }
     } finally {
       if (runRef.current === ctrl) {
@@ -178,18 +171,13 @@ export function IntentPanel() {
   const itemName = (it: Requirements['items'][number]) => it.keepExistingId
     ? `${model.furniture.find((f) => f.id === it.keepExistingId)?.name ?? it.catalogId} (kept)`
     : CATALOG.find((c) => c.id === it.catalogId)?.name ?? it.catalogId;
-  const summary = req ? [
-    req.purpose ? req.purpose.split(/\s+/).slice(0, 3).join(' ') : null,
-    `${req.people} ${req.people === 1 ? 'person' : 'people'}`,
-    `${req.items.reduce((n, it) => n + it.qty, 0)} items`,
-  ].filter(Boolean).join(' · ') : '';
 
   return (
     <div className="intent">
       <div className="intent-composer">
         <textarea className="intent-text" rows={3} value={text} aria-label="Describe your space" onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void compile(); } }}
-          placeholder="Describe the room you want" />
+          placeholder="Describe" />
         <div className="intent-composer-bar">
           <MicButton onText={(t) => setText((v) => (v ? `${v} ${t}` : t))} />
           <button className="btn btn-primary btn-sm intent-send" disabled={compiling || !text.trim()} onClick={() => compile()} aria-label="Design it">
@@ -197,17 +185,20 @@ export function IntentPanel() {
           </button>
         </div>
       </div>
-      {(chip || cannot) && (
+      {!text && !req && !chip && !cannot && !retry && !compiling && (
+        <div className="intent-chips">{EXAMPLES.map((x) => <button key={x} className="chip" onClick={() => { setText(x); void compile(x); }}>{x}</button>)}</div>
+      )}
+      {(chip || cannot || retry) && (
         <div className="intent-chips" role="status">
-          {chip && <span className="chip chip-ok">{chip}</span>}
-          {cannot && <button className="chip" title={cannot.label} onClick={() => { const n = cannot.nearest; setCannot(null); setText(n); void compile(n); }}>{cannot.nearest}</button>}
+          {chip && <span className="chip chip-ok" title={chip}>{two(chip)}</span>}
+          {retry && <button className="chip" onClick={() => { const r = retry; setRetry(null); r.run(); }}>{retry.label}</button>}
+          {cannot && <button className="chip" title={`${cannot.label}: ${cannot.nearest}`} onClick={() => { const n = cannot.nearest; setCannot(null); setText(n); void compile(n); }}>{two(cannot.nearest)}</button>}
         </div>
       )}
       {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
       {req && (
         <div className="intent-summary">
-          <span className="intent-summary-text">{summary}</span>
           <button className="btn btn-ghost btn-sm" aria-expanded={adjust} onClick={() => setAdjust((a) => !a)}>{adjust ? 'Done' : 'Adjust'}</button>
         </div>
       )}
@@ -258,7 +249,7 @@ export function IntentPanel() {
       {req && candidates.length > 0 && (
         <div className="intent-chat">
           <div className="intent-follow">
-            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Cozier, cheaper..."
+            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Refine"
               onChange={(e) => setFollow(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void refine(follow); }} />
             <MicButton onText={(t) => setFollow(t)} />
             <button className="btn btn-sm btn-primary intent-send" aria-label="Send refinement" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>

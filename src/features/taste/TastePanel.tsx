@@ -1,5 +1,5 @@
 import { Icon } from '../../ui/icons';
-import { MIN_C, learnedChips } from './apply';
+import { MIN_C } from './apply';
 import { clearSignals } from './signals';
 import { setTasteEnabled, useTasteOn, useTasteProfile } from './state';
 import './taste.css';
@@ -20,23 +20,19 @@ export function TastePanel() {
     { icon: 'sofa', hi: 'Dense', lo: 'Sparse', v: p.traits.density.v, c: p.traits.density.c },
     { icon: 'sparkles', hi: 'Premium', lo: 'Thrifty', v: p.traits.spend.v, c: p.traits.spend.c },
   ];
-  const chips = learnedChips(p);
   return (
     <div className="taste" aria-label="Taste">
       <div className="taste-head">
         <label className="taste-toggle">
-          <input type="checkbox" checked={on} onChange={(e) => setTasteEnabled(e.target.checked)} />
-          <span>Use my taste</span>
+          <input type="checkbox" checked={on} aria-label="Use my taste" title="Use my taste" onChange={(e) => setTasteEnabled(e.target.checked)} />
+          <Icon name="sparkles" size={14} />
         </label>
-        <button className="taste-reset" onClick={clearSignals} disabled={!p.events}>Reset</button>
+        <button className="taste-reset" aria-label="Reset" title="Reset" onClick={clearSignals} disabled={!p.events}><Icon name="rotate" size={14} /></button>
       </div>
-      {chips.length > 0 && (
-        <div className="taste-chips" aria-label="What I learned">{chips.map((c) => <span key={c} className="taste-chip">{c}</span>)}</div>
-      )}
       {rows.map((r) => (
         <div key={r.hi} className={`taste-row${r.c < MIN_C ? ' unlearned' : ''}`} title={`${Math.round(r.c * 100)}% sure`}>
           <Icon name={r.icon} size={14} />
-          <span className="taste-name">{r.c < MIN_C ? `${r.hi} / ${r.lo}` : r.v >= 0.5 ? r.hi : r.lo}</span>
+          <span className="taste-name">{r.c < MIN_C ? r.hi : r.v >= 0.5 ? r.hi : r.lo}</span>
           <span className="taste-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.v * 100)} aria-label={`${r.hi} or ${r.lo}`}>
             <i style={{ width: r.c < MIN_C ? 0 : `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
           </span>

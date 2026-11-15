@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import { Icon } from '../../ui/icons';
 import './vision.css';
 import { useStore, getState } from '../../core/store';
-import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { gemini, fileToInlineData, hasGemini, usage, type GeminiPart } from '../../core/gemini';
 import { CATALOG, CATEGORIES, makeItem, findByKeyword } from '../../features/furniture/catalog';
 import { findFreeSpot } from '../../features/objects/placement';
@@ -62,7 +61,6 @@ function FurnitureFromPhoto() {
     const item = { ...makeItem(entry.id), name: est.name, w: est.widthCm / 100, d: est.depthCm / 100, h: est.heightCm / 100, owned: true, priceSek: 0, priceStatus: 'owned' as const, sourceKind: 'photo-inferred' as const };
     const spot = findFreeSpot(s.model, item);
     s.dispatch({ type: 'PLACE_OBJECT', item: { ...item, ...spot } });
-    s.toast(`Added ${est.name}`, 'ok');
     setEst(null);
   };
 
@@ -72,8 +70,7 @@ function FurnitureFromPhoto() {
 
   return (
     <div className="vision-body">
-      <p className="muted small">A4 sheet sets scale</p>
-      <input placeholder="Known size, e.g. 200 cm" value={known} onChange={(e) => setKnown(e.target.value)} />
+      <input aria-label="Known size" title="A4 sheet sets scale" placeholder="cm" value={known} onChange={(e) => setKnown(e.target.value)} />
       <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {est && (
@@ -141,7 +138,6 @@ export function VisionPanel() {
   if (!hasGemini()) {
     return (
       <div className="panel vision">
-        <NoKeyPrompt />
         <div className="vision-row on"><InspireTool /></div>
       </div>
     );
@@ -150,13 +146,13 @@ export function VisionPanel() {
 }
 
 const TOOLS: Array<{ id: string; title: string; hint: string; icon: string; body: () => ReactNode }> = [
-  { id: 'furniture', title: 'Furniture from photo', hint: 'Measure an item and add it', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
   { id: 'style', title: 'Inspiration', hint: 'Make the room look like a picture', icon: 'palette', body: () => <InspireTool /> },
-  { id: 'check', title: 'Compare with photo', hint: 'Spot differences from the model', icon: 'camera', body: () => <RoomCheck /> },
+  { id: 'furniture', title: 'Furniture', hint: 'Measure an item and add it', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
+  { id: 'check', title: 'Compare', hint: 'Spot differences from the model', icon: 'camera', body: () => <RoomCheck /> },
 ];
 
 function VisionTools() {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>('style');
   return (
     <div className="panel vision">
       {TOOLS.map((t) => (

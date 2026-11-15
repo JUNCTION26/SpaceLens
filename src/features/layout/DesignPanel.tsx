@@ -13,7 +13,6 @@ import { crossover } from './solver';
 import { designRoom } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
 import { DecisionsPanel } from '../design/DecisionsPanel';
-import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from './progress';
@@ -40,6 +39,7 @@ export function DesignPanel() {
   const [compare, setCompare] = useState(false);
   const [pins, setPins] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const base = useRef<string | null>(null);
   const reports = useReports((s) => s.reports);
   const running = useReports((s) => s.running);
@@ -66,16 +66,14 @@ export function DesignPanel() {
     const r = override ?? req;
     if (!r) return;
     if (override) useStore.getState().setRequirements(override);
-    setBusy(true);
+    setBusy(true); setFailed(false);
     try {
       // Rule-based layouts arrive in a few seconds; model concepts and the second opinion update them in place.
       const res = await designRoom(useStore.getState().model, r, { variants: 3, onStage: (s) => useReports.getState().setStages(s, true), onProgress: (p) => showLayouts(p) });
       showLayouts(res);
     } catch (e) {
       console.error(e);
-      notify('Layouts failed', {
-        tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void regenerate(r) }, { label: 'Edit the brief', run: () => useUi.getState().openSection('describe') }],
-      });
+      setFailed(true);
     } finally { setBusy(false); useReports.getState().setStages(useReports.getState().stages, false); }
   };
   const combine = async () => {
@@ -86,10 +84,10 @@ export function DesignPanel() {
       const c = await crossover(a, b, model, req);
       const st = useStore.getState();
       if (c) { st.setCandidates([...st.candidates, c]); st.previewCandidate(c.id); setPins([]); }
-      else notify('These do not combine', { tone: 'warn', actions: [{ label: 'Pick another pair', run: () => setPins([]) }] });
+      else { setPins([]); setFailed(true); }
     } catch (e) {
       console.error(e);
-      notify('Combine failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
+      setFailed(true);
     } finally { setBusy(false); }
   };
   const togglePin = (id: string) => setPins((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
@@ -105,15 +103,14 @@ export function DesignPanel() {
                 {infeasibility.relaxations.slice(0, 3).map((r, i) => (
                   <button key={r.label} className={`btn btn-sm${i === 0 ? ' btn-primary' : ''}`} disabled={busy} onClick={() => void regenerate({ ...req, ...r.patch })} title={r.label}>{shortRelax(r.label)}</button>
                 ))}
-                <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Edit brief</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Describe</button>
               </div>
             )}
           </div>
         ) : (
           <div className="layout-empty">
-            <strong>{req ? 'No layouts yet' : 'No brief yet'}</strong>
             {req
-              ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Working' : 'Make layouts'}</button>
+              ? <button className="btn btn-primary" disabled={busy} onClick={() => void regenerate()}>{busy ? <span className="layout-progress" role="status" aria-label="Working"><i aria-hidden="true" /></span> : failed ? 'Retry' : 'Make layouts'}</button>
               : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe</button>}
           </div>
         )}
@@ -145,12 +142,13 @@ export function DesignPanel() {
       <div className="layout-toolbar">
         <span />
         {(current || busy) && <span className="layout-progress" role="status" aria-label="Working"><i aria-hidden="true" /></span>}
-        <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
+        {failed && <button className="btn btn-sm btn-ghost" onClick={() => void regenerate()}>Retry</button>}
+        <button className="btn btn-sm btn-ghost icon-btn" aria-pressed={compare} aria-label="Compare" title="Compare" onClick={() => { setCompare((c) => !c); setPins([]); }}><Icon name="panelLeft" size={14} /></button>
         <SharePoll />
       </div>
       {compare && (
         <div className="layout-combine muted">
-          <span>Pick 2 ({pins.length}/2)</span>
+          <span aria-hidden="true">{pins.length}/2</span>
           <button className="btn btn-sm" disabled={busy || pins.length !== 2} onClick={combine}>Combine</button>
         </div>
       )}
@@ -180,11 +178,11 @@ export function DesignPanel() {
                 <div className="layout-foot">
                   <span>{fmtSek(c.metrics.costSek)}</span>
                   {compare && (
-                    <button className="btn btn-sm btn-ghost" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
-                      {pins.includes(c.id) ? 'Picked' : 'Pick'}
+                    <button className="btn btn-sm btn-ghost" aria-label="Pick" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
+                      <Icon name="check" size={14} />
                     </button>
                   )}
-                  {on && <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); why(c); }}>Why</button>}
+                  {on && <button className="btn btn-sm btn-ghost icon-btn" aria-label="Why" title="Why" onClick={(e) => { e.stopPropagation(); why(c); }}><Icon name="info" size={14} /></button>}
                   {appliedId === c.id
                     ? <button className="btn btn-sm" disabled aria-label="Applied"><Icon name="check" size={14} /></button>
                     : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); base.current = null; useStore.getState().applyCandidate(c.id); }}>Apply</button>}

@@ -32,6 +32,8 @@ export function InspireTool() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [strength, setStrength] = useState(0.6);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [drag, setDrag] = useState(false);
   // The room before the first apply, and the history depth right after it. While the history is unchanged,
   // later strength or picture changes replace the result in place, so the whole thing stays one undo step.
   const applied = useRef<{ base: FurnitureItem[]; pastLen: number; plan: Plan | null } | null>(null);
@@ -50,7 +52,7 @@ export function InspireTool() {
   };
 
   const add = async (file: File) => {
-    setBusy(true);
+    setBusy(true); setFailed(false);
     try {
       const { swatches, thumb } = await paletteFromFile(file);
       const insp: Inspiration = { id: `i${Date.now().toString(36)}`, thumb, swatches, reading: null };
@@ -63,7 +65,7 @@ export function InspireTool() {
         setSaved((l) => { const n = upd(l); persist(n); return n; });
         apply(full, strength);
       }
-    } catch { getState().toast('Image failed', 'error'); }
+    } catch { setFailed(true); }
     setBusy(false);
   };
 
@@ -77,8 +79,10 @@ export function InspireTool() {
   const name = active ? (active.reading ?? styleFromPalette(active.swatches)).style : '';
   return (
     <div className="vision-body inspire">
-      <label className="btn" aria-label="Choose inspiration picture">
-        <Icon name="palette" size={14} /> {busy ? '...' : 'Picture'}
+      <label className={`inspire-drop${drag ? ' over' : ''}${failed ? ' failed' : ''}`} aria-label="Choose inspiration picture"
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f && f.type.startsWith('image/')) void add(f); }}>
+        <Icon name={failed ? 'alert' : 'image'} size={20} /> <span>{busy ? '...' : failed ? 'Retry' : 'Picture'}</span>
         <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void add(f); e.target.value = ''; }} />
       </label>
       {active && (
@@ -93,14 +97,12 @@ export function InspireTool() {
       {active && (
         <>
           <label className="inspire-strength" aria-label="Strength">
-            <span aria-hidden="true">Subtle</span>
             <input type="range" min={0} max={1} step={0.05} value={strength} onChange={(e) => { const v = Number(e.target.value); setStrength(v); apply(active, v); }} />
-            <span aria-hidden="true">Full</span>
           </label>
           <button className="btn" aria-label="Hold to compare with before"
             onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
             onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') down(); }} onKeyUp={(e) => { if (e.key === ' ' || e.key === 'Enter') up(); }}>
-            <Icon name="eye" size={14} /> Before
+            <Icon name="eye" size={14} /> Hold
           </button>
         </>
       )}
