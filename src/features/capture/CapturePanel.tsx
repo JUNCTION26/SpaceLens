@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { dataUrlToInlineData, gemini, hasGemini } from '../../core/gemini';
@@ -11,8 +11,11 @@ import { DrawRoom } from './DrawRoom';
 import { Icon } from '../../ui/icons';
 import './capture.css';
 
-type Sub = 'scan' | 'photos' | 'draw';
+const PhotoRoom = lazy(() => import('../photoroom/PhotoRoom').then((m) => ({ default: m.PhotoRoom })));
+
+type Sub = 'room' | 'scan' | 'photos' | 'draw';
 const METHODS: { id: Sub; title: string; line: string; icon: string }[] = [
+  { id: 'room', title: 'Room photo', line: 'One photo to 3D', icon: 'sparkles' },
   { id: 'draw', title: 'Draw by hand', line: 'Type wall lengths', icon: 'ruler' },
   { id: 'photos', title: 'Photo', line: 'With an A4 sheet', icon: 'image' },
   { id: 'scan', title: 'Camera', line: 'Phone camera', icon: 'camera' },
@@ -189,6 +192,16 @@ export function CapturePanel() {
           </button>
         ))}
       </div>
+    </div>
+  );
+
+  if (sub === 'room') return (
+    <div className="panel capture">
+      <div className="row capture-head">
+        <button className="btn btn-sm btn-ghost" onClick={() => setSub(null)}><Icon name="chevronLeft" size={14} /> Back</button>
+        <span className="capture-title">Room photo</span>
+      </div>
+      <Suspense fallback={null}><PhotoRoom /></Suspense>
     </div>
   );
 
