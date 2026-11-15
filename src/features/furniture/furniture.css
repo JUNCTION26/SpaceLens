@@ -64,6 +64,6 @@
 .furniture-chip { flex: none; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 12px; background: none; color: inherit; font: inherit; font-size: 12px; text-transform: capitalize; white-space: nowrap; cursor: pointer; }
 .furniture-chip:hover { border-color: var(--accent); }
 .furniture-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.furniture-chip.furniture-on { border-color: var(--accent); background: var(--accent); color: var(--on-accent, #fff); }
+.furniture-chip.furniture-on { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .furniture-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .furniture-empty .row { display: flex; gap: 8px; }

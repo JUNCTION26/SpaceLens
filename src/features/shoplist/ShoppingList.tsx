@@ -46,7 +46,7 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
     if (!it || !model.spaces || model.ceilingM === undefined) return;
     setState((s) => ({ ...s, [lineKey(l)]: 'busy' }));
     let ms: Match[] = [];
-    try { ms = (await findProductsReport(it, fitWindow(it, { spaces: model.spaces, furniture: model.furniture, ceilingM: model.ceilingM }))).matches; } catch { /* shown as no match */ }
+    try { ms = (await findProductsReport(it, fitWindow(it, { spaces: model.spaces, furniture: model.furniture, ceilingM: model.ceilingM }), { fallback: true })).matches; } catch { /* shown as no match */ }
     setState((s) => ({ ...s, [lineKey(l)]: apply(l, ms) ? 'ok' : 'none' }));
   };
   const findAll = async (): Promise<void> => {
@@ -56,6 +56,7 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
     await Promise.all(Array.from({ length: Math.min(3, todo.length) }, async () => { while (next < todo.length) await find(todo[next++]); }));
     running.current -= 1;
   };
+  const cur = (l: BuyLine): Match | undefined => { const c = cands[lineKey(l)]; return c?.ms[c.i]; };
   const anyBusy = Object.values(state).includes('busy');
   const canFind = !!model.spaces && model.ceilingM !== undefined;
   if (!list.lines.length) return null;
@@ -67,9 +68,9 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
         <tbody>
           {list.lines.map((l, i) => (
             <tr key={i}>
-              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shoplist-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</td>
+              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shoplist-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{cur(l) ? <a href={cur(l)!.listing.url} target="_blank" rel="noreferrer noopener">{cur(l)!.listing.title || l.name}</a> : l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</td>
               <td className="shop-dim">{l.wCm}×{l.dCm}×{l.hCm} cm</td>
-              <td>{l.unitPrice != null && l.currency ? money(l.unitPrice * l.qty, l.currency) : '-'}</td>
+              <td>{l.unitPrice != null && l.currency ? money(l.unitPrice * l.qty, l.currency) : '–'}</td>
               <td><a href={l.link} target="_blank" rel="noreferrer noopener" aria-label={l.listed ? `Open ${l.name}` : `Search ${l.name}`} title={l.listed ? 'Open' : 'Search'}>{l.listed ? '↗' : '⌕'}</a></td>
               <td>{(l.unitPrice == null || cands[lineKey(l)]) && canFind && <FindCell s={state[lineKey(l)]} name={l.name} onFind={() => void find(l)} cand={cands[lineKey(l)]} onSwap={() => swap(l)} />}</td>
             </tr>
@@ -85,13 +86,17 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
   );
 }
 
+const ICON = { tight: '≈', oversize: '⤢', 'size-unknown': '?' } as const;
+const WORD = { tight: 'Tight fit', oversize: 'Oversize', 'size-unknown': 'Size unknown' } as const;
+
 function FindCell({ s, name, onFind, cand, onSwap }: { s: Find | undefined; name: string; onFind: () => void; cand?: { ms: Match[]; i: number }; onSwap: () => void }) {
   if (s === 'busy') return <span className="find-spin" role="status" aria-label={`Finding ${name}`} />;
   const cur = cand?.ms[cand.i];
   return (
     <>
       {!cand && <button type="button" onClick={onFind} aria-label={`Find ${name}`}>Find</button>}
-      {cur?.heightUnconfirmed && <span className="find-ok unsure" role="img" aria-label="Height unconfirmed" title="Height unconfirmed">!</span>}
+      {cur?.compromise && <span className="find-ok unsure" title={WORD[cur.compromise.kind]}>{ICON[cur.compromise.kind]}<span className="sr-only">{WORD[cur.compromise.kind]}</span></span>}
+      {!cur?.compromise && cur?.heightUnconfirmed && <span className="find-ok unsure" role="img" aria-label="Height unconfirmed" title="Height unconfirmed">!</span>}
       {cand && cand.ms.length > 1 && <button type="button" className="swap" onClick={onSwap} aria-label={`Next option for ${name}, ${cand.i + 1} of ${cand.ms.length}`} title={`${cand.i + 1}/${cand.ms.length}`}>⇄</button>}
       {s === 'none' && <span className="find-no" aria-label="No match">–</span>}
     </>

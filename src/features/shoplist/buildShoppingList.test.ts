@@ -36,3 +36,18 @@ describe('buildShoppingList', () => {
     expect(csv.split('\r\n')[1].startsWith('"Chair, ""big""",50,50,90,1,,,,')).toBe(true);
   });
 });
+
+import { totalOf } from '../budget/money';
+describe('list total equals budget total', () => {
+  it('same furniture gives the same sum, estimates included, owned excluded', () => {
+    const furniture = [
+      item({ id: '1', priceSek: 1200 }),
+      item({ id: '2', priceSek: 1200 }),
+      item({ id: '3', name: 'Desk', priceSek: 3000, priceStatus: 'catalog', listing: listing(3000) }),
+      item({ id: '4', name: 'Rug', priceSek: 500, priceStatus: 'owned' }),
+      item({ id: '5', name: 'Sofa', priceSek: 9000, owned: true }),
+      item({ id: '6', name: 'Lamp', priceSek: 0 }),
+    ];
+    expect(buildShoppingList({ furniture }).totals.SEK).toBe(totalOf(furniture));
+  });
+});

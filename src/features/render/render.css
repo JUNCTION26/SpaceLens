@@ -1,20 +1,21 @@
-.render{display:flex;flex-direction:column;gap:12px;padding:16px;max-width:900px}
+.render{display:flex;flex-direction:column;gap:8px;min-width:0}
 .render h2{margin:0;font-size:16px}
 .render .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.render .chip{padding:6px 12px;border-radius:999px;border:1px solid #8886;background:transparent;color:inherit;cursor:pointer}
-.render .chip[aria-pressed=true]{background:#3b82f6;color:#fff;border-color:transparent}
-.render .go{padding:8px 16px;border-radius:8px;border:0;background:#3b82f6;color:#fff;font-weight: 560;cursor:pointer}
-.render .go:disabled{opacity:.6;cursor:progress}
-.render .msg{padding:8px 12px;border-radius:8px;background:#e5484d22;border:1px solid #e5484d66}
+.render .chip{min-height:32px;padding:0 12px;border-radius:var(--radius);border:1px solid var(--line-strong);background:transparent;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.render .chip[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}
+.render .chip:focus-visible,.render .go:focus-visible,.render .hist button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.render .go{min-height:32px;padding:0 16px;border-radius:var(--radius);border:0;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:560;cursor:pointer}
+.render .go:disabled{opacity:.4;cursor:progress}
+.render .msg{display:flex;align-items:center;gap:8px;padding:8px;border-radius:var(--radius);background:color-mix(in srgb,var(--bad) 14%,transparent);border:1px solid var(--bad)}
 .render .label{font-size:12px;opacity:.75}
-.ba{position:relative;overflow:hidden;border-radius:10px;aspect-ratio:8/5;background:#0002;user-select:none}
+.ba{position:relative;overflow:hidden;border-radius:var(--radius);aspect-ratio:8/5;background:var(--line);user-select:none}
 .ba img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ba .top{clip-path:inset(0 0 0 var(--pos,50%))}
 .ba .bar{position:absolute;top:0;bottom:0;left:var(--pos,50%);width:2px;background:#fff;box-shadow:0 0 4px #0008;pointer-events:none}
 .ba input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
 .render .hist{display:flex;gap:8px;overflow-x:auto}
-.render .hist button{padding:0;border:2px solid transparent;border-radius:6px;background:none;cursor:pointer;flex:none}
-.render .hist button[aria-current=true]{border-color:#3b82f6}
+.render .hist button{padding:0;border:2px solid transparent;border-radius:var(--radius-sm);background:none;cursor:pointer;flex:none}
+.render .hist button[aria-current=true]{border-color:var(--accent)}
 .render .hist img{display:block;height:54px;border-radius:4px}
 .ba.shimmer::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,#fff5 50%,transparent 70%);background-size:200% 100%;animation:rshim 1.2s linear infinite;pointer-events:none}
 @keyframes rshim{from{background-position:200% 0}to{background-position:-200% 0}}
