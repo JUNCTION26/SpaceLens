@@ -116,7 +116,6 @@ function Transcript() {
               ))}
             </ul>
           )}
-          {t.meta && <details className="ad-meta"><summary>Details</summary>{t.meta}</details>}
         </div>
       ))}
       <NoKeyPrompt compact />
