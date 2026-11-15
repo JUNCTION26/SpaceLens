@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { applyOp, describeOp } from './ops';
-import { sampleRoom } from './sample';
+import { showcaseRoom } from './showcase';
 import type {
   Analysis, FurnitureItem, Infeasibility, Layers, LayoutCandidate, Mode, Op, Requirements, Selection, Settings, SpaceModel,
 } from './types';
@@ -58,7 +58,7 @@ function save(key: string, value: unknown) {
 
 const emptyAnalysis = (version: number): Analysis => ({ version, routes: [], passage: null, heat: null, sightlines: [], highlights: [] });
 
-const initialModel = load<SpaceModel>(LS_MODEL) ?? sampleRoom();
+const initialModel = load<SpaceModel>(LS_MODEL) ?? showcaseRoom();
 // VITE_GEMINI_KEY is only read from a local, gitignored .env.local during development.
 const devKey = import.meta.env.DEV ? ((import.meta.env.VITE_GEMINI_KEY as string | undefined) ?? '') : '';
 const storedSettings = load<Settings>(LS_SETTINGS);

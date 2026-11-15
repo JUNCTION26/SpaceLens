@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../core/store';
-import { sampleRoom } from '../core/sample';
+import { emptyModel } from '../core/sample';
+import { showcaseRoom } from '../core/showcase';
 import { usage } from '../core/gemini';
 import { aiProbeResults, aiRoute, aiTaskStats, candidatesFor, estimateCostUsd, getOverrides, probeModels, setOverride, shortModel, TASKS, type AiTask, type ModelStatus } from '../core/ai';
 import { applyVoicePreference, neuralVoiceWanted } from '../features/agent/neuralVoice';
@@ -37,8 +38,13 @@ export function Settings() {
 
   const reset = () => {
     const s = useStore.getState();
-    s.dispatch({ type: 'REPLACE_MODEL', model: { ...sampleRoom(), name: 'My room' } });
+    s.dispatch({ type: 'REPLACE_MODEL', model: showcaseRoom() });
     s.toast('Room loaded', 'ok');
+    useUi.getState().openSection('layouts');
+  };
+  const startEmpty = () => {
+    const s = useStore.getState();
+    s.dispatch({ type: 'REPLACE_MODEL', model: emptyModel('My room') });
     useUi.getState().openSection('layouts');
   };
   return (
@@ -73,6 +79,7 @@ export function Settings() {
         <div className="settings-row">
           <button className="btn btn-sm" onClick={() => window.dispatchEvent(new Event('spacelens:demo'))}>Demo</button>
           <button className="btn btn-sm" onClick={reset}>My room</button>
+          <button className="btn btn-sm" onClick={startEmpty}>Empty</button>
         </div>
       </details>
       <details className="settings-group settings-adv settings-keys">
