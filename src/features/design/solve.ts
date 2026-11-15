@@ -981,7 +981,7 @@ function honoured(program: DesignProgram, L: LayoutCtx): DesignProgram {
   return { ...program, relations: program.relations.filter((r) => { const v = relationScore(r, L); return v == null || v >= 0.75; }) };
 }
 
-export async function solveProgram(model: SpaceModel, items: FurnitureItem[], programIn: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
+async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
   const t0 = now();
   // Work budget: how many backtracks and local-pass evaluations the search may spend.
   const effort = Math.max(0.3, Math.min(3, (opts.timeBudgetMs ?? 1500) / 1500));
@@ -1004,7 +1004,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
       zones: programIn.zones.map((z) => ({ ...z, itemIds: z.itemIds.filter((id) => !ids.has(id)) })),
       focalItemId: programIn.focalItemId && ids.has(programIn.focalItemId) ? undefined : programIn.focalItemId,
     };
-    const res = await solveProgram(model, items.filter((f) => !isMounted(f)), prog, opts);
+    const res = await solveOnce(model, items.filter((f) => !isMounted(f)), prog, opts);
     return { ...res, candidates: res.candidates.map((c) => ({ ...c, furniture: [...c.furniture, ...placeWallItems(model, c.furniture, mounted, opts.spaceId).placed] })) };
   }
   const room = buildRoom(model, space.id);
@@ -1161,7 +1161,7 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
   if (failedGroup || !states.length) {
     if (softRoute && ctx.routes.length) {
       // Last resort without a brief: allow the window walkway to narrow and say so.
-      return solveProgram(model, items, program, { ...opts, req: { purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' } });
+      return solveOnce(model, items, program, { ...opts, req: { purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' } });
     }
     return { candidates: [], reports: [], infeasibility: infeasible(ctx, failedGroup, lastPlaced, work, req) };
   }
@@ -1318,6 +1318,65 @@ export async function solveProgram(model: SpaceModel, items: FurnitureItem[], pr
     reports: out.map((o) => ({ candidateId: o.cand.id, program: honoured(program, layoutCtx(ctx, o.cand.furniture.map((f) => ctx.byId.get(f.id) ? { ...ctx.byId.get(f.id)!, x: f.x, y: f.y, rotation: f.rotation } : f))), verdicts: o.verdicts })),
     infeasibility: null,
   };
+}
+
+// ---------------------------------------------------------------- graceful degradation
+const without = (program: DesignProgram, gone: Set<string>): DesignProgram => ({
+  ...program,
+  relations: program.relations.filter((r) => !gone.has(r.subject) && !(r.target && gone.has(r.target))),
+  zones: program.zones.map((z) => ({ ...z, itemIds: z.itemIds.filter((id) => !gone.has(id)) })),
+  focalItemId: program.focalItemId && gone.has(program.focalItemId) ? undefined : program.focalItemId,
+});
+
+/** Pieces to give up, least important first: optional decor, then repeats of a piece, then the lowest-priority rest. */
+function dropOrder(items: FurnitureItem[], fixed: Set<string>): FurnitureItem[] {
+  const free = items.filter((f) => !f.locked && !fixed.has(f.id));
+  const decor = free.filter((f) => OPTIONAL.has(f.category)).reverse();
+  const rest = free.filter((f) => !OPTIONAL.has(f.category));
+  const groups = new Map<string, FurnitureItem[]>();
+  for (const f of rest) groups.set(f.catalogId, [...(groups.get(f.catalogId) ?? []), f]);
+  // Repeats: peel the last copy off the most repeated piece each time, always keeping the first.
+  const left = new Map([...groups].map(([k, v]) => [k, [...v]]));
+  const repeats: FurnitureItem[] = [];
+  for (;;) {
+    const top = [...left.values()].filter((v) => v.length > 1).sort((a, b) => b.length - a.length)[0];
+    if (!top) break;
+    repeats.push(top.pop()!);
+  }
+  const singles = rest.filter((f) => !repeats.includes(f)).sort((a, b) => anchorPriority(a) - anchorPriority(b));
+  return [...decor, ...repeats, ...singles];
+}
+
+/**
+ * Solve; when nothing fits, give up the least important pieces one at a time and return the best
+ * layout found, with what was left out named in `assumptions` and `infeasibility`.
+ */
+export async function solveProgram(model: SpaceModel, items: FurnitureItem[], programIn: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
+  const t0 = now();
+  const first = await solveOnce(model, items, programIn, opts);
+  if (first.candidates.length || items.length < 2) return first;
+  const wallMs = opts.maxWallMs ?? 20000;
+  const order = dropOrder(items, new Set(opts.fixedIds ?? []));
+  const gone: FurnitureItem[] = [];
+  // Decor goes as one step (it is already optional, so dropping it one by one rarely changes the outcome).
+  const steps: FurnitureItem[][] = [];
+  for (const f of order) { if (OPTIONAL.has(f.category) && steps.length === 1 && steps[0].every((x) => OPTIONAL.has(x.category))) steps[0].push(f); else steps.push([f]); }
+  for (const step of steps) {
+    if (opts.signal?.aborted || now() - t0 > wallMs || gone.length + step.length >= items.length) break;
+    gone.push(...step);
+    const ids = new Set(gone.map((g) => g.id));
+    const rest = items.filter((g) => !ids.has(g.id));
+    const res = await solveOnce(model, rest, without(programIn, ids), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
+    if (!res.candidates.length) continue;
+    const names = gone.map((g) => g.name.toLowerCase());
+    const note = `Left out ${names.join(', ')}: they do not fit this room with the rest`;
+    return {
+      ...res,
+      candidates: res.candidates.map((c) => ({ ...c, assumptions: [...c.assumptions, ...gone.map((g) => `Left out the ${g.name.toLowerCase()}: no layout of the full set passes the checks`)] })),
+      infeasibility: { reasons: [note, ...(first.infeasibility?.reasons ?? [])], relaxations: first.infeasibility?.relaxations ?? [] },
+    };
+  }
+  return first;
 }
 
 // ---------------------------------------------------------------- honest descriptions

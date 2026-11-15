@@ -53,19 +53,35 @@ export function planSvg(plan: BuildingPlan, o: SvgOpts = {}): string {
     }
   }
   if (labels) {
-    for (const r of plan.rooms) {
+    // One label per room, centred on its largest rectangle. Biggest rooms place first; a label
+    // whose box would touch one already placed is skipped. Dimension chips (the "· 3.2 m" width
+    // and the overall W/H) only appear when the drawing is large enough to read them.
+    const showDims = px >= 14;
+    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+    const hit = (b: { x0: number; y0: number; x1: number; y1: number }) => placed.some((q) => b.x0 < q.x1 && b.x1 > q.x0 && b.y0 < q.y1 && b.y1 > q.y0);
+    const ordered = [...plan.rooms].sort((p, q) => q.areaM2 - p.areaM2);
+    for (const r of ordered) {
       const m = r.rects.reduce((p, q) => ((q.x1 - q.x0) * (q.y1 - q.y0) > (p.x1 - p.x0) * (p.y1 - p.y0) ? q : p), r.rects[0]);
       if (!m) continue;
       const cx = (m.x0 + m.x1) / 2, cy = (m.y0 + m.y1) / 2;
       const w = m.x1 - m.x0, hh = m.y1 - m.y0;
       const fs = Math.max(0.22, Math.min(0.42, Math.min(w, hh) / 5));
       const vertical = hh > w * 1.6 && w < 2.2;
+      const sub = `${r.areaM2.toFixed(1)} m²${r.isHall || !showDims ? '' : ` · ${r.widthM.toFixed(1)} m`}`;
+      const tw = Math.max(r.name.length * fs * 0.56, sub.length * fs * 0.85 * 0.54);
+      const th2 = fs * 2.3;
+      const bw = vertical ? th2 : tw, bh = vertical ? tw : th2;
+      const box = { x0: cx - bw / 2, y0: cy - fs, x1: cx + bw / 2, y1: cy - fs + bh };
+      if (vertical) { box.y0 = cy - bh / 2; box.y1 = cy + bh / 2; box.x0 = cx - fs; box.x1 = cx - fs + bw; }
+      if (hit(box) || bw > w * 1.15 + (vertical ? 0.4 : 0) && !vertical || (vertical ? bh > hh * 1.1 : bh > hh * 1.1)) continue;
+      placed.push(box);
       const tf = vertical ? ` transform="rotate(-90 ${cx} ${cy})"` : '';
-      out.push(`<text x="${cx}" y="${cy}" font-size="${fs}" text-anchor="middle" fill="#222"${tf}>${esc(r.name)}<tspan x="${cx}" dy="${fs * 1.2}" fill="#666" font-size="${fs * 0.85}">${r.areaM2.toFixed(1)} m²${r.isHall ? '' : ` · ${r.widthM.toFixed(1)} m`}</tspan></text>`);
+      out.push(`<text x="${cx}" y="${cy}" font-size="${fs}" text-anchor="middle" fill="#222"${tf}>${esc(r.name)}<tspan x="${cx}" dy="${fs * 1.2}" fill="#666" font-size="${fs * 0.85}">${sub}</tspan></text>`);
     }
-    // overall dimensions
-    out.push(`<text x="${minX + W / 2}" y="${minY - pad * 0.45}" font-size="0.32" text-anchor="middle" fill="#444">${W.toFixed(2)} m</text>`);
-    out.push(`<text x="${minX - pad * 0.45}" y="${minY + H / 2}" font-size="0.32" text-anchor="middle" fill="#444" transform="rotate(-90 ${minX - pad * 0.45} ${minY + H / 2})">${H.toFixed(2)} m</text>`);
+    if (showDims) {
+      out.push(`<text x="${minX + W / 2}" y="${minY - pad * 0.45}" font-size="0.32" text-anchor="middle" fill="#444">${W.toFixed(2)} m</text>`);
+      out.push(`<text x="${minX - pad * 0.45}" y="${minY + H / 2}" font-size="0.32" text-anchor="middle" fill="#444" transform="rotate(-90 ${minX - pad * 0.45} ${minY + H / 2})">${H.toFixed(2)} m</text>`);
+    }
   }
   out.push('</svg>');
   return out.join('');

@@ -231,3 +231,16 @@ describe('demo deep links', () => {
     }
   }, 60000);
 });
+
+describe('plan drawing labels', () => {
+  const villa = () => planBuilding(rectShell(10, 12), [{ wallIndex: 2, offsetM: 5 }], [], villaProgramme(3), { count: 1, seed: 1 })[0];
+  const texts = (svg: string) => (svg.match(/<text /g) ?? []).length;
+  it('draws at most one label per room and drops dimension chips when small', () => {
+    const p = villa();
+    const big = planSvg(p, { px: 40 }), small = planSvg(p, { px: 8 });
+    expect(texts(big)).toBeLessThanOrEqual(p.rooms.length + 2);
+    expect(texts(small)).toBeLessThanOrEqual(p.rooms.length);
+    expect(small).not.toMatch(/ · \d+\.\d m</);
+    expect(big).toMatch(/ · \d+\.\d m</);
+  });
+});
