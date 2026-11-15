@@ -42,7 +42,24 @@ describe('ifc writer', () => {
     expect(count('IFCWINDOW')).toBe(1);
     expect(count('IFCFURNISHINGELEMENT')).toBe(model.furniture.length);
     expect(count('IFCRELCONTAINEDINSPATIALSTRUCTURE')).toBe(1);
-    expect(count('IFCEXTRUDEDAREASOLID')).toBe(1 + 4 + 2 + model.furniture.length);
+    expect(count('IFCEXTRUDEDAREASOLID')).toBe(1 + 4 + 4 + model.furniture.length);
+  });
+  it('cuts a real hole for each door and window and fills it', () => {
+    const n = model.openings.filter((o) => o.kind !== 'opening').length;
+    expect(count('IFCOPENINGELEMENT')).toBe(model.openings.length);
+    expect(count('IFCRELVOIDSELEMENT')).toBe(model.openings.length);
+    expect(count('IFCRELFILLSELEMENT')).toBe(n);
+    for (const e of ents.values()) {
+      if (e.name === 'IFCRELVOIDSELEMENT') {
+        const r = [...e.args.replace(/'(?:[^']|'')*'/g, '').matchAll(/#(\d+)/g)].map((m) => ents.get(Number(m[1]))!.name);
+        expect(r).toEqual(['IFCWALLSTANDARDCASE', 'IFCOPENINGELEMENT']);
+      }
+      if (e.name === 'IFCRELFILLSELEMENT') {
+        const r = [...e.args.replace(/'(?:[^']|'')*'/g, '').matchAll(/#(\d+)/g)].map((m) => ents.get(Number(m[1]))!.name);
+        expect(r[0]).toBe('IFCOPENINGELEMENT');
+        expect(['IFCDOOR', 'IFCWINDOW']).toContain(r[1]);
+      }
+    }
   });
   it('writes metre units and deterministic 22-char guids', () => {
     expect(text).toContain('IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)');

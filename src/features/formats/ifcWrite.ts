@@ -79,6 +79,7 @@ export function modelToIfc(model: SpaceModel): string {
 
   const contained: string[] = [];
   const spaces: string[] = [];
+  const wallIds = new Map<string, string>();
 
   for (const sp of model.spaces) {
     const pts = sp.polygon.map((p) => add(`IFCCARTESIANPOINT((${num(p.x)},${num(p.y)}))`));
@@ -95,7 +96,8 @@ export function modelToIfc(model: SpaceModel): string {
       const t = sp.walls[i]?.thicknessM ?? 0.12;
       const pl = local(stPl, p.x, p.y, 0, (q.x - p.x) / L, (q.y - p.y) / L);
       const sh = shape(rect(L / 2, 0, L, t), model.ceilingM);
-      contained.push(add(`IFCWALLSTANDARDCASE(${g(`wall:${sp.id}:${i}`)},$,${str(`${sp.name} wall ${i + 1}`)},$,$,${pl},${sh},$,.STANDARD.)`));
+      wallIds.set(`${sp.id}:${i}`, add(`IFCWALLSTANDARDCASE(${g(`wall:${sp.id}:${i}`)},$,${str(`${sp.name} wall ${i + 1}`)},$,$,${pl},${sh},$,.STANDARD.)`));
+      contained.push(wallIds.get(`${sp.id}:${i}`)!);
     });
   }
 
@@ -111,10 +113,19 @@ export function modelToIfc(model: SpaceModel): string {
     const pl = local(stPl, p.x + ux * o.offsetM, p.y + uy * o.offsetM, o.sillM, ux, uy);
     const sh = shape(rect(0, 0, o.widthM, t), o.heightM);
     const label = o.kind[0].toUpperCase() + o.kind.slice(1) + ' ' + o.id;
-    const common = `${g('opening:' + o.id)},$,${str(label)},$,$,${pl},${sh},$`;
-    if (o.kind === 'door') contained.push(add(`IFCDOOR(${common},${num(o.heightM)},${num(o.widthM)},.DOOR.,.NOTDEFINED.,$)`));
-    else if (o.kind === 'window') contained.push(add(`IFCWINDOW(${common},${num(o.heightM)},${num(o.widthM)},.WINDOW.,.NOTDEFINED.,$)`));
-    else contained.push(add(`IFCOPENINGELEMENT(${common},.OPENING.)`));
+    // The hole: an opening element voiding the wall, slightly deeper than the wall itself.
+    const hole = add(`IFCOPENINGELEMENT(${g('void:' + o.id)},$,${str('Opening for ' + label)},$,$,${pl},${sh},$,.OPENING.)`);
+    const wall = wallIds.get(`${o.spaceId}:${o.wallIndex}`);
+    if (wall) add(`IFCRELVOIDSELEMENT(${g('rel:void:' + o.id)},$,$,$,${wall},${hole})`);
+    if (o.kind === 'opening') continue;
+    const fpl = local(stPl, p.x + ux * o.offsetM, p.y + uy * o.offsetM, o.sillM, ux, uy);
+    const fsh = shape(rect(0, 0, o.widthM, t), o.heightM);
+    const common = `${g('opening:' + o.id)},$,${str(label)},$,$,${fpl},${fsh},$`;
+    const fill = o.kind === 'door'
+      ? add(`IFCDOOR(${common},${num(o.heightM)},${num(o.widthM)},.DOOR.,.NOTDEFINED.,$)`)
+      : add(`IFCWINDOW(${common},${num(o.heightM)},${num(o.widthM)},.WINDOW.,.NOTDEFINED.,$)`);
+    contained.push(fill);
+    if (wall) add(`IFCRELFILLSELEMENT(${g('rel:fill:' + o.id)},$,$,$,${hole},${fill})`);
   }
 
   for (const f of model.furniture) {
