@@ -1,3 +1,4 @@
+import { shortRelax } from './relax';
 import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { bounds, fmtSek, itemCorners } from '../../core/geometry';
@@ -122,7 +123,7 @@ export function DesignPanel() {
             {req && (
               <div className="layout-actions">
                 {infeasibility.relaxations.slice(0, 3).map((r, i) => (
-                  <button key={r.label} className={`btn btn-sm${i === 0 ? ' btn-primary' : ''}`} disabled={busy} onClick={() => void regenerate({ ...req, ...r.patch })}>{r.label}</button>
+                  <button key={r.label} className={`btn btn-sm${i === 0 ? ' btn-primary' : ''}`} disabled={busy} onClick={() => void regenerate({ ...req, ...r.patch })} title={r.label}>{shortRelax(r.label)}</button>
                 ))}
                 <button className="btn btn-sm btn-ghost" onClick={() => useUi.getState().openSection('describe')}>Edit brief</button>
               </div>

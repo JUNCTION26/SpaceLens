@@ -1,3 +1,4 @@
+import { shortRelax } from '../layout/relax';
 import { useEffect, useRef, useState } from 'react';
 import { notify } from '../../ui/notify';
 import { useStore } from '../../core/store';
@@ -217,7 +218,7 @@ export function IntentPanel() {
           <strong>No layout fits</strong>
           <div className="row">
             {infeasibility.relaxations.map((rx) => (
-              <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)}>{rx.label}</button>
+              <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)} title={rx.label}>{shortRelax(rx.label)}</button>
             ))}
           </div>
         </div>
