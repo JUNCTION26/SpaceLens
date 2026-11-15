@@ -142,6 +142,18 @@ export function draftPoses(model: SpaceModel, items: FurnitureItem[]): Furniture
   });
 }
 
+const ANCHORS = new Set(['table', 'desk', 'cafe-table', 'coffee-table', 'side-table']);
+/** Items after a drop: when no table or desk is left, the chairs that belonged to it go too (no loose chairs). */
+function dropWithChairs(items: FurnitureItem[], gone: Set<string>, left: string[]): FurnitureItem[] {
+  let rest = items.filter((f) => !gone.has(f.id));
+  if (rest.length !== items.length && !rest.some((f) => ANCHORS.has(f.category)) && items.some((f) => ANCHORS.has(f.category))) {
+    const loose = rest.filter((f) => f.category === 'chair');
+    for (const c of loose) left.push(c.name);
+    rest = rest.filter((f) => f.category !== 'chair');
+  }
+  return rest;
+}
+
 function draftResult(model: SpaceModel, items: FurnitureItem[], text: string, stages: Stage[]): DesignResult {
   const furniture = draftPoses(model, items);
   return {
@@ -287,7 +299,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
     const drop = (spare.length ? spare : floor).filter((e) => e.o.source !== 'custom').sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0] ?? (spare.length ? spare : floor).sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0];
     if (!drop) break;
     left.push(drop.f.name);
-    items = items.filter((f) => f !== drop.f);
+    items = dropWithChairs(items, new Set([drop.f.id]), left);
     concept = conceptFor(items);
     solved = await solveProgram(model, items, concept, { variants: 1, seed: model.version * 31 + 7 + tries, signal: opts.signal, req, timeBudgetMs: 700 });
   }
@@ -342,10 +354,11 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
         }
       }
       if (!drop) break;
-      const next = items.filter((f) => f.id !== drop.f.id);
+      const extra: string[] = [];
+      const next = dropWithChairs(items, new Set([drop.f.id]), extra);
       const again = await solveProgram(model, next, conceptFor(next), { variants: 1, seed: model.version * 31 + 41 + round, signal: opts.signal, req, timeBudgetMs: 900 });
       if (!again.candidates.length || failsOf(again) >= failsOf(solved)) break;
-      items = next; solved = again; concept = conceptFor(next); cleared.push(drop.f.name);
+      items = next; solved = again; concept = conceptFor(next); cleared.push(drop.f.name, ...extra);
     }
     if (!cleared.length) return;
     const gone = cleared.filter((c) => c !== 'moved');
@@ -476,7 +489,8 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
     const pick = good.length ? good : clean.candidates;
     return { res: { ...clean, candidates: pick, reports: clean.reports.filter((x) => pick.some((c) => c.id === x.candidateId)) }, contract: contractOf(p, clean, r.pieces, pick[0]) };
   };
-  const plans = [plan, essentialsOnly(plan, pm, text)];
+  // A second plan carries two spare wall pieces: walkway clearing may drop a piece after layout.
+  const plans = [plan, planContract(pm, text, given ?? rulesBrief(text), given?.names ?? [], 2), essentialsOnly(plan, pm, text)];
   let best: { res: ThemedResult; contract: Contract; plan: Plan } | undefined;
   let lastErr: unknown;
   for (const p of plans) {

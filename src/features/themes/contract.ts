@@ -79,7 +79,7 @@ const FILLERS = (palette: string[]): ThemeObject[] => [
  * marked, enough pieces, and for a small room a set scaled to the floor area (optional pieces and
  * copies go first, essentials last, never fewer than three floor pieces).
  */
-export function planContract(model: SpaceModel, text: string, base: ThemeBrief, extraNames: string[] = []): Plan {
+export function planContract(model: SpaceModel, text: string, base: ThemeBrief, extraNames: string[] = [], pad = 0): Plan {
   const area = roomArea(model);
   const names = [...new Set([...findNames(text), ...extraNames])];
   const compromises: string[] = [];
@@ -115,12 +115,12 @@ export function planContract(model: SpaceModel, text: string, base: ThemeBrief, 
   const fill = FILLERS(palette);
   const added: string[] = [];
   for (const f of fill) {
-    if (countPieces(objs) >= minPieces) break;
+    if (countPieces(objs) >= minPieces + pad) break;
     if (!isWall(f) && floorFoot() + total(f) > Math.max(budget, 1.5) && scaled) continue;
     if (objs.some((o) => o.name === f.name)) continue;
     objs.push(f); added.push(f.name);
   }
-  if (added.length) compromises.push(`Added to reach ${minPieces} pieces: ${added.join(', ')}.`);
+  if (added.length) compromises.push(`Added to reach ${minPieces + pad} pieces: ${added.join(', ')}.`);
   if (scaled) compromises.push(`Small room (${area.toFixed(1)} m2): the set was scaled down to ${minPieces} pieces or more.`);
 
   const required = objs.filter((o) => o.essential).map((o) => o.name);

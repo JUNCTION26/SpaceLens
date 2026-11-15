@@ -36,6 +36,13 @@ const inside = (m: SpaceModel, f: FurnitureItem) => {
 };
 const words = (f: FurnitureItem) => f.custom?.parts.map((p) => p.text?.value).filter(Boolean).join(' ') ?? '';
 
+/** No chair without a table or desk in the room, unless its back is to a wall. */
+const looseChairs = (m: SpaceModel, fur: FurnitureItem[]) => {
+  if (fur.some((f) => /table|desk/.test(f.category))) return [];
+  const xs = m.spaces[0].polygon.map((p) => p.x), ys = m.spaces[0].polygon.map((p) => p.y);
+  return fur.filter((f) => f.category === 'chair' && Math.min(f.x - Math.min(...xs), Math.max(...xs) - f.x, f.y - Math.min(...ys), Math.max(...ys) - f.y) > Math.max(f.w, f.d) / 2 + 0.35).map((f) => f.name);
+};
+
 const CASES: Array<{ text: string; name?: string; banned?: RegExp }> = [
   { text: 'Barbie bedroom', banned: /barbie|mattel/i },
   { text: 'space themed kids room for Leo', name: 'Leo' },
@@ -60,6 +67,7 @@ describe('ten themed sentences, offline', () => {
       const floor = fur.filter((f) => f.mount !== 'wall' && f.category !== 'rug');
       for (const f of fur) expect(inside(model, f), `${f.name} outside`).toBe(true);
       for (let i = 0; i < floor.length; i++) for (let j = i + 1; j < floor.length; j++) expect(overlap(floor[i], floor[j]), `${floor[i].name} / ${floor[j].name}`).toBe(false);
+      expect(looseChairs(model, fur), fur.map((f) => `${f.name}:${f.category}`).join(',')).toEqual([]);
       if (c.name) expect(fur.map(words).join('|').toUpperCase()).toContain(c.name.toUpperCase());
       if (c.banned) {
         const seen = [res.brief.title, res.roomName ?? '', ...fur.map((f) => `${f.name} ${words(f)}`), ...res.brief.objects.map((o) => `${o.name} ${o.text ?? ''}`)].join('|');
@@ -77,5 +85,13 @@ describe('ten themed sentences, offline', () => {
     const fur = res.candidates[0].furniture;
     expect(fur.map(words).join('|')).toContain('SLEEP TIGHT');
     for (const f of fur) expect(inside(model, f)).toBe(true);
+  });
+
+  it('a cramped room never keeps chairs once their table or desk is dropped', async () => {
+    const small = room(rect(2.4, 2.2), [opening('door', 'door', 0, 0.3, 0.8, 'in'), opening('win', 'window', 2, 0.6, 0.9)]);
+    for (const text of ['gaming den', 'craft room for sewing', 'Harry-free wizard study', 'Japanese tea room']) {
+      const res = await designThemedRoom(small, text);
+      expect(looseChairs(small, res.candidates[0]?.furniture ?? []), text).toEqual([]);
+    }
   });
 });
