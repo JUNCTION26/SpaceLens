@@ -134,8 +134,8 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
   const hasMarks = useSketch((x) => x.marks.length > 0);
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
-  // The dock rests as a small pill (mic + Ask) and opens into the full bar on demand.
-  const [expanded, setExpanded] = useState(false);
+  // The dock is one row at the bottom of the left panel, always ready to type into.
+  const [expanded, setExpanded] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const ear = useRef<Ear | null>(null);
   const pressAt = useRef(0);
@@ -279,7 +279,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
         <form className="ad-bar" onSubmit={submit}
           onBlur={(e) => {
             if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-            if (!text.trim() && !open && !drawing && !s.handsFree) setExpanded(false);
+            if (overlay && !text.trim() && !open && !drawing && !s.handsFree) setExpanded(false);
           }}>
           <button
             type="button" className={`ad-mic${s.listening ? ' on' : ''}${s.handsFree ? ' free' : ''}`}
@@ -302,7 +302,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
           <input
             ref={inputRef}
             className="ad-input" value={text} onChange={(e) => setText(e.target.value)}
-            placeholder={drawing ? 'Say what goes here' : 'Type a change'}
+            placeholder="Ask"
             aria-label="Message the design partner"
           />
           {text.trim() && <button type="submit" className="ad-icon" aria-label="Send"><Icon name="send" size={16} aria-hidden="true" /></button>}
@@ -318,7 +318,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
             onClick={() => s.set({ muted: !s.muted })}><Glyph d={s.muted ? GLYPH.speakerOff : GLYPH.speaker} /></button>
           <button type="button" className={`ad-pill${s.handsFree ? ' on' : ''}`} aria-pressed={s.handsFree} disabled={!supported} onClick={toggleHandsFree}
           >Hands-free</button>
-          <button type="button" className="ad-icon" aria-expanded={open} aria-label={open ? 'Hide conversation' : 'Show conversation'} onClick={() => setOpen(!open)}>
+          <button type="button" className="ad-icon" aria-expanded={open} aria-label={open ? 'Hide conversation' : 'Show conversation'} title="Log" onClick={() => setOpen(!open)}>
             <Icon name="chevronDown" size={16} aria-hidden="true" style={{ transform: open ? undefined : 'rotate(180deg)' }} />
           </button>
           </>}

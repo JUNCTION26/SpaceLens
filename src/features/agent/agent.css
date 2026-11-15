@@ -132,3 +132,17 @@
   .ad-orb i { animation: none !important; }
   .ad-live { transition: none; }
 }
+
+/* In the left panel: one row pinned under the panel content, caption and log inline above it. */
+.panel-col > .agent-dock {
+  position: static; transform: none; left: auto; bottom: auto; width: auto; flex: none; pointer-events: auto;
+  padding: 6px var(--s3, 10px); border-top: 1px solid var(--line); gap: 6px;
+}
+.panel-col > .agent-dock .ad-bar { border-radius: var(--radius, 8px); box-shadow: none; padding: 3px; gap: 2px; background: var(--panel-2); }
+.panel-col > .agent-dock .ad-mic { width: 34px; height: 34px; }
+.panel-col > .agent-dock .ad-icon { width: 28px; height: 28px; }
+.panel-col > .agent-dock .ad-sep { display: none; }
+.panel-col > .agent-dock .ad-pill { height: 24px; padding: 0 7px; }
+.panel-col > .agent-dock .ad-caption, .panel-col > .agent-dock .ad-transcript { margin: 0; }
+.panel-col > .agent-dock .ad-transcript { max-height: 30vh; }
+.panel-col > .agent-dock .ad-live { align-self: stretch; max-width: none; border-radius: var(--radius, 8px); }
