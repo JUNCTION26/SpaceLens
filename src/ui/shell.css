@@ -45,7 +45,7 @@
 
 /* The views fill the stage; in Split the 1 px grid gap is the only divider. Full screen covers the stage alone. */
 .stage:fullscreen{width:100vw;height:100vh}
-.stage.is-pseudo{position:fixed;inset:0;z-index:1000;width:100vw;height:100dvh}
+.stage.is-pseudo{position:fixed;left:0;right:0;bottom:0;top:var(--top-h);z-index:25}
 
 /* View fold at the bottom of the left panel */
 .view-fold-row{display:flex;flex-wrap:wrap;gap:6px}

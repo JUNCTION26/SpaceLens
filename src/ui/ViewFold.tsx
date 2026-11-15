@@ -142,25 +142,23 @@ export function ViewFold() {
           <button key={v} className="btn btn-sm" onClick={() => emit('spacelens:view-angle', v)}>{v === 'corner' ? 'Corner' : v === 'top' ? 'Top' : 'Front'}</button>
         ))}
       </div>
-      {has3d && multi && (
+      {has3d && multi && !p.touring && (
         <div className="view-fold-row">
-          {p.touring
-            ? <button className="btn btn-sm" onClick={() => emit('spacelens:stop-tour')}>Stop tour</button>
-            : <><button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: false })}>Auto tour</button>
-              {CAN_RECORD && <button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: true })}>Record tour</button>}</>}
+          <button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: false })}>Tour</button>
+          {CAN_RECORD && <button className="btn btn-sm" onClick={() => emit('spacelens:auto-tour', { record: true })}>Record</button>}
         </div>
       )}
       {has3d && walking && (
-        <label className="view-fold-field">Eye height
+        <label className="view-fold-field">Eyes
           <select value={p.eyeId} onChange={(e) => setViewPrefs({ eyeId: e.target.value })}>
             {EYES.map((e) => <option key={e.id} value={e.id}>{e.label} {e.h} m</option>)}
           </select>
         </label>
       )}
-      {has3d && walking && COARSE && <label className="view-fold-check"><input type="checkbox" checked={p.tilt} onChange={(e) => { if (e.target.checked) void startTilt(); else setViewPrefs({ tilt: false }); }} /> Phone look</label>}
+      {has3d && walking && COARSE && <label className="view-fold-check"><input type="checkbox" checked={p.tilt} onChange={(e) => { if (e.target.checked) void startTilt(); else setViewPrefs({ tilt: false }); }} /> Tilt</label>}
       {has3d && !walking && <label className="view-fold-check"><input type="checkbox" checked={p.cutaway} onChange={(e) => setViewPrefs({ cutaway: e.target.checked })} /> Cut away</label>}
-      {has3d && !walking && <label className="view-fold-check"><input type="checkbox" checked={p.figure} onChange={(e) => setViewPrefs({ figure: e.target.checked })} /> 1.75 m person</label>}
-      {has3d && activeCandidateId && <label className="view-fold-check"><input type="checkbox" checked={p.showBefore} onChange={(e) => setViewPrefs({ showBefore: e.target.checked })} /> Show before</label>}
+      {has3d && !walking && <label className="view-fold-check" title="1.75 m"><input type="checkbox" checked={p.figure} onChange={(e) => setViewPrefs({ figure: e.target.checked })} /> Person</label>}
+      {has3d && activeCandidateId && <label className="view-fold-check"><input type="checkbox" checked={p.showBefore} onChange={(e) => setViewPrefs({ showBefore: e.target.checked })} /> Before</label>}
       {has3d && (
         <label className="view-fold-field scene3d-sun">Time <span className="view-fold-val">{hhmm(p.hour)}</span>
           <input type="range" min={6} max={23} step={0.25} value={p.hour} onChange={(e) => setViewPrefs({ hour: Number(e.target.value) })} aria-label="Time of day" />
