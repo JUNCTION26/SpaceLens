@@ -141,7 +141,10 @@ export function CapturePanel() {
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
-    const add = await Promise.all([...files].filter((f) => f.type.startsWith('image/')).map(async (f) => ({ url: await fileToDataUrl(f), label: f.name })));
+    const imgs = [...files].filter((f) => f.type.startsWith('image/'));
+    if (imgs.length < files.length) toast('Not an image', 'warn');
+    if (!imgs.length) return;
+    const add = await Promise.all(imgs.map(async (f) => ({ url: await fileToDataUrl(f), label: f.name })));
     setShots((s) => { if (pick < 0) setPick(s.length); return [...s, ...add]; });
   };
 
