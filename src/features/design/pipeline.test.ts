@@ -35,7 +35,8 @@ vi.mock('./rules', () => ({
     { ruleId: 'wall', name: 'Back to wall', itemIds: [furniture[0].id], score: furniture[0].x > 0.55 ? 0.4 : 0.9, pass: furniture[0].x <= 0.55, severity: 'preference', message: 'm' },
   ],
 }));
-vi.mock('./score', () => ({ designScore: (v: RuleVerdict[]) => 100 * v.reduce((s, x) => s + x.score, 0) / v.length }));
+const mockScore = (v: RuleVerdict[]) => 100 * v.reduce((s, x) => s + x.score, 0) / v.length;
+vi.mock('./score', () => ({ designScore: mockScore, rankScore: mockScore }));
 
 const { designRoom, buildDesignItems } = await import('./pipeline');
 
