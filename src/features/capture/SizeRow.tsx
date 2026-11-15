@@ -28,7 +28,8 @@ export function SizeRow() {
   useEffect(() => { setVals(cur.map(f2)); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!space || !bb) return null;
 
-  const apply = (nums: (number | undefined)[]) => {
+  const apply = (raw: (number | undefined)[]) => {
+    const nums = raw.map((n) => (n === undefined ? undefined : Math.min(100, Math.max(0.5, Math.round(n * 100) / 100))));
     const size = { widthM: nums[0], depthM: nums[1], heightM: nums[2] };
     const same = (['widthM', 'depthM', 'heightM'] as Key[]).every((k, i) => size[k] === undefined || Math.abs(size[k]! - cur[i]) < 0.005);
     if (same) { setVals(cur.map(f2)); return; }
@@ -49,7 +50,7 @@ export function SizeRow() {
     e.preventDefault();
     const base = parseSize(e.currentTarget.value)?.[0] ?? cur[i];
     const d = (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowUp' ? 1 : -1);
-    const next = Math.max(0.5, Math.round((base + d) * 100) / 100);
+    const next = Math.min(100, Math.max(0.5, Math.round((base + d) * 100) / 100));
     const out: (number | undefined)[] = [undefined, undefined, undefined]; out[i] = next;
     setVals((v) => v.map((x, k) => (k === i ? f2(next) : x)));
     apply(out);
