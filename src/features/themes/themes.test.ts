@@ -91,7 +91,7 @@ describe('designThemedRoom', () => {
     expect(hung.length).toBeGreaterThanOrEqual(3);
     for (const f of hung) expect(rs.find((r) => r.id === `wall:${f.id}`)?.result, f.name).toBe('pass');
     expect(rs.filter((r) => r.result === 'fail' && r.subjectIds.some((id) => hung.some((f) => f.id === id)))).toEqual([]);
-    expect(res.timings.totalMs).toBeLessThan(10000 * Number(process.env.SPACELENS_TIME_SLACK ?? 1));
+    expect(res.timings.totalMs).toBeLessThan(10000 * Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SPACELENS_TIME_SLACK ?? 1));
   });
 
   it('with a key: one brief call, custom pieces made in parallel and swapped in at the same size', async () => {

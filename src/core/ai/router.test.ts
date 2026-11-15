@@ -134,7 +134,7 @@ function fakeFetch(map: Record<string, Behaviour>, calls: string[]) {
   });
 }
 
-const slack = Number(process.env.SPACELENS_TIME_SLACK ?? 1);
+const slack = Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SPACELENS_TIME_SLACK ?? 1);
 const timing = { hedgeMs: 60, firstTokenTimeoutMs: 400 * slack, totalTimeoutMs: 2000 * slack };
 const direct = { kind: 'direct', key: 'k' } as const;
 

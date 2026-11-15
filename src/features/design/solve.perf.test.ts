@@ -19,7 +19,7 @@ describe('solveProgram speed', () => {
     const ms = Date.now() - t;
     console.log('waiting room ms', ms, 'candidates', res.candidates.length);
     // Includes the retries that leave out the chairs that cannot fit.
-    expect(ms).toBeLessThan(20000 * Number(process.env.SPACELENS_TIME_SLACK ?? 1));
+    expect(ms).toBeLessThan(20000 * Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SPACELENS_TIME_SLACK ?? 1));
   }, 400000);
   it('stops at the wall-clock ceiling instead of searching on', async () => {
     const m = room(rect(4, 5), [opening('door', 'door', 2, 2, 0.9, 'in'), opening('win', 'window', 0, 2, 1.2)]);
@@ -27,6 +27,6 @@ describe('solveProgram speed', () => {
     const req = reqs({ routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.9 });
     const t = Date.now();
     await solveProgram(m, items, defaultProgram(m, items, req), { seed: 3, req, maxWallMs: 50 });
-    expect(Date.now() - t).toBeLessThan(5000 * Number(process.env.SPACELENS_TIME_SLACK ?? 1));
+    expect(Date.now() - t).toBeLessThan(5000 * Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SPACELENS_TIME_SLACK ?? 1));
   }, 60000);
 });
