@@ -69,7 +69,6 @@
 .ad-turn p { margin: 0; line-height: 1.45; }
 .ad-you { align-self: flex-end; text-align: right; }
 .ad-you p { color: var(--muted); }
-.ad-meta { color: var(--muted); font-family: var(--mono); font-size: 12px; }
 .ad-done, .ad-products { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm, 12px); color: var(--muted); }
 .ad-done li { display: flex; gap: 6px; align-items: center; }
 .ad-done svg { color: var(--ok); flex: none; }
@@ -106,7 +105,6 @@
 .agent-dock.is-pill .ad-mic { width: 32px; height: 32px; }
 .ad-ask { height: 32px; padding: 0 14px 0 8px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font: inherit; font-weight: var(--fw-strong, 560); cursor: pointer; }
 .ad-ask:hover { background: var(--hover); }
-.ad-meta summary { font-size: var(--fs-sm, 12px); }
 
 /* ---- conversation orb: breathes while listening, follows the mic, ripples while the voice speaks ---- */
 .ad-mic { position: relative; }
