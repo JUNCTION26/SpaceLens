@@ -45,7 +45,6 @@ export class ErrorBoundary extends Component<Props, State> {
       <div className="crash crash-app" role="alert">
         <div className="crash-card">
           <h2>Something broke</h2>
-          <p>Your plan is saved on this device.</p>
           <div className="crash-actions">
             {canUndo
               ? <button type="button" className="btn btn-primary" onClick={this.undo}>Undo last change</button>

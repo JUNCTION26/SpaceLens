@@ -10,12 +10,9 @@
   .brand { padding: 0 4px; }
   .project-name { flex: 1; width: auto; min-width: 0; color: var(--text); font-weight: var(--fw-strong); }
   .tools { margin-left: 0; }
-  .kbd-btn { min-width: 0; width: 40px; height: 40px; padding: 0; justify-content: center; border-color: transparent; background: transparent; margin: 0 !important; }
-  .kbd-btn svg { width: 16px; height: 16px; }
   .topbar-center { position: static; transform: none; order: 10; width: 100%; justify-content: space-between; padding: 0 4px 8px 0; }
   .topbar-center .seg button { min-height: 32px; padding: 0 14px; }
   .status-pill { height: 34px; }
-  .checks-pop { position: fixed; top: auto; left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); transform: none; width: auto; max-height: 60vh; animation: none; }
   .busy { max-width: 100px; }
 
   input, select, textarea, .project-name { font-size: 16px; }
@@ -26,18 +23,15 @@
   .sidebar { display: none; }
   .stage { order: -1; height: min(52vh, 480px); min-height: 260px; flex: none; touch-action: none; }
   .stage-split { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
-  /* Peek sheet: the plan stays visible above it; the Ask button rides above it. */
-  .inspector-sheet { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 38vh; max-height: 38dvh; border: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; z-index: 40; padding-bottom: env(safe-area-inset-bottom); box-shadow: var(--shadow-lg); }
-  .inspector-sheet .sheet-head { height: 48px; background: var(--panel); position: sticky; top: 0; }
-  .inspector-sheet .sheet-head .icon-btn { width: 44px; height: 44px; border-color: var(--line); }
-  .inspector-sheet .sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: var(--s3) var(--s4) var(--s4); }
-  .app:has(.inspector-sheet) .agent-dock { bottom: calc(38dvh + 8px + env(safe-area-inset-bottom)); }
-  .panel-col { border: 0; overflow: visible; padding-bottom: var(--pad-ask); }
+  .panel-col { border: 0; overflow: visible; padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
+  /* The assistant row and the message line stay at the bottom of the panel, above the tab bar. */
+  .panel-col > .agent-dock, .panel-col > .status-line { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 2; background: var(--panel); }
+  .search-field { width: 40px; }
+  .search-field:focus-within { width: 160px; }
   .panel-col-head { padding: var(--s4) var(--s4) var(--s2); }
-  /* Room at the bottom for the floating assistant bar and the tab bar, so nothing hides under them. */
   /* The AI chip shrinks to its status dot so the project name keeps its room. */
   .topbar .ai-chip { font-size: 0; gap: 0; padding: 0 9px; min-width: 0; }
-  .side-body { overflow: visible; padding: var(--s2) var(--s4) var(--pad-ask); }
+  .side-body { overflow: visible; padding: var(--s2) var(--s4) var(--s4); }
   .side-body, .panel, .card { min-width: 0; max-width: 100%; }
   .grid2, .stats3 { grid-template-columns: 1fr; }
   table { display: block; max-width: 100%; overflow-x: auto; }
@@ -59,12 +53,10 @@
   .dialog-backdrop { align-items: flex-end; padding: 0; }
   .dialog { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 24px); border-radius: 16px 16px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .dialog-head { position: sticky; top: 0; background: var(--panel); z-index: 2; }
-  .toasts { bottom: calc(132px + env(safe-area-inset-bottom)); right: 12px; left: 12px; max-width: none; }
   .demo-caption { left: 50%; top: auto; bottom: calc(132px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
   .scene3d-hint { display: none; }
   .plan2d-toolbar { top: 10px; left: 10px; flex-direction: column; }
   .plan2d-sep { width: 16px; height: 1px; margin: 3px 0; }
-  .app .agent-dock { position: fixed; bottom: calc(64px + env(safe-area-inset-bottom)); width: calc(100vw - 16px); z-index: 42; }
   .plan2d-tb[data-tip]:hover::after { display: none; }
   .plan2d-layer-menu, .plan2d-help-pop { top: 0; left: calc(100% + 8px); }
 }
@@ -87,6 +79,6 @@
 }
 
 @media (max-width: 900px) {
-  .inspector-sheet, .mobile-more-sheet { animation: mo-rise var(--dur-2) var(--ease-out) both; }
+  .mobile-more-sheet { animation: mo-rise var(--dur-2) var(--ease-out) both; }
   .dialog { animation: mo-rise var(--dur-3) var(--ease-out) both; }
 }

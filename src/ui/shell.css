@@ -12,15 +12,31 @@
 .scrub-label{cursor:ew-resize;touch-action:none;user-select:none}
 .crash-area .crash-card{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px}
 .empty-state{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px;text-align:center;opacity:.85}
-.coach-pin{position:fixed;z-index:900;display:flex;align-items:center;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:#1f2430;color:#fff;border:1px solid rgba(128,128,128,.4);box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:12px}
-.coach-pin button{border:0;background:transparent;color:inherit;cursor:pointer;padding:3px 8px;border-radius:999px}
-.coach-pin .coach-next{background:#3b82f6;color:#fff}
-.topbar-more{position:relative}
-.topbar-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:160px;display:flex;flex-direction:column;padding:4px;border-radius:10px;background:#1f2430;color:#fff;border:1px solid rgba(128,128,128,.3);box-shadow:0 8px 24px rgba(0,0,0,.3)}
-.topbar-menu button{display:flex;align-items:center;gap:8px;text-align:left;border:0;background:transparent;color:inherit;padding:8px 10px;border-radius:6px;cursor:pointer}
-.topbar-menu button:hover:not(:disabled){background:rgba(128,128,128,.25)}
-.topbar-menu button:disabled{opacity:.4}
-.topbar .tools .icon-btn,.topbar .tools .kbd-btn{height:32px}
-.topbar-inline{display:contents}
-@media (max-width:899px){.topbar-inline{display:none}}
-@media (min-width:900px){.topbar-more{display:none}}
+.topbar .tools .icon-btn{height:32px}
+
+/* Left panel: inspector on top, then the panel content, the assistant row and one message line at the bottom. */
+.side-body>.panel-col-head,.settings-panel>.panel-col-head{padding:var(--s2) 0}
+.inspector-section{position:relative;margin:0 calc(-1 * var(--s5)) var(--s3);padding:var(--s3) var(--s5);border-bottom:1px solid var(--line);background:var(--panel-2)}
+.inspector-x{position:absolute;top:6px;right:6px;width:28px;height:28px;z-index:1}
+.status-line{flex:none;height:28px;padding:0 var(--s5);display:flex;align-items:center;border-top:1px solid var(--line);font-size:var(--fs-sm);color:var(--muted);overflow:hidden}
+.status-msg{flex:1;min-width:0;display:flex;align-items:center;gap:8px;animation:status-fade 4s linear both}
+.status-msg.has-action{animation-duration:8s}
+.status-msg.is-warn{color:var(--warn)}
+.status-text{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-act{flex:none;border:0;background:transparent;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;padding:0}
+@keyframes status-fade{0%{opacity:0}5%{opacity:1}85%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.status-msg{animation:none}}
+.search-field{display:inline-flex;align-items:center;gap:6px;height:32px;width:180px;padding:0 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--muted);transition:width .15s}
+.search-field:focus-within{border-color:var(--line-strong);color:var(--text)}
+.search-field input{flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);outline:none;box-shadow:none;padding:0}
+.search-results{display:flex;flex-direction:column;padding-top:var(--s2)}
+.search-group{font-size:11px;font-weight:500;color:var(--muted);padding:8px 8px 4px}
+.search-item{display:flex;align-items:center;gap:10px;padding:0 8px;height:32px;border-radius:6px;cursor:pointer}
+.search-item.on{background:var(--press)}
+.search-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-item kbd{font:11px/1 ui-monospace,monospace;padding:3px 5px;border:1px solid var(--line);border-radius:4px;color:var(--muted)}
+.settings-row{display:flex;gap:8px;flex-wrap:wrap}
+.settings-keys dl{margin:0;display:grid}
+.settings-keys dl>div{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.settings-keys dd{margin:0;color:var(--muted)}
+.rail-settings.on{color:var(--accent)}

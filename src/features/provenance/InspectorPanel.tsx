@@ -126,11 +126,12 @@ function EvidenceThumb({ ev }: { ev: Evidence }) {
   const small = useRef<HTMLCanvasElement>(null); const big = useRef<HTMLCanvasElement>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { if (small.current) drawEvidence(small.current, ev, 320); }, [ev]);
-  useEffect(() => { if (open && big.current) drawEvidence(big.current, ev, window.innerWidth * 0.9); }, [open, ev]);
+  useEffect(() => { if (open && big.current) drawEvidence(big.current, ev, 640); }, [open, ev]);
+  // The larger view opens in place inside the panel.
   return (
     <>
-      <canvas ref={small} className="provenance-thumb" onClick={() => setOpen(true)} role="button" aria-label={`Evidence: ${ev.label}. Click to enlarge`} />
-      {open && <div className="provenance-modal" onClick={() => setOpen(false)} role="dialog" aria-label={ev.label}><canvas ref={big} /></div>}
+      {!open && <canvas ref={small} className="provenance-thumb" onClick={() => setOpen(true)} role="button" aria-expanded={false} aria-label={`Evidence: ${ev.label}. Enlarge`} />}
+      {open && <canvas ref={big} onClick={() => setOpen(false)} role="button" aria-expanded aria-label={`Evidence: ${ev.label}. Shrink`} style={{ width: '100%', height: 'auto', borderRadius: 6, cursor: 'zoom-out' }} />}
     </>
   );
 }

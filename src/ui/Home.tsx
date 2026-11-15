@@ -112,7 +112,7 @@ export function Home() {
     recRef.current = r; setListening(true);
     try { r.start(); } catch { setListening(false); }
   };
-  const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); };
+  const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: { ...sampleRoom(), name: 'My room' } }); setMode('design'); };
   return (
     <div className="home">
       <header className="home-top">
@@ -146,7 +146,7 @@ export function Home() {
                 <Icon name={o.icon} size={16} /><span>{o.title}</span><Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}
-            <button className="home-row" onClick={openSample}><Icon name="sofa" size={16} /><span>Sample room</span><Icon name="chevronRight" size={14} className="home-row-go" /></button>
+            <button className="home-row" onClick={openSample}><Icon name="sofa" size={16} /><span>My room</span><Icon name="chevronRight" size={14} className="home-row-go" /></button>
           </details>
         </div>
         <div className="home-art"><Hero /></div>
