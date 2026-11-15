@@ -4,14 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0d10" />
-    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="%BASE_URL%fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <!-- Content-Security-Policy: set from VITE_CSP in .env.production (production builds only). See docs/THREAT-MODEL.md. -->
     <meta http-equiv="Content-Security-Policy" content="%VITE_CSP%" />
     <meta name="referrer" content="no-referrer" />
     <title>SpaceLens</title>
+    <meta name="description" content="Turn a room scan or floor plan into a furnished, checked 3D design." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SpaceLens" />
+    <meta property="og:description" content="Turn a room scan or floor plan into a furnished, checked 3D design." />
+    <meta property="og:image" content="%BASE_URL%icon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%icon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icon.svg" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <style>
+      html, body { background: #0b0d10; margin: 0; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #0b0d10; }
+      #boot svg { width: 72px; height: 72px; grid-area: 1 / 1; }
+      #boot i { grid-area: 1 / 1; width: 112px; height: 112px; border-radius: 50%; border: 3px solid #1c2530; border-top-color: #7cc4ff; animation: boot-spin 0.9s linear infinite; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot" role="status" aria-label="Loading"><svg viewBox="0 0 512 512" aria-hidden="true"><g fill="none" stroke="#7cc4ff" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"><path d="M96 200 256 108 416 200V352L256 444 96 352Z"/><path d="M96 200 256 292 416 200M256 292V444"/></g></svg><i></i></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
