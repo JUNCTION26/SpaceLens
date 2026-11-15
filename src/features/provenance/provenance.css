@@ -12,7 +12,6 @@
 .provenance-head { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; font-size: 12px; color: var(--muted); padding: 2px 0; }
 .provenance-head:focus-visible { outline: 1px solid var(--accent); border-radius: 4px; }
 .provenance-caret { width: 10px; }
-.provenance-count { margin-left: auto; font-size: 12px; }
 .provenance-body { padding-top: 6px; }
 .provenance-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; color: var(--muted); }
 .provenance-field > :last-child { color: var(--text); }
