@@ -18,13 +18,14 @@ import { designScore } from '../design/score';
 import { wallElevation } from '../layout/wallItems';
 import { capFloorItems, findNames, rulesBrief, themeBrief, withNamePosters, WALL_RECIPES, type ThemeBrief, type ThemeObject } from './brief';
 import { recipeSpec } from './recipes';
+import { checkContract, essentialsOnly, planContract, type Contract, type Plan } from './contract';
 
 export interface ThemedOpts {
   onStage?: (stages: Stage[]) => void;
   /** Each object as soon as it exists: code-built ones at once, model-built ones as they finish. */
   onObject?: (spec: ObjectSpec, obj: ThemeObject, index: number) => void;
   /** The laid-out room: first with code-built pieces, then again each time a model piece lands. */
-  onProgress?: (result: DesignResult, phase: 'rules' | 'concepts' | 'critic') => void;
+  onProgress?: (result: DesignResult & { partial?: boolean }, phase: 'rules' | 'concepts' | 'critic') => void;
   signal?: AbortSignal;
   spaceId?: string;
   /** Use this brief instead of writing one (refinements). */
@@ -33,12 +34,22 @@ export interface ThemedOpts {
   req?: Requirements;
   /** Specs already made for objects (by object key), reused instead of building again. */
   reuse?: Map<string, ObjectSpec>;
+  /** Build everything from code (kit pieces, no model calls); the wrapper upgrades pieces later. */
+  offline?: boolean;
 }
 
 export interface ThemedResult extends DesignResult {
   brief: ThemeBrief;
   /** Final spec per object key (name + index). */
   specs: Map<string, ObjectSpec>;
+  /** True on streamed in-progress rooms; the last emission and the returned result are never partial. */
+  partial?: boolean;
+  /** The room's name for the layout card (Gerard's room). */
+  roomName?: string;
+  /** Completeness check against the kit or brief, with what was compromised. */
+  contract?: Contract;
+  /** Which object each laid-out piece came from. */
+  pieces?: Array<{ id: string; key: string; o: ThemeObject }>;
   timings: { briefMs: number; firstObjectMs: number | null; roomMs: number | null; totalMs: number; models: number; fallbacks: number };
 }
 
@@ -210,7 +221,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
 
   // (b) Objects: code-built at once; model-built in parallel, each replacing its stand-in on arrival.
   t = start('objects', 'Making the pieces', aiReady() ? 'parallel' : 'rules');
-  const online = aiReady();
+  const online = aiReady() && !opts.offline;
   const entries: Array<{ f: FurnitureItem; o: ThemeObject; key: string; idx: number }> = [];
   const specs = new Map<string, ObjectSpec>();
   const pending: Array<Promise<void>> = [];
@@ -223,7 +234,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
       const key = objectKey(o, k);
       if (o.source !== 'custom') {
         const f = catalogueItem(o);
-        if (o.source === 'store') pending.push(attachListing(f, o, opts.signal));
+        if (o.source === 'store' && !opts.offline) pending.push(attachListing(f, o, opts.signal));
         entries.push({ f, o, key, idx: i });
         continue;
       }
@@ -272,7 +283,8 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
   // Too much for the room: leave out plain catalogue pieces first, then the bulkiest extras.
   for (let tries = 0; !solved.candidates.length && tries < 4; tries++) {
     const floor = entries.filter((e) => items.includes(e.f) && e.f.mount !== 'wall' && e.f.category !== 'rug' && e.idx > 0);
-    const drop = floor.filter((e) => e.o.source !== 'custom').sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0] ?? floor.sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0];
+    const spare = floor.filter((e) => !e.o.essential);
+    const drop = (spare.length ? spare : floor).filter((e) => e.o.source !== 'custom').sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0] ?? (spare.length ? spare : floor).sort((a, b) => b.f.w * b.f.d - a.f.w * a.f.d)[0];
     if (!drop) break;
     left.push(drop.f.name);
     items = items.filter((f) => f !== drop.f);
@@ -309,8 +321,8 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
       const blamed = new Map<string, number>();
       for (const v of worst) for (const id of v.itemIds) blamed.set(id, (blamed.get(id) ?? 0) + 1);
       const rank = (e: (typeof entries)[number]) => (blamed.get(e.f.id) ?? 0) * 2 + (e.key.endsWith('#0') ? 0 : 3) + (e.o.source === 'custom' ? 0 : 2)
-        + (/plant|lamp|decor|lighting/.test(e.f.category) ? 2 : 0);
-      const pool = entries.filter((e) => items.some((f) => f.id === e.f.id) && e.f.mount !== 'wall' && e.f.category !== 'rug' && !(e.idx === 0 && e.key.endsWith('#0')));
+        + (/plant|lamp|decor|lighting/.test(e.f.category) ? 2 : 0) - (e.o.essential ? 8 : 0);
+      const pool = entries.filter((e) => items.some((f) => f.id === e.f.id) && e.f.mount !== 'wall' && e.f.category !== 'rug' && !e.o.essential && !(e.idx === 0 && e.key.endsWith('#0')));
       const drop = pool.filter((e) => blamed.has(e.f.id) || !e.key.endsWith('#0')).sort((a, b) => rank(b) - rank(a))[0];
       if (!drop) break;
       const next = items.filter((f) => f.id !== drop.f.id);
@@ -345,7 +357,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
   for (const [i, c] of cands.entries()) { const { v, ds } = score(c); Object.assign(reports[i], { verdicts: v, designScore: ds, finalScore: ds }); }
   emit();
   const res = snapshot();
-  return { ...res, brief, specs, timings: { briefMs, firstObjectMs, roomMs, totalMs: Math.round(now() - t0), models, fallbacks } };
+  return { ...res, brief, specs, pieces: entries.map((e) => ({ id: e.f.id, key: e.key, o: e.o })), timings: { briefMs, firstObjectMs, roomMs, totalMs: Math.round(now() - t0), models, fallbacks } };
 }
 
 /** A layout worth showing: it has furniture and a real score. */
@@ -357,19 +369,186 @@ export function dropJunk<R extends DesignResult>(r: R): R {
   return { ...r, candidates: r.candidates.filter((c) => keep.includes(c.id)), reports: r.reports.filter((x) => keep.includes(x.candidateId)) };
 }
 
-/** Themed room that always ends with a real furnished layout: junk is filtered out, and when nothing
- *  is left the offline themed kit for the nearest room kind is laid out instead. */
+
+/** Model objects: at most this many hero pieces per room get a model call. */
+export const MAX_AI_OBJECTS = 6;
+/** After this long the room is final; late model pieces are dropped. */
+export const UPGRADE_LIMIT_MS = 20000;
+const POOL = 3;
+
+const WORD_NOISE = new Set(['cat', 'dog', 'room', 'for', 'you', 'the', 'and', 'with', 'small', 'big', 'large']);
+const words = (t: string) => t.toLowerCase().split(/[^a-zåäö]+/).map((w) => w.replace(/s$/, '')).filter((w) => w.length > 2 && !WORD_NOISE.has(w));
+
+/** The room's own name for the layout card. */
+export function roomNameOf(brief: ThemeBrief, names: string[]): string {
+  return names[0] ? `${names[0]}'s room` : brief.title;
+}
+
+type Piece = NonNullable<ThemedResult['pieces']>[number];
+
+/** Model objects for hero pieces: each gets the kit piece it most resembles, else an unused optional one. */
+export function matchUpgrades(ai: ThemeObject[], pieces: Piece[]): Array<{ ai: ThemeObject; piece: Piece }> {
+  const seen = new Set<string>();
+  const heroes = ai.filter((o) => o.source === 'custom' && !o.recipe && o.mount !== 'wall' && !o.text).filter((o) => {
+    const k = o.name.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  }).slice(0, MAX_AI_OBJECTS);
+  const free = pieces.filter((p) => p.o.source === 'custom' && !p.o.text && p.o.mount !== 'wall' && p.key.endsWith('#0'));
+  const used = new Set<string>();
+  const out: Array<{ ai: ThemeObject; piece: Piece }> = [];
+  const rest: ThemeObject[] = [];
+  for (const o of heroes) {
+    const w = new Set(words(`${o.name} ${o.catalogId ?? ''}`));
+    let best: Piece | undefined, bestN = 0;
+    for (const p of free) {
+      if (used.has(p.id)) continue;
+      const n = words(p.o.name).filter((x) => w.has(x)).length;
+      if (n > bestN) { best = p; bestN = n; }
+    }
+    if (best) { used.add(best.id); out.push({ ai: o, piece: best }); } else rest.push(o);
+  }
+  for (const o of rest) {
+    const p = free.find((x) => !used.has(x.id) && !x.o.essential);
+    if (p) { used.add(p.id); out.push({ ai: o, piece: p }); }
+  }
+  return out;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
+
+/**
+ * Themed room that always ends complete. The room is placed from the offline kit at once (no model
+ * calls); the model's hero pieces then replace kit pieces in place, inside the old footprint and at
+ * the old position, until UPGRADE_LIMIT_MS. A failed, refused or late model piece simply leaves the
+ * kit's version. Streamed rooms carry `partial: true`; the last emission is the returned result.
+ */
 export async function designThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
+  if (opts.brief || !model.spaces.length) return legacyThemedRoom(model, text, opts);
+  const t0 = now();
+  const sub = opts.spaceId && model.spaces.length > 1 ? subModelFor(model, opts.spaceId) : null;
+  const pm = sub ? sub.model : model;
+  const back = <R extends DesignResult>(r: R): R => (sub ? { ...r, candidates: r.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) } : r);
+  let plan: Plan = planContract(pm, text, rulesBrief(text));
+  const names = plan.brief.names;
+  const stamp = (r: DesignResult, partial: boolean, brief: ThemeBrief): DesignResult & { partial: boolean } => {
+    const roomName = roomNameOf(brief, names);
+    const m = back(r);
+    return { ...m, candidates: m.candidates.map((c, i) => ({ ...c, name: i === 0 ? roomName : `${roomName} ${i + 1}` })), partial };
+  };
+  const aiP = aiReady() && !opts.signal?.aborted
+    ? themeBrief(text, { signal: opts.signal, room: roomLine(pm) }).then((b) => (b.by === 'gemini' ? b : null), (e) => { if ((e as Error).name === 'AbortError') throw e; return null; })
+    : null;
+  aiP?.catch(() => undefined);
+
+  // (1) The room from kit pieces, checked against the contract; one smaller try when it fails.
+  const run = (p: Plan) => designThemedCore(pm, text, {
+    ...opts, spaceId: undefined, brief: p.brief, offline: true, reuse: undefined,
+    onProgress: opts.onProgress && ((r, ph) => opts.onProgress!(stamp(r, true, p.brief), ph)),
+  });
+  const contractOf = (p: Plan, r: DesignResult, pcs: Piece[] | undefined, c: LayoutCandidate | undefined): Contract => {
+    const byId = new Map((pcs ?? []).map((x) => [x.id, x.o.name]));
+    return c ? checkContract(p, c.furniture.map((f) => byId.get(f.id) ?? f.name), c.furniture.length) : checkContract(p, [], 0);
+  };
+  const verdict = (p: Plan, r: ThemedResult): { res: ThemedResult; contract: Contract } => {
+    const clean = dropJunk(r);
+    const good = clean.candidates.filter((c) => contractOf(p, clean, r.pieces, c).complete);
+    const pick = good.length ? good : clean.candidates;
+    return { res: { ...clean, candidates: pick, reports: clean.reports.filter((x) => pick.some((c) => c.id === x.candidateId)) }, contract: contractOf(p, clean, r.pieces, pick[0]) };
+  };
+  const plans = [plan, essentialsOnly(plan, pm, text)];
+  let best: { res: ThemedResult; contract: Contract; plan: Plan } | undefined;
+  let lastErr: unknown;
+  for (const p of plans) {
+    try {
+      const v = verdict(p, await run(p));
+      if (!best || (v.res.candidates.length > 0 && (!best.res.candidates.length || v.contract.missing.length < best.contract.missing.length))) best = { ...v, plan: p };
+      if (v.contract.complete && v.res.candidates.length) break;
+    } catch (e) { if ((e as Error).name === 'AbortError' || opts.signal?.aborted) throw e; lastErr = e; }
+  }
+  if (!best) throw lastErr ?? new Error('Could not lay out the room');
+  plan = best.plan;
+  const brief: ThemeBrief = { ...best.res.brief, title: roomNameOf(best.res.brief, names), notes: [...best.res.brief.notes] };
+  let cur: ThemedResult = { ...best.res, brief };
+  const specs = cur.specs;
+  const pieces = cur.pieces ?? [];
+  const contractNow = () => contractOf(plan, cur, pieces, cur.candidates[0]);
+  if (!contractNow().complete) brief.notes.push('The room could not hold every essential piece; the contract lists what is missing.');
+  const emitPartial = () => { if (opts.onProgress && !opts.signal?.aborted) opts.onProgress(stamp(cur, true, brief), 'concepts'); };
+  if (cur.candidates.length) emitPartial();
+
+  // (2) Upgrades: model pieces replace kit pieces in place until the time limit.
+  let models = 0, fallbacks = 0, closed = false;
+  if (aiP && cur.candidates.length) {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    opts.signal?.addEventListener('abort', onAbort);
+    const left = () => UPGRADE_LIMIT_MS - (now() - t0);
+    const timer = setTimeout(() => { closed = true; ctrl.abort(); }, Math.max(0, left()));
+    const patch = (id: string, fn: (g: FurnitureItem) => FurnitureItem) => {
+      cur = { ...cur, candidates: cur.candidates.map((c) => ({ ...c, furniture: c.furniture.map((g) => (g.id === id ? fn(g) : g)) })) };
+    };
+    try {
+      const aiBrief = await Promise.race([aiP, sleep(left()).then(() => null)]);
+      if (aiBrief && !closed) {
+        const jobs = matchUpgrades(aiBrief.objects, pieces);
+        const todo = [...jobs];
+        const worker = async () => {
+          for (let j = todo.shift(); j && !closed; j = todo.shift()) {
+            const { ai: o, piece } = j;
+            const quick = specs.get(piece.key);
+            if (!quick) continue;
+            models++;
+            try {
+              const spec = await Promise.race([generateObject(o.prompt ?? o.name, { signal: ctrl.signal, detail: false }), sleep(left()).then(() => null)]);
+              if (!spec || closed || spec.model === 'rules') { fallbacks++; continue; }
+              const fitted: ObjectSpec = { ...fitSpec(spec, quick.size), semantics: { ...spec.semantics, category: quick.semantics.category } };
+              specs.set(piece.key, fitted);
+              patch(piece.id, (g) => ({ ...g, custom: fitted, name: fitted.name || g.name, color: dominantColor(fitted), material: mainMaterial(fitted) }));
+              opts.onObject?.(fitted, piece.o, brief.objects.indexOf(piece.o));
+              emitPartial();
+            } catch (e) { if (opts.signal?.aborted) throw e; fallbacks++; }
+          }
+        };
+        const listings = pieces.filter((p) => p.o.source === 'store' && p.key.endsWith('#0')).map(async (p) => {
+          const stub = { name: p.o.name } as FurnitureItem;
+          await attachListing(stub, p.o, ctrl.signal);
+          if (stub.listing && !closed) { patch(p.id, (g) => ({ ...g, name: stub.name, listing: stub.listing, sourceKind: 'catalog' })); emitPartial(); }
+        });
+        await Promise.all([...Array.from({ length: Math.min(POOL, jobs.length) }, worker), ...listings]);
+      }
+    } finally {
+      closed = true;
+      clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
+    }
+    abortIf(opts.signal);
+    if (fallbacks) brief.notes.push(`${fallbacks} custom piece${fallbacks === 1 ? '' : 's'} could not be made in time, so the ready-made version${fallbacks === 1 ? ' was' : 's were'} kept.`);
+  }
+
+  // (3) Final result: same callback, never partial.
+  const contract = contractNow();
+  contract.compromises.push(...(fallbacks ? [`${fallbacks} model-made piece${fallbacks === 1 ? '' : 's'} replaced by the kit version.`] : []));
+  const final: ThemedResult = {
+    ...stamp(cur, false, brief), brief, specs, pieces, roomName: roomNameOf(brief, names), contract, partial: false,
+    timings: { ...cur.timings, totalMs: Math.round(now() - t0), models: cur.timings.models + models, fallbacks: cur.timings.fallbacks + fallbacks },
+  };
+  opts.onProgress?.(final, 'critic');
+  return final;
+}
+
+/** Refinements: the caller's own brief, with the model making changed pieces; junk is filtered and the kit steps in when nothing is left. */
+async function legacyThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
   let res: ThemedResult | undefined;
   try { res = await designThemedCore(model, text, opts); }
   catch (e) { if ((e as Error).name === 'AbortError' || opts.signal?.aborted || !model.spaces.length) throw e; }
   if (res) {
     const clean = dropJunk(res);
-    if (clean.candidates.length || !model.spaces.length) return clean;
+    if (clean.candidates.length || !model.spaces.length) return { ...clean, partial: false };
   }
   const brief = rulesBrief(text);
   const kit = await designThemedCore(model, text, { ...opts, brief, onProgress: undefined });
   const out = dropJunk(kit);
   out.brief.notes = [...out.brief.notes, 'The model took too long, so this room is the ready-made kit for the closest room type.'];
-  return out;
+  return { ...out, partial: false };
 }

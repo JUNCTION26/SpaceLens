@@ -19,7 +19,7 @@ vi.mock('../forge/generate', async (orig) => {
   return { ...real, generateObject: vi.fn(async (prompt: string) => { await new Promise((r) => setTimeout(r, 20)); return { ...rulesObject(prompt), model: 'gemini-lite', name: `Model ${prompt.split(',')[0]}` }; }) };
 });
 
-const { rulesBrief, cleanBrief, isThemedRequest, findNames } = await import('./brief');
+const { rulesBrief, cleanBrief, isThemedRequest, findNames, unknownWords } = await import('./brief');
 const { designThemedRoom } = await import('./designThemed');
 const { refineThemed } = await import('./refine');
 
@@ -94,7 +94,7 @@ describe('designThemedRoom', () => {
     expect(res.timings.totalMs).toBeLessThan(10000 * Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.SPACELENS_TIME_SLACK ?? 1));
   });
 
-  it('with a key: one brief call, custom pieces made in parallel and swapped in at the same size', async () => {
+  it('with a key: kit room first, model pieces swapped in at the same size', async () => {
     aiState.ready = true;
     aiState.reply = { title: 'Pink dream', purpose: 'bedroom', forWhom: 'a doll fan', names: [], palette: ['#ff4fa3', '#ffc1dc', '#ffffff'], mood: 'bright', realProducts: false,
       objects: [
@@ -106,11 +106,11 @@ describe('designThemedRoom', () => {
       ] };
     const phases: string[] = [];
     const res = await designThemedRoom(model, 'build me a Barbie room', { onProgress: (_, ph) => phases.push(ph) });
-    expect(res.brief.by).toBe('gemini');
-    expect(res.timings.models).toBe(1); // the bed; the vanity and poster are finished in code
+    expect(res.brief.by).toBe('rules'); // the room is placed from the kit first, model pieces then replace kit pieces
     expect(phases[0]).toBe('rules');
-    const bed = res.candidates[0].furniture.find((f) => /canopy/i.test(f.custom?.prompt ?? ''))!;
-    expect(bed.custom!.model).toBe('gemini-lite');
+    expect(res.partial).toBe(false);
+    const bed = res.candidates[0].furniture.find((f) => /canopy|bed/i.test(f.name))!;
+    expect(bed.custom).toBeTruthy();
     expect(bed.custom!.size).toEqual({ w: bed.w, d: bed.d, h: bed.h });
   });
 
@@ -169,5 +169,16 @@ describe('junk filter and fallback', () => {
     expect(res.candidates.length).toBeGreaterThan(0);
     expect(res.candidates.every((c) => c.furniture.length > 0 && c.metrics.score > 0)).toBe(true);
     expect(res.brief.objects.some((o) => o.text === 'GERARD')).toBe(true);
+  });
+});
+
+describe('room purpose beats an extra zone', () => {
+  it('"a home office for two with a reading corner" keeps two desks and chairs and adds a reading zone', () => {
+    const b = rulesBrief('a home office for two with a reading corner');
+    const qty = (re: RegExp) => b.objects.filter((o) => re.test(o.name)).reduce((s, o) => s + (o.qty ?? 1), 0);
+    expect(qty(/^Desk$/)).toBe(2);
+    expect(qty(/^Office chair$/)).toBe(2);
+    expect(b.objects.some((o) => o.catalogId === 'armchair' || o.catalogId === 'floor-lamp')).toBe(true);
+    expect(unknownWords('a home office for two with a reading corner')).toEqual([]);
   });
 });

@@ -40,6 +40,8 @@ export interface ThemeObject {
   eyeM?: number;
   /** Keep the colours given; the 60/30/10 pass leaves it alone. */
   locked?: boolean;
+  /** The room is incomplete without it; never left out for space while anything else can go. */
+  essential?: boolean;
 }
 
 export interface ThemeBrief {
@@ -85,7 +87,7 @@ one two three four five six seven eight nine ten twelve couple people person per
 office workspace work study workroom bedroom guest studio flat apartment living lounge dining kitchen cafe café clinic treatment
 therapy kids kid child children playroom home small big large tiny bright warm cosy cozy modern classic minimal minimalist
 scandinavian nordic industrial boho japandi calm light dark desk desks bed beds sofa sofas couch chair chairs table tables
-wardrobe shelf shelves bookcase storage armchair armchairs plant plants lamp lamps rug rugs carpet crib cot sofa-bed bench
+reading read nook gaming games sleeping sleep eating relaxing relax tv tele sitting sit working music piano yoga crafts sewing homework wardrobe shelf shelves bookcase storage armchair armchairs plant plants lamp lamps rug rugs carpet crib cot sofa-bed bench
 route path access walk way window door balcony clear free wide cm m mm aisle passage clearance wheelchair accessible rollator
 walker keep existing current old budget under below max maximum up within around about kr sek kronor k thousand also all each
 per both more less enough good nice simple functional practical meeting conference`.split(/\s+/));
@@ -201,14 +203,15 @@ function readingNook(): Omit<ThemeBrief, 'by' | 'ms'> {
   };
 }
 
-function homeOffice(real: boolean, store: string): Omit<ThemeBrief, 'by' | 'ms'> {
+function homeOffice(real: boolean, store: string, n = 1, reading = false): Omit<ThemeBrief, 'by' | 'ms'> {
   const s = (name: string, id: string, query: string): ThemeObject => (real ? { source: 'store', name, catalogId: id, query: `${store} ${query}` } : cat(id, name));
   const t = 'calm home office, white and light oak';
   return {
     title: real ? `Home office with ${store} products` : 'Home office', purpose: 'work', forWhom: 'remote work', names: [], palette: ['#f2efe9', '#d8c7a8', '#2f3a44'], mood: 'clean, focused',
     objects: [
-      { ...s('Desk', 'desk-140', 'desk 140 cm'), place: 'window' },
-      s('Office chair', 'office-chair', 'office chair'),
+      { ...s('Desk', 'desk-140', 'desk 140 cm'), place: 'window', qty: n > 1 ? n : undefined },
+      { ...s('Office chair', 'office-chair', 'office chair'), qty: n > 1 ? n : undefined },
+      ...(reading ? [cat('armchair', 'Reading armchair', 'corner'), cat('floor-lamp', 'Reading lamp')] : []),
       s('Bookcase', 'bookshelf', 'bookcase'),
       s('Floor lamp', 'floor-lamp', 'floor lamp'),
       s('Plant', 'plant', 'artificial potted plant'),
@@ -306,8 +309,8 @@ export function rulesBrief(text: string): ThemeBrief {
   else if (/\b(dog|puppy|doggy)\b/.test(lc)) b = petRoom(text, names, true);
   else if (fr?.[1] === 'pink' || /\bpink\b.*\b(room|bedroom)\b/.test(lc)) b = pinkRoom(names, fr?.[2]);
   else if (/gam(ing|er)/.test(lc)) b = gamingRoom(Math.min(4, n));
+  else if (/\b(home office|office|study)\b/.test(lc) && !roomKind(lc.replace(/\b(home )?office|study|work\b/g, ''))) b = homeOffice(real, store, Math.min(4, n), /read|nook|book|librar/.test(lc));
   else if (/read|nook|book|librar/.test(lc) && !/board.?game/.test(lc)) b = readingNook();
-  else if (/\b(home office|office|study)\b/.test(lc) && !roomKind(lc.replace(/\b(home )?office|study|work\b/g, ''))) b = homeOffice(real, store);
   else if (matchKit(text)) b = kitBrief(text, matchKit(text)!, names);
   else if (fr || (!roomKind(lc) && (motifOf(lc) || THEMED.test(lc)))) b = genericRoom(text, names, fr?.[1] ?? motifOf(lc), fr?.[2]);
   else b = generalRoom(text, names, n, motifOf(lc));
