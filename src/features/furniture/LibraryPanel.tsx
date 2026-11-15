@@ -115,12 +115,12 @@ export function LibraryPanel() {
           <Icon name="search" size={14} />
           <input type="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search furniture" />
         </div>
-        <select className="furniture-select" value={catValue} aria-label="Category"
-          onChange={(e) => { const v = e.target.value; setFits(v === '__fits'); setCat(v && v !== '__fits' ? v : null); }}>
-          <option value="">All</option>
-          {room && <option value="__fits">Fits room</option>}
-          {CATEGORIES.map((c) => <option key={c} value={c}>{label(c)}</option>)}
-        </select>
+      </div>
+      <div className="furniture-chips" role="group" aria-label="Category">
+        {[{ k: '', t: 'All' }, ...(room ? [{ k: '__fits', t: 'Fits' }] : []), ...CATEGORIES.map((c) => ({ k: c, t: label(c) }))].map((o) => (
+          <button key={o.k} className={`furniture-chip${catValue === o.k ? ' furniture-on' : ''}`} aria-pressed={catValue === o.k} title={o.t}
+            onClick={() => { setFits(o.k === '__fits'); setCat(o.k && o.k !== '__fits' ? o.k : null); }}>{o.t}</button>
+        ))}
       </div>
 
       {sel && (
