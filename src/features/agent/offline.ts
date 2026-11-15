@@ -3,7 +3,7 @@
 import { parseSpoken, type SpokenCommand } from '../voice/parse';
 import type { Action, AgentReply } from './actions';
 import { refersToSketch } from './deixis';
-import { isThemedRequest } from '../themes/brief';
+import { isThemedRequest, roomKind } from '../themes/brief';
 
 const WALL_WORD: Record<string, string> = { north: 'north', south: 'south', east: 'east', west: 'west', window: 'window', door: 'door' };
 
@@ -48,10 +48,14 @@ export function offlineReply(text: string, hasSketch: boolean, inRoom: (category
   const cmd = parseSpoken(text);
   const hasHere = hasSketch && refersToSketch(t);
   if (!cmd) {
+    // A kind of room ("a ramen bar for 10", "a dog groomer") is a room to design, not an object.
+    if (roomKind(t) && !/\b(statue|poster|sign|figure|model of|lamp|chair|stool|table|shelf|cabinet|bed)\b/.test(t)) {
+      return reply('Designing it now.', [{ type: 'design_room', brief: text }]);
+    }
     if (/\b(make|create|build|design me|i want|add)\b/.test(t) && t.split(/\s+/).length >= 3) {
       return reply('Making that for you.', [{ type: 'create_object', prompt: text, place: hasHere ? 'here' : undefined }]);
     }
-    return reply(hasSketch ? 'Tell me what goes there, like "put the desk here".' : 'Try "add a desk by the window" or draw where something should go.');
+    return reply(hasSketch ? 'Tell me what goes there, like "put the desk here".' : 'I can\'t do that yet, but I can design a room, make an object, or add and move furniture. Try "make a ramen bar for 10".');
   }
   const what = cmd.category || 'it';
   const where = place(cmd, t, hasSketch);

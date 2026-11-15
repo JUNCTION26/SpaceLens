@@ -4,7 +4,7 @@ import {
   add, centroid, dist, fmtSek, itemCorners, mul, norm, pointInPolygon, rotate, sub, uid, wallInwardNormal, wallSegment,
 } from '../../core/geometry';
 import { getState } from '../../core/store';
-import type { FurnitureItem, ObjectSpec, SketchMark, SpaceModel, StoreListing, Vec2 } from '../../core/types';
+import type { FurnitureItem, Infeasibility, LayoutCandidate, ObjectSpec, SketchMark, SpaceModel, StoreListing, Vec2 } from '../../core/types';
 import { catalogEntry, findByKeyword, makeItem, makeOwnItem } from '../furniture/catalog';
 import { clampInside, findFreeSpot, resolveOverlap, rotationFacing, snapToWall, wallCompass } from '../objects/placement';
 import { validateLayout } from '../referee/validate';
@@ -472,13 +472,32 @@ export async function execute(a: Action, ctx: Ctx): Promise<ExecResult> {
       show([ghost], ctx);
       const forge = await loadMod('forge');
       if (forge) {
+        // Parts stream into the room as a preview at the chosen spot; the finished object is then placed for real.
+        const before = { list: getState().candidates, inf: getState().infeasibility, active: getState().activeCandidateId };
+        let shown = 0, previewing = false;
+        const showParts = (p: Partial<ObjectSpec>) => {
+          const s = p as ObjectSpec & { silhouette?: ObjectSpec['parts'] };
+          const parts = s.parts?.length ? s.parts : s.silhouette ?? [];
+          if (ctx.signal?.aborted || !parts.length || Date.now() - shown < 200) return;
+          shown = Date.now();
+          const live = { ...itemFromSpec({ ...s, parts }), id: item.id, x: item.x, y: item.y, rotation: item.rotation };
+          const m = getState().model;
+          previewing = true;
+          getState().setCandidates([{
+            id: 'making', name: `Making ${s.name || 'object'}`, summary: '', parentVersion: m.version, furniture: [...m.furniture, live],
+            metrics: { openAreaM2: 0, costSek: 0, minClearanceM: null, routeLenM: null, score: 0 }, checks: [], assumptions: [], generator: 'forge',
+          }]);
+        };
         try {
           ctx.status?.('Shaping the object…');
-          const spec = await forge.generateObject(prompt, { signal: ctx.signal });
+          const spec = await forge.generateObject(prompt, { signal: ctx.signal, onPartial: showParts });
           if (ctx.signal?.aborted) return { ok: false };
           const made = itemFromSpec(spec);
           item = { ...made, ...poseAt(getState().model, { ...made, x: item.x, y: item.y, rotation: item.rotation }, { p: { x: item.x, y: item.y } }) };
         } catch { /* keep the catalogue stand-in */ }
+        finally {
+          if (previewing) { getState().setCandidates(before.list, before.inf); getState().previewCandidate(before.active); }
+        }
       }
       useSketch.getState().remove(ghost.id);
       return addItem(item, item.name, ctx);
@@ -647,6 +666,14 @@ export async function execute(a: Action, ctx: Ctx): Promise<ExecResult> {
       st.setRequirements(req);
       const res = await pipe.designRoom(model, req, {
         brief, signal: ctx.signal,
+        // The room assembles on screen as results arrive: draft pieces, the first layout, then each finished piece.
+        ...({
+          onProgress: (p: { candidates: LayoutCandidate[]; infeasibility: Infeasibility | null; reports: unknown[] }) => {
+            if (ctx.signal?.aborted || !p.candidates.length) return;
+            getState().setCandidates(p.candidates, p.infeasibility);
+            if (p.reports.length) reports?.useReports.getState().setReports(p.reports as never);
+          },
+        } as object),
         onStage: (stages) => {
           reports?.useReports.getState().setStages?.(stages, true);
           const cur = [...stages].reverse().find((s) => s.status === 'running');
