@@ -13,7 +13,6 @@ type ForgeLib = typeof import('../forge/library');
 import './furniture.css';
 
 const cm = (m: number) => Math.round(m * 100);
-const dims = (x: { w: number; d: number; h: number }) => `${cm(x.w)}×${cm(x.d)}×${cm(x.h)} cm`;
 const label = (c: string) => c.replace(/-/g, ' ');
 const ROUND = new Set(['cafe-table', 'stool', 'plant', 'lamp']);
 
@@ -107,10 +106,6 @@ export function LibraryPanel() {
     place({ ...it, ...findFreeSpot(model, it) });
     setOwn({ ...own, open: false, name: '', w: '', d: '', h: '' });
   };
-  const setPrice = (f: FurnitureItem, v: string) => {
-    const n = Number(v.replace(/\s/g, ''));
-    if (v.trim() && Number.isFinite(n) && n >= 0 && n !== f.priceSek) dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch: { priceSek: n, priceStatus: 'user', owned: false } });
-  };
 
   const catValue = fits ? '__fits' : cat ?? '';
   return (
@@ -130,19 +125,12 @@ export function LibraryPanel() {
 
       {sel && (
         <section className="furniture-sel">
-          <div className="furniture-head"><strong>{sel.name}</strong><span className="muted">{dims(sel)}</span></div>
           <div className="furniture-swatches" role="group" aria-label="Finish">
             {variantsFor(sel).map((v) => (
               <button key={v.color + v.material} title={v.material || v.color} aria-label={v.material || v.color} aria-pressed={sel.color === v.color}
                 className={`furniture-dot${sel.color === v.color ? ' furniture-on' : ''}`} style={{ background: v.color }}
                 onClick={() => dispatch({ type: 'UPDATE_OBJECT', id: sel.id, patch: { color: v.color, material: v.material || sel.material } })} />
             ))}
-            {sel.material && <span className="muted">{sel.material}</span>}
-          </div>
-          <div className="furniture-actions">
-            <input key={sel.id + sel.priceSek} className="field furniture-price-in" inputMode="numeric" defaultValue={sel.priceSek} aria-label={`Price of ${sel.name}, kr`} title="Price, kr"
-              onBlur={(e) => setPrice(sel, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-            <span className="muted">kr</span>
           </div>
         </section>
       )}
@@ -213,7 +201,7 @@ export function LibraryPanel() {
         <section className="furniture-bill">
           <button className="furniture-summary" aria-expanded={billOpen} onClick={() => setBillOpen(!billOpen)}>
             <Icon name={billOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-            <span className={`furniture-sum ${tone}`}>{fmtSek(total)}</span>
+            {total !== 0 && <span className={`furniture-sum ${tone}`}>{fmtSek(total)}</span>}
           </button>
           {budget != null && budget > 0 && (
             <div className="furniture-bar" role="meter" aria-valuemin={0} aria-valuemax={budget} aria-valuenow={total} aria-label="Budget used">
@@ -223,13 +211,13 @@ export function LibraryPanel() {
           {billOpen && (<>
             {groups.map(([g, items]) => (
               <div key={g} className="furniture-group">
-                <div className="furniture-ghead"><span>{label(g)}</span><span>{fmtSek(items.reduce((n, f) => n + (f.owned ? 0 : f.priceSek), 0))}</span></div>
+                <div className="furniture-ghead"><span>{label(g)}</span>{(() => { const sub = items.reduce((n, f) => n + (f.owned ? 0 : f.priceSek), 0); return sub !== 0 ? <span>{fmtSek(sub)}</span> : null; })()}</div>
                 <ul className="furniture-lines">
                   {items.map((f) => (
                     <li key={f.id}>
                       <button className="furniture-line" onClick={() => select({ kind: 'furniture', id: f.id })}>
                         <span>{f.name}{f.locked ? ' (locked)' : ''}</span>
-                        <span className="furniture-price">{f.owned ? '0 kr' : fmtSek(f.priceSek)}</span>
+                        <span className="furniture-price">{f.owned ? null : fmtSek(f.priceSek)}</span>
                       </button>
                     </li>
                   ))}
