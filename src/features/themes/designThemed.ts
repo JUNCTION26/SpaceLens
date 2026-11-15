@@ -184,7 +184,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
     else {
       const quick = early.get(o.name)?.quick ?? rulesObject(o.prompt ?? o.name);
       if (!early.has(o.name) && !opts.reuse?.has(objectKey(o))) {
-        const job = generateObject(o.prompt ?? o.name, { signal: opts.signal });
+        const job = generateObject(o.prompt ?? o.name, { signal: opts.signal, detail: false });
         job.catch(() => undefined);
         early.set(o.name, { quick, job });
       }
@@ -232,7 +232,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
       // Pieces with a recipe are finished in code (exact words, instant); the model makes the rest.
       if (reused || !online || o.recipe) continue;
       // One model call per distinct object; copies (two gaming chairs) share it.
-      const job = shared.get(o.name) ?? pre?.job ?? generateObject(o.prompt ?? o.name, { signal: opts.signal });
+      const job = shared.get(o.name) ?? pre?.job ?? generateObject(o.prompt ?? o.name, { signal: opts.signal, detail: false });
       shared.set(o.name, job);
       models += k === 0 ? 1 : 0;
       pending.push(job.then((spec) => {
