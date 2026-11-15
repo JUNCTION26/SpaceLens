@@ -127,7 +127,7 @@ export function StorePanel() {
     if (st?.image) return build(c.key, st.image);
     const url = c.imageUrl;
     if (url && !url.startsWith('data:')) {
-      setAdds((m) => ({ ...m, [c.key]: { stage: 'building', dims, spec: null, message: 'Fetching the photo…' } }));
+      setAdds((m) => ({ ...m, [c.key]: { stage: 'building', dims, spec: null } }));
       const blob = await loadImageBlob(url);
       if (!blob) { patchAdd(c.key, { stage: 'image', message: undefined }); return; }
       const image = await blobToDataUrl(blob);
@@ -230,7 +230,7 @@ export function StorePanel() {
               </div>
               <div className="shop-body">
                 {editable
-                  ? <input className="shop-edit" value={c.title} placeholder="Product title" aria-label="Title" onChange={(e) => updateCard(c.key, { title: e.target.value })} />
+                  ? <input className="shop-edit" value={c.title} placeholder="Title" aria-label="Title" onChange={(e) => updateCard(c.key, { title: e.target.value })} />
                   : <span className="shop-title" title={c.title}>{c.title}</span>}
                 {editable && <input className="shop-edit shop-edit-sm" value={c.store} placeholder="Store" aria-label="Store" onChange={(e) => updateCard(c.key, { store: e.target.value })} />}
                 <span className="shop-price">
@@ -242,23 +242,10 @@ export function StorePanel() {
                           {['SEK', 'EUR', 'USD', 'GBP', 'NOK', 'DKK'].map((x) => <option key={x}>{x}</option>)}
                         </select>
                       </>
-                    : c.price !== null ? fmtMoney(c.price, c.currency) : <span className="muted">{c.pending ? '…' : 'No price'}</span>}
+                    : c.price !== null ? fmtMoney(c.price, c.currency) : <span className="muted">{c.pending ? '…' : '–'}</span>}
                   <span className="shop-size">{fmtDims(c.stated)}</span>
                 </span>
-                {rate && c.price !== null && (
-                  <label className="shop-rate">
-                    ≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')}
-                    <span className="muted">{c.currency}</span>
-                    <input inputMode="decimal" value={rate.rate} aria-label={`SEK per ${c.currency}`}
-                      onChange={(e) => { const n = parseFloat(e.target.value.replace(',', '.')); if (Number.isFinite(n) && n > 0) setRates((m) => ({ ...m, [c.currency]: { rate: n, source: 'your rate' } })); }} />
-                  </label>
-                )}
-                {(c.issues.length > 0 || c.note) && (
-                  <span className="shop-notes">
-                    {c.issues.length > 0 && <span className="chip chip-warn" title={[...c.issues, c.note].filter(Boolean).join('. ')}>{c.issues.length}</span>}
-                    
-                  </span>
-                )}
+                {rate && c.price !== null && <span className="shop-rate">≈ {fmtMoney(toSek(c.price, rate.rate), 'SEK')}</span>}
 
                 {st?.stage === 'size' && (
                   <div className="shop-size-form">
@@ -275,7 +262,7 @@ export function StorePanel() {
                 {st?.stage === 'size' && st.message && <small className="shop-err" role="status">{st.message}</small>}
                 {st?.stage === 'image' && (
                   <div className="shop-size-form">
-                    <button className="btn btn-sm" onClick={() => void build(c.key)}>Build from title</button>
+                    <button className="btn btn-sm" onClick={() => void build(c.key)}>Build</button>
                   </div>
                 )}
                 {st?.stage === 'building' && (
@@ -295,6 +282,13 @@ export function StorePanel() {
                       </button>}
                   {c.url && <a className="icon-btn" href={c.url} target="_blank" rel="noopener noreferrer" aria-label="Open" title="Open"><Icon name="share" size={14} /></a>}
                   <details className="shop-more"><summary>More</summary>
+                    {rate && c.price !== null && (
+                      <label className="shop-rate">
+                        <span className="muted">{c.currency}</span>
+                        <input inputMode="decimal" value={rate.rate} aria-label={`SEK per ${c.currency}`}
+                          onChange={(e) => { const n = parseFloat(e.target.value.replace(',', '.')); if (Number.isFinite(n) && n > 0) setRates((m) => ({ ...m, [c.currency]: { rate: n, source: 'your rate' } })); }} />
+                      </label>
+                    )}
                     <label className="shop-pick"><input type="checkbox" checked={picked.includes(c.key)} onChange={() => togglePick(c.key)} /> Compare</label>
                     <button className="btn btn-ghost btn-sm" aria-expanded={tips === c.key} onClick={() => setTips(tips === c.key ? null : c.key)}>Deals</button>
                   </details>
