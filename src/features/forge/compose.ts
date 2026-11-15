@@ -109,6 +109,18 @@ function drawerFronts(P: Parts, L: L, n: number, x0: number, x1: number, y0: num
   }
 }
 
+/** Sliding doors: alternate panels on a front and a back track, overlapping where they meet. */
+function slidingFronts(P: Parts, L: L, n: number, x0: number, x1: number, y0: number, y1: number, zf: number) {
+  const lap = Math.min(0.04, (x1 - x0) / n / 4), w = (x1 - x0) / n;
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(x0, x0 + w * i - (i > 0 ? lap / 2 : 0)), b = Math.min(x1, x0 + w * (i + 1) + (i < n - 1 ? lap / 2 : 0));
+    const z1 = i % 2 === 0 ? zf : zf - 0.02;
+    P.box(`door ${i + 1}`, a, b, y0 + 0.002, y1 - 0.002, z1 - 0.018, z1, L.doors, { group: `door${i + 1}` });
+    const px = i === 0 ? a + 0.04 : i === n - 1 ? b - 0.04 : (a + b) / 2;
+    P.box(`pull ${i + 1}`, px - 0.01, px + 0.01, (y0 + y1) / 2 - 0.12, (y0 + y1) / 2 + 0.12, z1 - 0.004, z1, L.handles, { group: `door${i + 1}` });
+  }
+}
+
 function doorFronts(P: Parts, L: L, n: number, x0: number, x1: number, y0: number, y1: number, zf: number, handles: boolean) {
   const gap = 0.003;
   for (let i = 0; i < n; i++) {
@@ -123,9 +135,10 @@ function doorFronts(P: Parts, L: L, n: number, x0: number, x1: number, y0: numbe
 function carcass(P: Parts, w: Wish, L: L, W: number, D: number, H: number) {
   const c = w.counts, dr = c.drawers ?? 0, doors = c.doors ?? 0, sh = c.shelves ?? 0;
   const fronts = dr + doors > 0;
-  const handles = fronts && (w.features.includes('handles') || !/\bpush|handleless\b/.test(w.text.toLowerCase()));
+  const sliding = doors > 0 && dr === 0 && w.features.includes('sliding');
+  const handles = fronts && !sliding && (w.features.includes('handles') || !/\bpush|handleless\b/.test(w.text.toLowerCase()));
   const zf = fronts ? D / 2 - (handles ? 0.02 : 0) : D / 2;
-  const zb = -D / 2, bodyFront = fronts ? zf - 0.02 : zf;
+  const zb = -D / 2, bodyFront = sliding ? zf - 0.04 : fronts ? zf - 0.02 : zf;
   let y0 = 0;
   if (w.support === 'wheels') y0 = wheels(P, L, c.wheels ?? 4, W, D);
   else if (w.support === 'legs' || (c.legs ?? 0) > 0 || w.support === 'hairpin') { y0 = Math.min(0.15, H * 0.15); support(P, { ...w, round: false }, L, W, bodyFront - zb, y0); P.list.forEach((p) => { if (/^(leg|foot)/.test(p.name)) p.pos[2] = r4(p.pos[2] + (zb + bodyFront) / 2); }); }
@@ -153,6 +166,10 @@ function carcass(P: Parts, w: Wish, L: L, W: number, D: number, H: number) {
   } else if (dr > 0) {
     const side = (H - y0) < 0.6 && W / dr >= 0.35;
     drawerFronts(P, L, dr, ix0, ix1, iy0, iy1, zf, side, handles);
+  } else if (sliding) {
+    P.box('track top', -W / 2, W / 2, H - 0.03, H, bodyFront, zf, L.frame);
+    P.box('track bottom', -W / 2, W / 2, y0, y0 + 0.03, bodyFront, zf, L.frame);
+    slidingFronts(P, L, doors, -W / 2, W / 2, y0 + 0.03, H - 0.03, zf);
   } else if (doors > 0) {
     const top = atBottom ? iy0 + Math.min(0.75, Math.max(0.35, (iy1 - iy0) * 0.3)) : iy1;
     doorFronts(P, L, doors, ix0, ix1, iy0, top, zf, handles);
@@ -405,7 +422,18 @@ export type ComposedSpec = ObjectSpec & { wish: Wish; mount?: { wall: true; elev
 /** Size of the attachments that sit on top of the main body (lamp, plant), metres. */
 function topBudget(w: Wish): number {
   if (w.archetype === 'lamp' || w.archetype === 'column' || w.archetype === 'panel' || w.archetype === 'drumkit') return 0;
-  return w.features.includes('lamp') ? 0.45 : w.features.includes('plant') ? 0.4 : 0;
+  return w.features.includes('monitor-arm') ? 0.5 : w.features.includes('lamp') ? 0.45 : w.features.includes('plant') ? 0.4 : 0;
+}
+
+/** A clamp-on monitor arm at the back edge of a desk top, holding a screen over the desk. */
+function attachMonitorArm(P: Parts, y: number, h: number, W: number, D: number) {
+  const metal: Look = { material: 'black-metal' };
+  const zb = -D / 2 + 0.06, sw = Math.min(0.6, W * 0.7), sh = Math.min(0.36, h * 0.72);
+  P.box('monitor arm clamp', -0.04, 0.04, y, y + 0.04, -D / 2, -D / 2 + 0.1, metal);
+  P.add('monitor arm pole', 'cylinder', [0.035, h - 0.04, 0.035], [0, y + 0.04 + (h - 0.04) / 2, zb], metal);
+  P.box('monitor arm', -0.025, 0.025, y + h * 0.55, y + h * 0.55 + 0.04, zb, zb + Math.min(0.28, D * 0.4), metal);
+  const zm = zb + Math.min(0.28, D * 0.4);
+  P.box('monitor', -sw / 2, sw / 2, y + h - sh - 0.01, y + h - 0.01, zm, zm + 0.025, { material: 'black-laminate' });
 }
 
 /** Build the parts for a wish, inside its size exactly. */
@@ -419,7 +447,8 @@ export function composeParts(w: Wish): ObjectPart[] {
   BUILDERS[w.archetype](P, w, L, W, D, bodyH);
   if (extra) {
     const wl = Math.min(0.32, W * 0.4, D * 0.8);
-    if (w.features.includes('lamp')) attachLamp(P, wl, bodyH, extra, W / 2 - wl / 2 - 0.02);
+    if (w.features.includes('monitor-arm')) attachMonitorArm(P, bodyH, extra, W, D);
+    else if (w.features.includes('lamp')) attachLamp(P, wl, bodyH, extra, W / 2 - wl / 2 - 0.02);
     else attachPlant(P, wl, bodyH, extra);
   }
   if (w.text_ && !P.list.some((p) => p.name === 'board')) {

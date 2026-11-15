@@ -50,8 +50,13 @@ export function checkWishes(spec: ObjectSpec, w: Wish): WishResult {
   }
   if (w.text_) say(spec.parts.some((p) => p.text?.value?.toUpperCase().includes(w.text_!.toUpperCase())), `printed ${w.text_}`);
   for (const f of w.features) {
-    const re: Record<string, RegExp> = { wheels: /wheel|caster/i, slide: /slide/i, ladder: /ladder|rung/i, lamp: /lamp|shade/i, plant: /plant/i, armrests: /arm/i, backrest: /back/i, rope: /rope|sisal/i, handles: /handle|knob|pull/i };
-    if (re[f]) say(spec.parts.some((p) => re[f].test(p.name)), f);
+    const re: Record<string, RegExp> = { wheels: /wheel|caster/i, slide: /slide/i, ladder: /ladder|rung/i, lamp: /lamp|shade/i, plant: /plant/i, armrests: /arm/i, backrest: /back/i, rope: /rope|sisal/i, handles: /handle|knob|pull/i, sliding: /track|sliding/i, 'monitor-arm': /monitor/i };
+    if (re[f]) say(spec.parts.some((p) => re[f].test(p.name)), f === 'monitor-arm' ? 'monitor arm' : f === 'sliding' ? 'sliding doors' : f);
+  }
+  // Phrases the parser did not know: met only when some part carries one of their words.
+  for (const u of w.unknown ?? []) {
+    const words = u.split(' ').filter((x) => x.length > 2);
+    say(words.some((x) => spec.parts.some((p) => p.name.toLowerCase().includes(x.replace(/s$/, '')))), u);
   }
   return { met, unmet };
 }

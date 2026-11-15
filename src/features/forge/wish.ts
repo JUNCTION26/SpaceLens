@@ -10,7 +10,7 @@ export type Archetype = 'carcass' | 'slab' | 'seat' | 'bed' | 'bunk' | 'frame' |
 export type Support = 'legs' | 'trestle' | 'pedestal' | 'hairpin' | 'sled' | 'plinth' | 'wheels';
 /** Part roles a material or colour can be pinned to. */
 export type Role = 'main' | 'top' | 'legs' | 'frame' | 'doors' | 'drawers' | 'shelves' | 'seat' | 'back' | 'cushions' | 'handles' | 'wheels' | 'post' | 'platforms';
-export type Feature = 'wheels' | 'handles' | 'backrest' | 'armrests' | 'slatted' | 'tufted' | 'lamp' | 'plant' | 'slide' | 'rope' | 'ladder' | 'cushions' | 'mirror' | 'headboard' | 'round-corners';
+export type Feature = 'wheels' | 'handles' | 'backrest' | 'armrests' | 'slatted' | 'tufted' | 'lamp' | 'plant' | 'slide' | 'rope' | 'ladder' | 'cushions' | 'mirror' | 'headboard' | 'round-corners' | 'sliding' | 'monitor-arm';
 export type CountKey = 'drawers' | 'doors' | 'shelves' | 'legs' | 'platforms' | 'seats' | 'wheels' | 'drums' | 'cymbals' | 'compartments';
 
 export interface Look { material?: MaterialId; color?: string }
@@ -34,6 +34,8 @@ export interface Wish {
   wallMounted: boolean;
   /** Mount height of the underside for wall-mounted things, metres. */
   elevation?: number;
+  /** Phrases from the description nothing here knows how to build ("with a cup holder"). */
+  unknown: string[];
 }
 
 interface Noun { en: string[]; sv?: string[]; fi?: string[]; arch: Archetype; size: [number, number, number]; cat: string; counts?: Partial<Record<CountKey, number>>; features?: Feature[]; support?: Support; round?: boolean; wall?: number }
@@ -152,7 +154,10 @@ const FEATURE_LEX: Array<[RegExp, Feature]> = [
   [/\b(slide|rutschkana|liukumäki)\b/, 'slide'], [/\b(rope|sisal|rep|köysi)\b/, 'rope'], [/\b(ladder|stege|tikkaat)\b/, 'ladder'],
   [/\b(cushions?|pillows?|kuddar|dynor|tyynyt)\b/, 'cushions'], [/\b(mirror|spegel|peili)\b/, 'mirror'], [/\b(headboard|sänggavel)\b/, 'headboard'],
   [/\b(rounded corners|round(ed)? edges|soft corners|rundade hörn|pyöristetyt)\b/, 'round-corners'],
+  [/\b(sliding|slide-?out)( doors?)?\b|\bskjutdörr\w*|\bliukuov\w*/, 'sliding'], [/\bmonitor (arm|mount|stand)s?\b|\bskärmarm\w*|\bnäyttövar\w*/, 'monitor-arm'],
 ];
+/** Words that carry no part of their own inside a "with ..." phrase. */
+const FILLER = /^(a|an|the|some|of|on|in|at|to|it|its|own|for|that|this|small|large|big|little|tiny|nice|extra|built-?in|integrated|matching|cm|mm|m|x|wide|tall|high|deep|long|thick|each|both|lots|plenty|space|room|storage|enough|en|ett|med|och|ja|top|bottom|side|front|back|left|right|inside|underneath|below|above|under|over)$/;
 const STYLE_LEX = ['modern', 'minimal', 'minimalist', 'scandinavian', 'nordic', 'industrial', 'rustic', 'vintage', 'retro', 'mid-century', 'classic', 'japandi', 'boho', 'art deco', 'farmhouse', 'luxury', 'playful', 'kids', 'skandinavisk', 'moderni', 'industriell'];
 
 // Finnish and Swedish words translated before the shared number parser runs.
@@ -241,7 +246,7 @@ export function parseWish(text: string): Wish {
     size: { w: noun.size[0], d: noun.size[1], h: noun.size[2] }, stated: { w: false, d: false, h: false },
     counts: { ...(noun.counts ?? {}) }, support: noun.support, round: !!noun.round,
     looks: {}, style: [], features: [...(noun.features ?? [])], text_: printed,
-    wallMounted: noun.wall !== undefined, elevation: noun.wall,
+    wallMounted: noun.wall !== undefined, elevation: noun.wall, unknown: [],
   };
   const toks = t.trim().split(' ');
 
@@ -288,6 +293,13 @@ export function parseWish(text: string): Wish {
   if (/\b(double|queen|king)\b/.test(t) && noun.arch === 'bed' && !w.stated.w) w.size.w = /king/.test(t) ? 1.8 : 1.6;
   if (/\b(single|twin)\b/.test(t) && noun.arch === 'bed' && !w.stated.w) w.size.w = 0.9;
 
+  // Children's furniture: scaled to a child unless the words gave the size.
+  if (/\b(kids?|kid's|child|children|childrens|toddler|barn|barnens|lasten|lapsen)\b/.test(t)) {
+    const KID: Record<string, [number, number, number]> = { desk: [0.9, 0.5, 0.6], table: [0.8, 0.6, 0.52], chair: [0.34, 0.36, 0.6], 'office-chair': [0.5, 0.5, 0.8], stool: [0.3, 0.3, 0.3], bookshelf: [0.6, 0.3, 1.1], wardrobe: [0.8, 0.5, 1.5] };
+    const k = KID[noun.cat];
+    if (k) (['w', 'd', 'h'] as const).forEach((key, i) => { if (!w.stated[key]) w.size[key] = k[i]; });
+  }
+
   // Support style.
   if (/\b(pedestal|central leg|pelarfot|tulip)\b/.test(t)) w.support = 'pedestal';
   else if (/\b(trestle|bock|pukki)\w*/.test(t)) w.support = 'trestle';
@@ -299,6 +311,8 @@ export function parseWish(text: string): Wish {
 
   // Features and style.
   for (const [re, f] of FEATURE_LEX) if (re.test(t) && !w.features.includes(f)) w.features.push(f);
+  if (w.features.includes('sliding')) w.features = w.features.filter((f) => f !== 'slide');
+  if (w.features.includes('sliding') && !w.counts.doors && noun.arch === 'carcass') w.counts.doors = 2;
   if (/\b(no|without|utan|ilman) (back|backrest|rygg|selkänojaa)\b|\bbackless\b/.test(t)) w.features = w.features.filter((f) => f !== 'backrest');
   if (/\b(no|without|utan|ilman) (arms|armrests|armstöd)\b|\barmless\b/.test(t)) w.features = w.features.filter((f) => f !== 'armrests');
   if (/\b(no|without|utan|ilman) (wheels|hjul)\b/.test(t)) w.features = w.features.filter((f) => f !== 'wheels');
@@ -337,7 +351,28 @@ export function parseWish(text: string): Wish {
   }
   if (w.looks.legs && w.support === undefined && /\bpedestal|jalusta|pelarfot\b/.test(t)) w.support = 'pedestal';
   for (const k of ['w', 'd', 'h'] as const) w.size[k] = ROUND3(w.size[k]);
+  w.unknown = unknownPhrases(t, w, !!found);
   return w;
+}
+
+/** The parts of the description nothing above understood: the noun when none was recognised, and
+ *  leftover words in "with ..." phrases. Each is reported back as a wish that could not be met. */
+function unknownPhrases(t: string, w: Wish, nounFound: boolean): string[] {
+  const out: string[] = [];
+  const segs = t.trim().split(/\s(?:with|and|plus|featuring|med|och|jossa|ja)\s/);
+  const known = (tok: string) => FILLER.test(tok) || /^\d+([.,]\d+)?(cm|mm|m)?$/.test(tok) || tok in NUMBER_WORDS
+    || COUNT_NOUNS.some(([re]) => re.test(tok)) || ROLE_LEX.some(([re]) => re.test(tok)) || MATERIAL_LEX.some(([re]) => re.test(tok))
+    || !!findColors(` ${tok} `)[0] || STYLE_LEX.includes(tok) || NOUNS.some((n) => n.en.some((e) => e.split(' ').includes(tok)))
+    || (!!w.text_ && /^(name|sign|plate|label|text|word|words|letters|lettering|nameplate|plaque)s?$/.test(tok))
+    || /^(round|square|rectangular|oval|wooden|metal|kids?|child|children|for|people|persons|seater|soft|plush|open|closed|matte|glossy|dark|light|natural|painted|solid)$/.test(tok);
+  const leftover = (seg: string) => {
+    let s = ` ${seg} `;
+    for (const [re] of FEATURE_LEX) s = s.replace(new RegExp(re.source, 'g'), ' ');
+    return s.trim().split(/\s+/).filter((x) => x && !known(x));
+  };
+  if (!nounFound) { const head = leftover(segs[0]).slice(-2).join(' '); if (head) out.push(head); }
+  for (const seg of segs.slice(1)) { const rest = leftover(seg); if (rest.length) out.push(rest.join(' ')); }
+  return out;
 }
 
 /** The wishes as short, checkable lines (for prompts and for reporting what was met). */
