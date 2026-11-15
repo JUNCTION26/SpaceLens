@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Text } from '@react-three/drei';
+import { Text, Billboard, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
@@ -9,6 +9,10 @@ import { itemCorners, pointInPolygon } from '../../core/geometry';
 import type { FurnitureItem, Vec2 } from '../../core/types';
 import { FurnitureMesh } from '../furniture/FurnitureMesh';
 
+import { isFreeFloor, tap, idle, midpoint, formatMetres, reportMeasured, type MeasureState, type P3 } from './measure';
+import { sessionHasHitTest } from './xrSupport';
+
+const EYE_HEIGHT = 1.6;
 const SNAP = 0.05;
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 const PINCH_ON = 0.02, PINCH_OFF = 0.035;
@@ -53,11 +57,27 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
   const mic = useRef<THREE.Mesh>(null);
   const lastStick = useRef(0);
   const canVoice = typeof window !== 'undefined' && !!((window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
+  const floorless = useRef(false);
+  const isAR = useRef(false);
+  const hitSrc = useRef<XRHitTestSource | null>(null);
+  const reticle = useRef<THREE.Mesh>(null);
+  const lastHit = useRef<P3 | null>(null);
+  const [meas, setMeas] = useState<MeasureState>(idle);
+  const measRef = useRef<MeasureState>(idle);
   const spawnRef = useRef({ pos: spawn, yaw: spawnYaw }); spawnRef.current = { pos: spawn, yaw: spawnYaw };
 
   const fits = (it: FurnitureItem, x: number, y: number, rotation = it.rotation) => {
     const c = itemCorners({ ...it, x, y, rotation });
     return spaces.some((sp) => c.every((p) => pointInPolygon(p, sp.polygon)));
+  };
+
+  /** Free floor: inside a room, off every furniture footprint, and the straight walk there stays inside rooms (no walls). */
+  const canStand = (p: Vec2) => {
+    const inRoom = (q: Vec2) => spaces.some((sp) => pointInPolygon(q, sp.polygon));
+    if (!isFreeFloor(p, [0], items, (q) => inRoom(q), (q, it) => pointInPolygon(q, itemCorners(it)))) return false;
+    const a = userPos.current, n = Math.max(1, Math.ceil(Math.hypot(p.x - a.x, p.y - a.y) / 0.25));
+    for (let i = 1; i < n; i++) if (!inRoom({ x: a.x + (p.x - a.x) * i / n, y: a.y + (p.y - a.y) * i / n })) return false;
+    return true;
   };
 
   /**
@@ -71,7 +91,7 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
     const c = Math.cos(-yaw), s = Math.sin(-yaw);
     // rotate (-p) about +Y by -yaw
     const x = -p.x * c + -p.y * s, z = -(-p.x) * s + -p.y * c;
-    gl.xr.setReferenceSpace(b.getOffsetReferenceSpace(new XRRigidTransform({ x, y: 0, z }, { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) })));
+    gl.xr.setReferenceSpace(b.getOffsetReferenceSpace(new XRRigidTransform({ x, y: floorless.current ? -EYE_HEIGHT : 0, z }, { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) })));
   };
 
   // Controllers, grips and hands live in the scene only while a session runs.
@@ -97,12 +117,29 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
     }
     hands.current = list;
     const start = () => {
+      const session = gl.xr.getSession();
       base.current = gl.xr.getReferenceSpace();
       added.forEach((o) => scene.add(o));
       setPresenting(true);
-      moveUser(spawnRef.current.pos, spawnRef.current.yaw);
+      isAR.current = !!session && (session as unknown as { environmentBlendMode?: string }).environmentBlendMode !== 'opaque';
+      const feats = (session as unknown as { enabledFeatures?: string[] } | null)?.enabledFeatures;
+      floorless.current = Array.isArray(feats) ? !feats.includes('local-floor') && !feats.includes('bounded-floor') : false;
+      if (isAR.current) {
+        // AR: the real room is the room. No teleport; measure with hit-test when granted.
+        if (session && sessionHasHitTest(session)) {
+          session.requestReferenceSpace('viewer').then((vs) => session.requestHitTestSource?.({ space: vs }))
+            .then((src) => { hitSrc.current = src ?? null; }).catch(() => { hitSrc.current = null; });
+        }
+      } else {
+        // VR: stand at the door, facing in, at standing eye height, true scale.
+        moveUser(spawnRef.current.pos, spawnRef.current.yaw);
+      }
     };
-    const end = () => { added.forEach((o) => scene.remove(o)); base.current = null; heldRef.current = null; setHeld(null); setPresenting(false); };
+    const end = () => {
+      added.forEach((o) => scene.remove(o)); base.current = null; heldRef.current = null; setHeld(null); setPresenting(false);
+      try { hitSrc.current?.cancel(); } catch { /* ignore */ }
+      hitSrc.current = null; lastHit.current = null; isAR.current = false; measRef.current = idle; setMeas(idle);
+    };
     gl.xr.addEventListener('sessionstart', start);
     gl.xr.addEventListener('sessionend', end);
     return () => { gl.xr.removeEventListener('sessionstart', start); gl.xr.removeEventListener('sessionend', end); end(); };
@@ -111,9 +148,21 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
 
   const tmpA = useMemo(() => new THREE.Vector3(), []), tmpB = useMemo(() => new THREE.Vector3(), []);
 
-  useFrame(() => {
+  useFrame((_, __, frame) => {
     if (!presenting) return;
     const st = useStore.getState();
+    // AR hit-test: keep a reticle on the real surface the phone/headset points at.
+    const xrFrame = frame as unknown as XRFrame | undefined;
+    if (hitSrc.current && xrFrame && base.current) {
+      const r = xrFrame.getHitTestResults(hitSrc.current)[0];
+      const pose = r?.getPose(base.current);
+      if (pose) {
+        const t = pose.transform.position;
+        lastHit.current = { x: t.x, y: t.y, z: t.z };
+        reticle.current?.position.set(t.x, t.y + 0.005, t.z);
+        if (reticle.current) reticle.current.visible = true;
+      } else { lastHit.current = null; if (reticle.current) reticle.current.visible = false; }
+    }
     hands.current.forEach((h) => {
       h.ray = null;
       if (!h.src) return;
@@ -138,6 +187,13 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
 
     hands.current.forEach((h, idx) => {
       const ray = h.ray;
+      if (isAR.current && h.down) {
+        // Tap = place a measuring point on the surface under the reticle.
+        h.down = false;
+        const p = lastHit.current;
+        if (p) { const n = tap(measRef.current, p); measRef.current = n; setMeas(n); if (n.phase === 'done') reportMeasured(n.metres); }
+        return;
+      }
       if (h.down && ray) {
         h.down = false;
         // Mic button first, then furniture, then floor teleport.
@@ -157,7 +213,7 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
           }
         } else if (fp) {
           const p = { x: fp.x, y: fp.z };
-          if (spaces.some((sp) => pointInPolygon(p, sp.polygon))) moveUser(p);
+          if (canStand(p)) moveUser(p);
         }
       }
       h.down = false;
@@ -209,8 +265,29 @@ export function XRRig({ spawn, spawnYaw = 0 }: { spawn: Vec2; spawnYaw?: number 
   if (!presenting) return null;
   const selItem = sel?.kind === 'furniture' ? items.find((f) => f.id === sel.id) : undefined;
   const heldItem = held ? items.find((f) => f.id === held.id) : undefined;
+  const pts = meas.phase === 'idle' ? [] : meas.phase === 'first' ? [meas.a] : [meas.a, meas.b];
   return (
     <>
+      <mesh ref={reticle} rotation-x={-Math.PI / 2} visible={false}>
+        <ringGeometry args={[0.03, 0.04, 32]} />
+        <meshBasicMaterial color="#4da3ff" />
+      </mesh>
+      {pts.map((p, i) => (
+        <mesh key={i} position={[p.x, p.y, p.z]}>
+          <sphereGeometry args={[0.012, 12, 8]} />
+          <meshBasicMaterial color="#ff5a5f" />
+        </mesh>
+      ))}
+      {meas.phase === 'done' && (
+        <>
+          <Line points={[[meas.a.x, meas.a.y, meas.a.z], [meas.b.x, meas.b.y, meas.b.z]]} color="#ffffff" lineWidth={2} />
+          <Billboard position={[midpoint(meas.a, meas.b).x, midpoint(meas.a, meas.b).y + 0.05, midpoint(meas.a, meas.b).z]}>
+            <Text fontSize={0.05} color="#ffffff" outlineWidth={0.004} outlineColor="#000000" anchorX="center" anchorY="middle">
+              {formatMetres(meas.metres)}
+            </Text>
+          </Billboard>
+        </>
+      )}
       {heldItem && held && <FurnitureMesh item={{ ...heldItem, x: held.x, y: held.y, rotation: held.rot, id: heldItem.id + '-xr' }} ghost />}
       <group ref={panel} visible={false}>
         <mesh position={[0, 0, -0.002]}>
