@@ -236,7 +236,7 @@ export function rulesBrief(text: string): ThemeBrief {
 
 // ---- model brief ------------------------------------------------------------------------------
 
-const BRIEF_SCHEMA = {
+export const BRIEF_SCHEMA = {
   type: 'OBJECT',
   properties: {
     title: { type: 'STRING' }, purpose: { type: 'STRING' }, forWhom: { type: 'STRING' },

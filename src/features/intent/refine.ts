@@ -28,7 +28,7 @@ export interface RefinePatch {
   items?: RequirementItem[] | null; routeTargets?: Requirements['routeTargets'] | null; reply?: string;
 }
 
-const PATCH_SCHEMA = {
+export const PATCH_SCHEMA = {
   type: 'OBJECT',
   properties: {
     purpose: { type: 'STRING', nullable: true },
