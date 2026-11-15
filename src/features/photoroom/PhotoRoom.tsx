@@ -84,10 +84,6 @@ export function PhotoRoom() {
           <div className="proom-chips">
             <span className="chip" title="Size">{len(live, 'back').toFixed(1)} x {len(live, 'left').toFixed(1)} m</span>
             <span className="chip" title="Ceiling">{live.ceilingM.toFixed(1)} m <Icon name="maximize" size={12} /></span>
-            <span className="chip" title="Items">{live.furniture.length} <Icon name="sofa" size={12} /></span>
-            <span className={`chip ${space.walls.some((w) => w.status === 'verified') ? 'chip-ok' : result.est.confidence >= 0.7 ? 'chip-ok' : result.est.confidence >= 0.45 ? 'chip-warn' : 'chip-bad'}`} title="Scale">
-              {space.walls.some((w) => w.status === 'verified') ? <Icon name="check" size={12} /> : `${Math.round(result.est.confidence * 100)}%`} <Icon name="ruler" size={12} />
-            </span>
           </div>
 
           <form className="proom-scale" onSubmit={(e) => { e.preventDefault(); rescale(); }}>
