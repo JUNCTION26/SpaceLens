@@ -3,6 +3,7 @@ import { useStore } from '../../core/store';
 import { fmtSek } from '../../core/geometry';
 import { Icon } from '../../ui/icons';
 import { castVote, createPoll, getPoll, ownsPoll, pollIdFromUrl, pollsEnabled, votedChoice, winnerOf, type Poll, type PollPlan } from './api';
+import { QrShare } from '../export/QrShare';
 import './vote.css';
 
 /** Share for the Layouts compare view: makes a poll from the layouts and copies its link. Hidden without a server. */
@@ -10,21 +11,26 @@ export function SharePoll() {
   const candidates = useStore((s) => s.candidates);
   const model = useStore((s) => s.model);
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'fail'>('idle');
+  const [pollLink, setPollLink] = useState<string | null>(null);
   if (!pollsEnabled() || candidates.length < 2) return null;
   const share = async () => {
     setState('busy');
     try {
       const { link } = await createPoll(model, candidates);
-      try { await navigator.clipboard.writeText(link); } catch { window.prompt('Link', link); }
+      setPollLink(link);
+      try { await navigator.clipboard.writeText(link); } catch { /* QR card shows the link */ }
       setState('done');
     } catch { setState('fail'); }
     setTimeout(() => setState('idle'), 2500);
   };
   return (
-    <button className="btn btn-sm btn-ghost" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite">
-      <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'share'} size={14} />
-      {state === 'done' ? 'Copied' : state === 'fail' ? 'Failed' : 'Share'}
-    </button>
+    <>
+      <button className="btn btn-sm btn-ghost" disabled={state === 'busy'} onClick={() => void share()} aria-live="polite">
+        <Icon name={state === 'done' ? 'check' : state === 'fail' ? 'alert' : 'share'} size={14} />
+        {state === 'done' ? 'Copied' : state === 'fail' ? 'Failed' : 'Share'}
+      </button>
+      {pollLink && <QrShare link={pollLink} />}
+    </>
   );
 }
 

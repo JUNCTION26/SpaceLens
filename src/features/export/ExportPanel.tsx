@@ -11,6 +11,7 @@ import { quantities } from './quantities';
 import { exportGlb } from './glb';
 import { validateModel } from './validate';
 import { shareLink } from './share';
+import { QrShare } from './QrShare';
 import { Icon } from '../../ui/icons';
 import './export.css';
 
@@ -148,6 +149,8 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void importJson(f); e.target.value = ''; }} />
         </li>
       </ul>
+
+      <QrShare getLink={() => shareLink(model)} />
 
       <div className="export-preview" dangerouslySetInnerHTML={{ __html: preview }} />
 
