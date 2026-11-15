@@ -8,7 +8,7 @@ import { followUpRoom, isFollowUp, resetFollowMemory } from './refine';
 vi.mock('../../core/gemini', () => ({ hasGemini: () => false, gemini: async () => ({}), usage: { calls: 0, inputTokens: 0, outputTokens: 0 } }));
 
 const apply = (m: SpaceModel, ops: Op[]) => ops.reduce(applyOp, m);
-const base = (): SpaceModel => ({ ...sampleRoom(), furniture: [{ ...makeItem('desk', { x: 2.5, y: 3, rotation: 0 }), id: 'd1' }, { ...makeItem('bed', { x: 1, y: 2.5, rotation: 0 }), id: 'b1' }] });
+const base = (): SpaceModel => ({ ...sampleRoom(), furniture: [{ ...makeItem('desk-120', { x: 2.8, y: 2.6, rotation: Math.PI / 2 }), id: 'd1' }, { ...makeItem('bed-single', { x: 0.46, y: 1.6, rotation: 0 }), id: 'b1' }] });
 
 describe('follow-up memory', () => {
   it('"it" means the desk from the previous sentence', async () => {
@@ -23,7 +23,7 @@ describe('follow-up memory', () => {
     if (b.ok) m = apply(m, b.ops);
     const d = m.furniture.find((f) => f.id === 'd1')!;
     expect(d.x).toBeLessThan(x0);
-    expect(m.furniture.find((f) => f.id === 'b1')!.x).toBeCloseTo(1, 5);
+    expect(m.furniture.find((f) => f.id === 'b1')!.x).toBeCloseTo(0.46, 5);
   });
   it('after a reset "it" is unknown', async () => {
     resetFollowMemory();
