@@ -79,7 +79,7 @@ export function buildCommands(): Cmd[] {
   add({ id: 'undo', group: 'Edit', label: 'Undo', icon: 'undo', hint: 'Ctrl Z', words: 'back revert', run: () => st().undo() });
   add({ id: 'redo', group: 'Edit', label: 'Redo', icon: 'redo', hint: 'Ctrl Y', words: 'forward again', run: () => st().redo() });
   add({ id: 'clear', group: 'Edit', label: 'Clear room', icon: 'trash', words: 'empty reset new blank delete all start over', run: () => st().dispatch({ type: 'REPLACE_MODEL', model: emptyModel() }) });
-  add({ id: 'sample', group: 'Load', label: 'Load sample', icon: 'home', words: 'sample demo room example', run: () => { st().dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); useUi.getState().openSection('describe'); } });
+  add({ id: 'sample', group: 'Load', label: 'My room', icon: 'home', words: 'sample demo room example starter', run: () => { st().dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); useUi.getState().openSection('describe'); } });
   for (const [k, label, words] of [['villa', 'Demo villa', 'house home'], ['office', 'Demo office', 'work company'], ['lshape', 'Demo L-shape', 'l shape corner floor']] as const) {
     add({ id: `demo:${k}`, group: 'Load', label, icon: 'grid', words: `demo load building ${words}`, run: () => {
       void import('../building/demo').then((m) => m.loadDemo(k, true)).then(() => useUi.getState().openSection('building'));
