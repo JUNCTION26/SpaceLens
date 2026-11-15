@@ -284,12 +284,12 @@ export function ifcToModel(text: string, name = 'model.ifc', opts: { now?: numbe
   for (const g of byLevel.values()) if (g.length > pick.length) pick = g;
   if (levels > 1) warnings.push(`The file has ${levels} levels; read the one with the most spaces (${pick.length}).`);
 
-  // Foreign files are y-up when viewed from above; the plan is y-down, so flip. Files written by
-  // SpaceLens already use plan axes.
-  const flip = ours ? 1 : -1;
+  // IFC is y-up when viewed from above; the plan is y-down, so flip. Files written by SpaceLens
+  // keep their absolute position; other files are moved to the plan origin.
+  const flip = -1;
   const pts0 = pick.flatMap((f) => f.poly);
-  const minX = pts0.length ? Math.min(...pts0.map((p) => p.x)) : 0;
-  const minY = pts0.length ? Math.min(...pts0.map((p) => p.y * flip)) : 0;
+  const minX = pts0.length && !ours ? Math.min(...pts0.map((p) => p.x)) : 0;
+  const minY = pts0.length && !ours ? Math.min(...pts0.map((p) => p.y * flip)) : 0;
   const spaces: Space[] = [];
   for (const f of pick) {
     let poly = f.poly.map((p) => ({ x: r3(p.x - minX), y: r3(p.y * flip - minY) }));
@@ -317,4 +317,9 @@ export function ifcToModel(text: string, name = 'model.ifc', opts: { now?: numbe
     spaces, openings: [], furniture: [], measurements: [], evidence,
   };
   return { model, report: { spaces: total, converted: spaces.length, levels, unitM, schema, warnings } };
+}
+
+/** Reads an IFC file picked by the user. */
+export async function openIfcFile(file: File): Promise<IfcResult> {
+  return ifcToModel(await file.text(), file.name);
 }

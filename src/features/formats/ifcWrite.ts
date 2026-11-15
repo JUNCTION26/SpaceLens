@@ -33,8 +33,12 @@ const str = (s: string) =>
     return `\\X2\\${cp.toString(16).toUpperCase().padStart(4, '0')}\\X0\\`;
   }).join('') + "'";
 
-export function modelToIfc(model: SpaceModel): string {
-  const lines: string[] = [];
+/**
+ * The plan has y pointing down; IFC is right-handed with y and z up. Every plan coordinate is
+ * written as (x, -y), directions as (dx, -dy) and rotations as -angle, so the building looks the
+ * same from above in any IFC viewer. A clockwise-on-screen footprint becomes counter-clockwise.
+ */
+export function modelToIfc(model: SpaceModel): string {  const lines: string[] = [];
   let n = 0;
   const add = (body: string) => { lines.push(`#${++n}=${body};`); return `#${n}`; };
   const pt3 = (x: number, y: number, z: number) => add(`IFCCARTESIANPOINT((${num(x)},${num(y)},${num(z)}))`);
@@ -82,7 +86,10 @@ export function modelToIfc(model: SpaceModel): string {
   const wallIds = new Map<string, string>();
 
   for (const sp of model.spaces) {
-    const pts = sp.polygon.map((p) => add(`IFCCARTESIANPOINT((${num(p.x)},${num(p.y)}))`));
+    const ring = sp.polygon.map((p) => ({ x: p.x, y: -p.y }));
+    const signed = ring.reduce((a, p, i) => { const q = ring[(i + 1) % ring.length]; return a + p.x * q.y - q.x * p.y; }, 0);
+    if (signed < 0) ring.reverse(); // profiles are counter-clockwise
+    const pts = ring.map((p) => add(`IFCCARTESIANPOINT((${num(p.x)},${num(p.y)}))`));
     const poly = add(`IFCPOLYLINE((${[...pts, pts[0]].join(',')}))`);
     const prof = add(`IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,${poly})`);
     const spPl = local(stPl, 0, 0, 0);
@@ -94,7 +101,7 @@ export function modelToIfc(model: SpaceModel): string {
       const L = Math.hypot(q.x - p.x, q.y - p.y);
       if (L < 1e-6) return;
       const t = sp.walls[i]?.thicknessM ?? 0.12;
-      const pl = local(stPl, p.x, p.y, 0, (q.x - p.x) / L, (q.y - p.y) / L);
+      const pl = local(stPl, p.x, -p.y, 0, (q.x - p.x) / L, -(q.y - p.y) / L);
       const sh = shape(rect(L / 2, 0, L, t), model.ceilingM);
       wallIds.set(`${sp.id}:${i}`, add(`IFCWALLSTANDARDCASE(${g(`wall:${sp.id}:${i}`)},$,${str(`${sp.name} wall ${i + 1}`)},$,$,${pl},${sh},$,.STANDARD.)`));
       contained.push(wallIds.get(`${sp.id}:${i}`)!);
@@ -110,7 +117,7 @@ export function modelToIfc(model: SpaceModel): string {
     const L = Math.hypot(q.x - p.x, q.y - p.y) || 1;
     const ux = (q.x - p.x) / L, uy = (q.y - p.y) / L;
     const t = (sp.walls[o.wallIndex]?.thicknessM ?? 0.12) + 0.02;
-    const pl = local(stPl, p.x + ux * o.offsetM, p.y + uy * o.offsetM, o.sillM, ux, uy);
+    const pl = local(stPl, p.x + ux * o.offsetM, -(p.y + uy * o.offsetM), o.sillM, ux, -uy);
     const sh = shape(rect(0, 0, o.widthM, t), o.heightM);
     const label = o.kind[0].toUpperCase() + o.kind.slice(1) + ' ' + o.id;
     // The hole: an opening element voiding the wall, slightly deeper than the wall itself.
@@ -118,7 +125,7 @@ export function modelToIfc(model: SpaceModel): string {
     const wall = wallIds.get(`${o.spaceId}:${o.wallIndex}`);
     if (wall) add(`IFCRELVOIDSELEMENT(${g('rel:void:' + o.id)},$,$,$,${wall},${hole})`);
     if (o.kind === 'opening') continue;
-    const fpl = local(stPl, p.x + ux * o.offsetM, p.y + uy * o.offsetM, o.sillM, ux, uy);
+    const fpl = local(stPl, p.x + ux * o.offsetM, -(p.y + uy * o.offsetM), o.sillM, ux, -uy);
     const fsh = shape(rect(0, 0, o.widthM, t), o.heightM);
     const common = `${g('opening:' + o.id)},$,${str(label)},$,$,${fpl},${fsh},$`;
     const fill = o.kind === 'door'
@@ -129,7 +136,7 @@ export function modelToIfc(model: SpaceModel): string {
   }
 
   for (const f of model.furniture) {
-    const pl = local(stPl, f.x, f.y, f.elevationM ?? 0, Math.cos(f.rotation), Math.sin(f.rotation));
+    const pl = local(stPl, f.x, -f.y, f.elevationM ?? 0, Math.cos(f.rotation), -Math.sin(f.rotation));
     const sh = shape(rect(0, 0, f.w, f.d), f.h);
     contained.push(add(`IFCFURNISHINGELEMENT(${g('furniture:' + f.id)},$,${str(f.name)},${str(f.category)},$,${pl},${sh},$)`));
   }

@@ -19,6 +19,28 @@ describe('ifc reader', () => {
     expect(back.spaces.every((s) => s.walls.every((w) => w.status === 'estimated'))).toBe(true);
     expect(back.sourceLabel).toContain('estimated');
   });
+  it('round-trips an asymmetric L room within 1 mm and writes y negated', () => {
+    const m = sampleRoom();
+    const L = [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 2, y: 2 }, { x: 2, y: 3 }, { x: 0, y: 3 }];
+    const sp = { ...m.spaces[0], name: 'L room', polygon: L, walls: L.map(() => m.spaces[0].walls[0]) };
+    const item = { ...m.furniture[0], x: 1, y: 2, rotation: Math.PI / 2 };
+    const model = { ...m, spaces: [sp], openings: [], furniture: [item] };
+    const ifc = modelToIfc(model);
+    // corner (4,2) of the plan is (4,-2) in IFC; a mirrored writer would put y = +2
+    expect(ifc).toContain('IFCCARTESIANPOINT((4.,-2.))'.replace('4.,', '4.0,').replace('-2.', '-2.0'));
+    expect(ifc).not.toContain('IFCCARTESIANPOINT((4.0,2.0))');
+    // item at (1,2) turned a quarter turn on the plan: placed at (1,-2), x axis pointing (0,-1)
+    expect(ifc).toContain('IFCCARTESIANPOINT((1.0,-2.0,0.0))');
+    expect(ifc).toContain('IFCDIRECTION((0.0,-1.0,0.0))');
+    const { model: back } = ifcToModel(ifc, 'l.ifc', { now: 1 });
+    expect(back.spaces[0].name).toBe('L room');
+    // the profile is written counter-clockwise, so the start vertex may differ: match as a set
+    expect(back.spaces[0].polygon).toHaveLength(L.length);
+    for (const c of L) {
+      expect(back.spaces[0].polygon.some((p) => Math.abs(p.x - c.x) < 0.001 && Math.abs(p.y - c.y) < 0.001)).toBe(true);
+    }
+    expect(area(back.spaces[0].polygon)).toBeCloseTo(10, 3);
+  });
   it('survives garbage', () => {
     expect(ifcToModel('not ifc').report.converted).toBe(0);
     expect(ifcToModel('DATA;\n#1=IFCSPACE(').report.converted).toBe(0);
