@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
 import { centroid } from '../../core/geometry';
+import { applyOp } from '../../core/ops';
 import type { RouteResult } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { RuleSelector } from '../jurisdiction/RuleSelector';
 import { applyPack, packFor, type PackId } from '../jurisdiction/rulepacks';
 import { assessSafety, SAFETY_DEFAULT_INFO, SAFETY_DEFAULTS, type SafetyConfig, type SafetyFinding, type SafetyKey, type SafetyReport } from './assess';
 import { ReportButton } from './ReportButton';
+import { assessAccess, type AccessReport } from './access';
+import { planPlacement, type PlacementResult } from './placement';
 import { DrillButton } from './DrillButton';
 import { evacHeat } from './evac';
 import { evacuationPlanSvg } from './plan';
@@ -46,6 +49,10 @@ export function SafetyPanel() {
   const [here, setHere] = useState('');
   const [play, setPlay] = useState<{ t: number; on: boolean } | null>(null);
   const timer = useRef<number | null>(null);
+  const [acc, setAcc] = useState<AccessReport | null>(null);
+  const [plc, setPlc] = useState<PlacementResult | null>(null);
+  const [showRoutes, setShowRoutes] = useState(false);
+  const [showEquip, setShowEquip] = useState(false);
 
   const exitOverrides = useMemo(() => saved.exits[model.id] ?? {}, [saved, model.id]);
   const occupancy = occ.trim() === '' ? undefined : Math.max(0, Math.round(Number(occ)));
@@ -58,6 +65,27 @@ export function SafetyPanel() {
     }, 40);
     return () => { clearTimeout(t); clearTimeout(spin); };
   }, [model, saved.config, exitOverrides, occupancy]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const opts = { pack: packFor(country), config: saved.config, exitOverrides };
+      try { setAcc(assessAccess(model, model.furniture, opts)); } catch { setAcc(null); }
+      try { setPlc(planPlacement(model, model.furniture, opts)); } catch { setPlc(null); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [model, country, saved.config, exitOverrides]);
+
+  useEffect(() => {
+    if (showRoutes && acc) { setAnalysis({ highlights: acc.highlights, routes: acc.routes.map((r) => ({ id: `access:${r.id}`, profile: 'wheelchair', points: r.points, ok: r.ok, lengthM: null, narrowestM: null, label: r.label })) }); toggleLayer('routes', true); }
+    else if (showEquip && plc) setAnalysis({ highlights: plc.highlights });
+  }, [showRoutes, showEquip, acc, plc, setAnalysis, toggleLayer]);
+  useEffect(() => () => { if (useStore.getState().analysis) setAnalysis({ highlights: [], routes: [] }); }, [setAnalysis]);
+
+  const toggleRoutes = () => { const on = !showRoutes; setShowRoutes(on); if (on) setShowEquip(false); else setAnalysis({ highlights: [], routes: [] }); };
+  const toggleEquip = () => { const on = !showEquip; setShowEquip(on); if (on) setShowRoutes(false); setAnalysis(on ? { highlights: plc?.highlights ?? [], routes: [] } : { highlights: [], routes: [] }); };
+  const fixAccess = (ops: import('../../core/types').Op[]) => {
+    try { let m = model; for (const op of ops) m = applyOp(m, op); dispatch({ type: 'REPLACE_MODEL', model: m }); } catch { /* keep model */ }
+  };
 
   const stopPlay = () => { if (timer.current) clearInterval(timer.current); timer.current = null; };
   useEffect(() => () => stopPlay(), []);
@@ -143,6 +171,34 @@ export function SafetyPanel() {
           </button>
         ))}
       </div>
+
+      {tab === 'access' && acc && acc.total > 0 && (
+        <section className="safety-block safety-adv" aria-label="Wheelchair access">
+          <div className="safety-adv-head">
+            <span className={`safety-chip ${acc.reachableCount === acc.total ? 'ok' : 'bad'}`}>{acc.reachableCount}/{acc.total} reachable</span>
+            <button className="btn btn-sm btn-ghost" aria-pressed={showRoutes} onClick={toggleRoutes}><Icon name="eye" size={14} /> Show routes</button>
+          </div>
+          {acc.destinations.filter((d) => !d.reachable).slice(0, 6).map((d) => (
+            <div key={d.id} className="safety-adv-row">
+              <span className="safety-title" title={d.label}>{d.label}{d.blocking ? ` · ${d.blocking.id ?? d.blocking.kind}` : ''}</span>
+              {d.fix && <button className="btn btn-sm" onClick={() => fixAccess(d.fix!.ops)}><Icon name="check" size={14} /> {d.fix.label}</button>}
+            </div>
+          ))}
+        </section>
+      )}
+      {tab === 'fire' && plc && plc.suggestions.length > 0 && (
+        <section className="safety-block safety-adv" aria-label="Equipment">
+          <div className="safety-adv-head">
+            <button className="btn btn-sm btn-ghost" aria-pressed={showEquip} onClick={toggleEquip}><Icon name="eye" size={14} /> Equipment</button>
+          </div>
+          <div className="safety-chips">
+            {([['smoke-alarm', 'Alarms'], ['extinguisher', 'Extinguishers'], ['exit-sign', 'Signs'], ['fire-blanket', 'Blankets']] as const).map(([k, n]) => {
+              const c = plc.suggestions.filter((x) => x.kind === k).length;
+              return c ? <span key={k} className="safety-chip">{n} {c}</span> : null;
+            })}
+          </div>
+        </section>
+      )}
 
       {list.length ? (
         <ul className="safety-list">

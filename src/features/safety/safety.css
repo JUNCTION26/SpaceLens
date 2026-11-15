@@ -43,3 +43,10 @@
 @media (min-width: 700px) { .safety-country select { height: 32px !important; min-height: 32px; padding-top: 0; padding-bottom: 0; } }
 .safety-country .report-btn { height: 32px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-weight: var(--fw-strong); font-size: var(--fs-sm); white-space: nowrap; }
 .safety-country .report-btn:hover { background: var(--panel-2); }
+
+.safety-adv-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.safety-adv-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.safety-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.safety-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; }
+.safety-chip.ok { color: var(--ok, inherit); }
+.safety-chip.bad { color: var(--warn); }
