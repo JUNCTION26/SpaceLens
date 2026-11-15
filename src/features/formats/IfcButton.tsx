@@ -10,7 +10,8 @@ export function IfcButton({ model, className }: { model: SpaceModel; className?:
     a.href = url;
     a.download = `${model.name.replace(/[^\w .-]/g, '_') || 'space'}.ifc`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revoked a moment later: some browsers read the blob after click() returns.
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
   return <button type="button" className={className} onClick={download} title="IFC"><Icon name="cube" size={18} /><span>IFC</span></button>;
 }
