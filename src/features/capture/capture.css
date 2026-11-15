@@ -83,8 +83,8 @@
 .capture-stats span { font-size: 0.8rem; opacity: 0.75; }
 @media (max-width: 420px) { .capture-steps li span { display: none; } .capture-tiles { grid-template-columns: repeat(3, 1fr); } }
 .capture { min-height: 100%; }
-.capture-methods { display: flex; flex-direction: column; gap: 8px; }
-.capture-method { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; min-height: 72px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); text-align: left; cursor: pointer; font-size: 13px; }
+.capture-methods { display: flex; flex-direction: column; gap: 6px; }
+.capture-method { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0 12px; min-height: 40px; height: 40px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); text-align: left; cursor: pointer; font-size: 13px; }
 .capture-method:hover { border-color: var(--accent); }
 .capture-method > span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .capture-method small { color: var(--muted); font-size: 12px; }
@@ -101,3 +101,9 @@
 .capture-hint { font-weight: 560; font-size: 13px; }
 
 .capture-fs > .chip { display: inline-block; width: auto; margin: 6px 0 0; }
+
+.capture-size { display: flex; align-items: flex-end; gap: 6px; }
+.capture-size label { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 11px; color: var(--muted); }
+.capture-size input { width: 100%; min-width: 0; text-align: center; }
+.capture-size .chip { white-space: nowrap; }
+.capture-size-warn { margin: 4px 0 0; }

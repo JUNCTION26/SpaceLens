@@ -14,7 +14,7 @@ export function Stepper({ step, hint, onBack, onNext, nextLabel = 'Next', nextOk
         ))}
       </ol>
       <div className="capture-progress"><i style={{ width: `${(step / (STEPS.length - 1)) * 100}%` }} /></div>
-      <p className="capture-hint">{hint}</p>
+      {hint && <p className="capture-hint">{hint}</p>}
       {children}
       {(onBack || onNext) && (
         <div className="row capture-nav">
