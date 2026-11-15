@@ -45,6 +45,10 @@ export class AiError extends Error {
   readonly reason: AiReason;
   /** Every model would fail the same way (e.g. the server's rate limit): stop trying others. */
   stopAll = false;
+  /** The SpaceLens server's error code, e.g. 'rate_limited' (its own limit) or 'upstream_quota' (Gemini's). */
+  code?: string;
+  /** Seconds the server asked us to wait before trying again. */
+  retryAfterS?: number;
   constructor(message: string, readonly kind: 'http' | 'timeout' | 'abort' | 'blocked' | 'parse', readonly status = 0, reason?: AiReason) {
     super(message);
     this.name = 'AiError';
@@ -93,7 +97,8 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
       const body = await res.text().catch(() => '');
       const msg = body.match(/"message":\s*"([^"]*)"/)?.[1] ?? body.slice(0, 160);
       const code = body.match(/"code":\s*"([a-z_]+)"/)?.[1];
-      throw httpError(model, res.status, msg, code);
+      const wait = Number(body.match(/"retryAfterS":\s*(\d+)/)?.[1] ?? res.headers?.get?.('retry-after'));
+      throw httpError(model, res.status, msg, code, wait);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -108,7 +113,7 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
       if (payload.error) {
         const code = payload.error.code;
         // Google sends a numeric code; the server sends one of its own string codes.
-        if (typeof code === 'string') throw httpError(model, CODE_STATUS[code] ?? 502, payload.error.message ?? 'stream error', code);
+        if (typeof code === 'string') throw httpError(model, CODE_STATUS[code] ?? 502, payload.error.message ?? 'stream error', code, Number(payload.error.retryAfterS));
         throw new AiError(`${model}: ${payload.error.message ?? 'stream error'}`, 'http', code ?? 0);
       }
       if (payload.promptFeedback?.blockReason) throw new AiError(`${model}: blocked (${payload.promptFeedback.blockReason})`, 'blocked');
@@ -146,13 +151,17 @@ export async function streamModel(model: string, req: ModelRequest, opts: Stream
 }
 
 /** An HTTP failure as an AiError. `code` is set only for answers from the SpaceLens server. */
-function httpError(model: string, status: number, message: string, code?: string): AiError {
+function httpError(model: string, status: number, message: string, code?: string, retryAfterS?: number): AiError {
   // A model the server does not offer behaves like one Google does not know: skip it for a long while.
   const st = code === 'model_not_allowed' ? 404 : status;
-  const reason: AiReason | undefined = code === 'rate_limited' || code === 'budget_exhausted' ? 'quota'
+  // The server's own per-address limit clears in seconds: the service is busy, not out of quota.
+  const reason: AiReason | undefined = code === 'rate_limited' ? 'overloaded'
+    : code === 'budget_exhausted' ? 'quota'
     : code === 'upstream_auth' || code?.startsWith('origin_') ? 'other' : undefined;
   const err = new AiError(`${model} ${st}: ${message}`, 'http', st, reason);
   err.stopAll = Boolean(code && STOP_ALL_CODES.has(code));
+  if (code) err.code = code;
+  if (retryAfterS !== undefined && Number.isFinite(retryAfterS) && retryAfterS > 0) err.retryAfterS = retryAfterS;
   return err;
 }
 

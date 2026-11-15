@@ -65,6 +65,9 @@ export interface AiActivity {
   error?: string;
   /** Plain category when phase is 'error'. */
   reason?: import('./errors').AiReason;
+  /** Server path: a repeated 'start' while the call waits for a slot, with the calls queued ahead of it and the rough wait in seconds. */
+  queued?: number;
+  waitS?: number;
 }
 
 const listeners = new Set<(e: AiActivity) => void>();
@@ -83,6 +86,26 @@ export function emitActivity(e: Omit<AiActivity, 'label'>) {
   else parts.push(`${(e.ms / 1000).toFixed(1)} s`);
   const full: AiActivity = { ...e, label: parts.join(' · ') };
   listeners.forEach((cb) => { try { cb(full); } catch { /* a listener must not break the call */ } });
+}
+
+// ---------------------------------------------------------------- server queue
+
+/** Calls running and waiting on the server path, and the rough wait before the last one starts. */
+export interface AiQueueState { inFlight: number; queued: number; waitS: number }
+
+let queueState: AiQueueState = { inFlight: 0, queued: 0, waitS: 0 };
+const queueListeners = new Set<(s: AiQueueState) => void>();
+
+export function setQueueState(s: AiQueueState) {
+  queueState = { ...s };
+  queueListeners.forEach((cb) => { try { cb(queueState); } catch { /* ignore */ } });
+}
+
+export const aiQueue = (): AiQueueState => ({ ...queueState });
+
+export function onAiQueue(cb: (s: AiQueueState) => void): () => void {
+  queueListeners.add(cb);
+  return () => { queueListeners.delete(cb); };
 }
 
 // ---------------------------------------------------------------- cache

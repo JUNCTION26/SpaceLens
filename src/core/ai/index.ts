@@ -8,12 +8,14 @@ import {
 } from './router';
 import { pickTransport, transportId, type Transport } from './transport';
 import { cacheGet, cacheSet, emitActivity, recordTask, recordUsage } from './telemetry';
+import { runScheduled, schedulerFor, type AiPriority } from './scheduler';
 
 export type { AiTask, ThinkingLevel } from './models';
 export type { ModelStatus } from './router';
 export type { AiActivity, ModelUsage } from './telemetry';
 export { partialJson } from './partialJson';
-export { aiStats, aiTaskStats, estimateCostUsd, onAiActivity, clearAiCache } from './telemetry';
+export { aiStats, aiTaskStats, estimateCostUsd, onAiActivity, clearAiCache, aiQueue, onAiQueue, type AiQueueState } from './telemetry';
+export type { AiPriority } from './scheduler';
 export { shortModel, candidatesFor } from './models';
 export { AiError } from './engine';
 export { classify, problemFor, OFFLINE_NOTE, type AiReason, type AiProblem, type AiAction } from './errors';
@@ -45,6 +47,9 @@ export interface AiCall {
   /** Thinking level where the model accepts it. Defaults to 'minimal' for 'fast' and 'low' otherwise
    *  (measured: 3.5-flash answers in ~3 s on 'low' versus ~11 s on its default). */
   thinking?: ThinkingLevel;
+  /** Server path only: order in the shared queue. 'high' for what the person is waiting to read
+   *  (a brief), 'normal' (default) for object specs, 'low' for critic passes and background work. */
+  priority?: AiPriority;
 }
 
 export interface AiResult<T> { data: T; model: string; ms: number; inputTokens: number; outputTokens: number; cached: boolean }
@@ -99,6 +104,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
       return { ...hit.result, cached: true };
     }
   }
+  const sched = t.kind === 'server' ? schedulerFor(t) : null;
   emitActivity({ id, task: call.task, phase: 'start', ms: 0 });
 
   if (t.kind === 'server') {
@@ -113,16 +119,13 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
     }
     maybeReprobe(t, 'age');
   }
-  const order = routeFor(t, call.task);
-  if (!order.length && candidatesFor(call.task).some((m) => isExhausted(m))) {
-    const err = new AiError('Daily quota used on every model', 'http', 429, 'quota');
-    emitActivity({ id, task: call.task, phase: 'error', ms: since(), error: err.message, reason: err.reason });
-    throw err;
-  }
   let data: T | undefined;
   let out: StreamOutcome;
-  try {
-    out = await runRouted(t, order, {
+  // Routed again on each attempt: a call that waited in the queue sees what was learned meanwhile.
+  const routed = () => {
+    const order = routeFor(t, call.task);
+    if (!order.length && candidatesFor(call.task).some((m) => isExhausted(m))) return Promise.reject(new AiError('Daily quota used on every model', 'http', 429, 'quota'));
+    return runRouted(t, order, {
       system: call.system,
       parts: call.parts,
       schema: call.schema,
@@ -136,7 +139,14 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
       onText: call.onPartial,
       onModelError: (model) => recordUsage(model, { errors: 1 }),
       accept: (o) => { data = parseOutput<T>(o, Boolean(call.schema || call.json)); },
+      // Through the server a parallel hedge only runs when no other call is waiting for a slot.
+      canHedge: sched ? () => sched.tryExtra() : undefined,
     });
+  };
+  try {
+    // A call that has to wait announces it again, with how many are ahead and the rough wait.
+    const onWait = ({ ahead, waitS }: { ahead: number; waitS: number }) => emitActivity({ id, task: call.task, phase: 'start', ms: since(), queued: ahead, waitS });
+    out = await (sched ? runScheduled(sched, routed, call.priority ?? 'normal', call.signal, onWait) : routed());
   } catch (e) {
     const err = e instanceof AiError ? e : new AiError(String(e), 'http');
     emitActivity({ id, task: call.task, phase: 'error', ms: since(), error: err.message, reason: err.reason });

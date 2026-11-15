@@ -72,7 +72,8 @@ describe('through the server', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => { calls.push(JSON.parse(String(init.body)).model); return envelope(429, 'rate_limited'); }));
     const err = await runRouted(server, ['a', 'b', 'c'], { parts: [{ text: 'x' }] }, { hedgeMs: 5000, firstTokenTimeoutMs: 1000, totalTimeoutMs: 2000 }, undefined).catch((e) => e);
     expect(err).toBeInstanceOf(AiError);
-    expect(err.reason).toBe('quota');
+    expect(err.reason).toBe('overloaded');
+    expect(err.code).toBe('rate_limited');
     expect(calls).toEqual(['a']);
   });
 

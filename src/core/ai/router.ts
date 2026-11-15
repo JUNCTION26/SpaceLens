@@ -3,8 +3,9 @@ import { acceptsImages, candidatesFor, getOverrides, pickNewModels, setExtraMode
 import { dominantReason, type AiReason } from './errors';
 import { modelsRequest, transportId, type Transport } from './transport';
 import { emitActivity } from './telemetry';
+import { schedulerFor } from './scheduler';
 
-export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string; reason?: AiReason }
+export interface ModelStatus { model: string; ok: boolean; firstTokenMs: number | null; totalMs: number | null; error?: string; reason?: AiReason; code?: string }
 
 // ---------------------------------------------------------------- health
 
@@ -44,10 +45,25 @@ export function isExhausted(model: string, now = Date.now()) {
 export const resetExhausted = () => { exhausted = {}; saveExhausted(); };
 
 const isQuotaError = (err: unknown) => err instanceof AiError && err.kind === 'http' && (err.status === 429 || /RESOURCE_EXHAUSTED/i.test(err.message));
+
+/** Server codes that say nothing about one model: our own rate limit and the shared daily allowance. */
+const SERVER_SIDE_CODES = new Set(['rate_limited', 'budget_exhausted']);
+
+/**
+ * True only when Gemini itself says this model's quota is spent: a 429 straight from Google, or
+ * the server's `upstream_quota`. The server's own limits never mark a model spent.
+ */
+export function exhaustsModel(err: { status?: number; code?: string; reason?: AiReason; message?: string } | undefined): boolean {
+  if (!err) return false;
+  if (err.code) return err.code === 'upstream_quota';
+  return err.status === 429 || err.reason === 'quota' || /RESOURCE_EXHAUSTED/i.test(err.message ?? '');
+}
 const isOverloadError = (err: unknown) => err instanceof AiError && err.kind === 'http' && (err.status === 503 || err.status === 529 || /overloaded/i.test(err.message));
 
 export function markUnhealthy(model: string, reason: string, err?: unknown) {
   const status = err instanceof AiError ? err.status : 0;
+  // The server's own limits are about this address, not the model: leave its health alone.
+  if (err instanceof AiError && err.code && SERVER_SIDE_CODES.has(err.code)) return;
   if (isQuotaError(err) && !(err as AiError).stopAll) { markExhausted(model); return; }
   // A rejected request (schema, thinking level) says nothing about the model's health.
   if (status === 400) return;
@@ -152,11 +168,16 @@ const PROBE_REQ: ModelRequest = { parts: [{ text: 'Reply with the single word OK
 /** Probe one model with a tiny streaming request under a hard cap. */
 export async function probeOne(t: Transport, model: string, capMs = PROBE_CAP_MS): Promise<ModelStatus> {
   try {
-    const out = await callModel(model, PROBE_REQ, { transport: t, totalTimeoutMs: capMs });
+    const call = () => callModel(model, PROBE_REQ, { transport: t, totalTimeoutMs: capMs });
+    // Through the server a probe is the least urgent call there is: it waits behind real work.
+    const out = t.kind === 'server' ? await schedulerFor(t).run(call, 'low') : await call();
     return { model, ok: true, firstTokenMs: round(out.firstTokenMs ?? out.totalMs), totalMs: round(out.totalMs) };
   } catch (e) {
     const err = e as AiError;
-    return { model, ok: false, firstTokenMs: null, totalMs: null, error: err.kind === 'timeout' ? `no reply in ${capMs / 1000} s` : shortError(err), reason: err.reason };
+    return {
+      model, ok: false, firstTokenMs: null, totalMs: null, error: err.kind === 'timeout' ? `no reply in ${capMs / 1000} s` : shortError(err), reason: err.reason,
+      ...(err.code ? { code: err.code } : {}),
+    };
   }
 }
 
@@ -174,7 +195,10 @@ export function runProbe(t: Transport, opts: { force?: boolean; keep?: boolean; 
     const s = await probeOne(t, m);
     if (probe !== current) return s;
     current.results[m] = s;
-    if (s.ok) markHealthy(m); else if (s.reason === 'quota') markExhausted(m); else markUnhealthy(m, s.error ?? 'probe failed');
+    if (s.ok) markHealthy(m);
+    else if (s.code && SERVER_SIDE_CODES.has(s.code)) { /* the server was busy, not the model */ }
+    else if (exhaustsModel(s)) markExhausted(m);
+    else markUnhealthy(m, s.error ?? 'probe failed');
     const snapshot = models.map((x) => current.results[x]).filter(Boolean);
     opts.onUpdate?.(snapshot);
     probeListeners.forEach((cb) => cb());
@@ -289,6 +313,8 @@ export interface RouteHooks {
   onModelError?: (model: string, err: AiError) => void;
   /** Validates a finished response; throwing here falls through to the next model. */
   accept?: (out: StreamOutcome) => void;
+  /** Asked before starting a parallel hedge; false postpones it by another hedge interval. */
+  canHedge?: () => boolean;
 }
 
 /**
@@ -326,7 +352,11 @@ export function runRouted(t: Transport, order: string[], req: ModelRequest, timi
     const scheduleHedge = () => {
       clearTimeout(hedgeTimer);
       if (committed || next >= order.length) return;
-      hedgeTimer = setTimeout(() => { if (!committed && !settled) launch(); }, timing.hedgeMs);
+      hedgeTimer = setTimeout(() => {
+        if (committed || settled) return;
+        if (hooks.canHedge && !hooks.canHedge()) return scheduleHedge();
+        launch();
+      }, timing.hedgeMs);
     };
 
     const launch = () => {
@@ -432,12 +462,13 @@ export const resetAwake = () => { awake.clear(); waking.clear(); };
 
 /**
  * One tiny request to the head of each task ladder, so the first real call does not pay the cold
- * start. On the server path it wakes the server instead.
+ * start. On the server path it only wakes the server and reads its model list: model calls there
+ * share one address's rate limit with the person's real work.
  */
 export async function warmUp(t: Transport): Promise<void> {
-  if (t.kind === 'server') { await ensureAwake(t); await loadServerModels(t); }
+  if (t.kind === 'server') { await ensureAwake(t); await loadServerModels(t); return; }
   const heads = [...new Set((['fast', 'smart', 'vision'] as AiTask[]).map((k) => routeFor(t, k)[0]).filter(Boolean))];
-  await Promise.all(heads.map((m) => probeOne(t, m, 6000).then((s) => { if (s.reason === 'quota') markExhausted(m); })));
+  await Promise.all(heads.map((m) => probeOne(t, m, 6000).then((s) => { if (exhaustsModel(s)) markExhausted(m); })));
 }
 
 let warmed = false;
