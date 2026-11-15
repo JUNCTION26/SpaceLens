@@ -5,7 +5,7 @@ export function sampleRoom(): SpaceModel {
   const now = Date.now();
   return {
     id: 'sample',
-    name: 'Sample room',
+    name: 'My room',
     version: 1,
     units: 'm',
     ceilingM: 2.5,
@@ -46,7 +46,7 @@ export function sampleRoom(): SpaceModel {
       { id: 'm_door', label: 'Door width', valueM: 0.8, sourceKind: 'sample', status: 'verified', evidenceIds: ['ev_sample'], targetId: 'door1', toleranceM: 0.005 },
     ],
     evidence: [
-      { id: 'ev_sample', kind: 'sample', label: 'Sample data, not a real measurement', createdAt: now },
+      { id: 'ev_sample', kind: 'sample', label: 'Starter room, not a real measurement', createdAt: now },
     ],
   };
 }
