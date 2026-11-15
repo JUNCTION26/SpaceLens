@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useShownFurniture, useStore } from '../../core/store';
 import { fmtSek } from '../../core/geometry';
 import { planToSvg, uncertainWalls, type PlanOptions } from './svg';
-import { itemPrice } from './csv';
+import { itemPrice, scheduleCsv } from './csv';
 import { quantities } from './quantities';
 import { exportGlb } from './glb';
 import { validateModel } from './validate';
@@ -170,6 +170,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
       </button>
       {more && (
         <div className="export-section">
+          <button type="button" className="btn btn-sm" onClick={() => download(`${base}-schedule.csv`, scheduleCsv(furniture), 'text/csv;charset=utf-8')} title="Schedule CSV"><Icon name="download" size={14} />Schedule CSV</button>
           <div className="export-toggles">
             {toggle('furniture', 'Furniture')}{toggle('dimensions', 'Dimensions')}{toggle('titleBlock', 'Title block')}
           </div>

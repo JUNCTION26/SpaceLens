@@ -24,7 +24,7 @@
 
 .export .row { flex-wrap: wrap; }
 .export-table td { overflow-wrap: anywhere; }
-.shoplist { font-size: 12px; overflow-x: auto; }
-.shoplist table { width: 100%; border-collapse: collapse; }
-.shoplist th, .shoplist td { text-align: left; padding: 3px 6px; white-space: nowrap; }
 .shoplist a { color: inherit; text-decoration: none; }
+.export-file span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.export-err { overflow-wrap: anywhere; }
+.export-rates .field { min-width: 0; }
