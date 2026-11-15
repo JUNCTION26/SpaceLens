@@ -25,6 +25,14 @@ function save(v: Saved) { try { localStorage.setItem(LS, JSON.stringify(v)); } c
 
 /** Findings are long sentences; the row shows the first four words, the full text is the tooltip. */
 const clip = (t: string, n = 4) => { const w = t.replace(/\([^)]*\)/g, '').split(/\s+/).filter(Boolean); return w.length > n ? `${w.slice(0, n).join(' ')}\u2026` : w.join(' '); };
+const num = (v: number) => String(+v.toFixed(2));
+/** Measured against required, e.g. "0.62 / 0.80 m". */
+function measuredVsRequired(f: SafetyFinding): string {
+  const m = f.measured; const r = f.required;
+  if (m && r && r.value != null) return m.unit === r.unit ? `${num(m.value)} / ${num(r.value)} ${r.unit}` : `${num(m.value)} ${m.unit} / ${num(r.value)} ${r.unit}`;
+  if (m) return `${num(m.value)} ${m.unit}`;
+  return f.measureM != null ? `${num(f.measureM)} m` : '';
+}
 const SEV_COLOR = { critical: '#f2555a', important: '#e5a83b', advice: '#6e8bff' } as const;
 const GROUPS: Array<['fire' | 'access' | 'sim', string]> = [['fire', 'Fire'], ['access', 'Accessibility'], ['sim', 'Evacuation']];
 
@@ -142,7 +150,7 @@ export function SafetyPanel() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  if (!report) return <div className="safety"><span className="safety-spin" role="status" aria-label="Checking" /></div>;
+  if (!report) return <div className="safety safety-load" role="status" aria-label="Checking" aria-busy="true"><span className="safety-skel" /><span className="safety-skel" /><span className="safety-skel" /></div>;
 
   const list = report.findings.filter((f) => f.area === tab);
   const ev = report.evacuation;
@@ -150,10 +158,12 @@ export function SafetyPanel() {
   const unreachable = acc ? acc.destinations.filter((d) => !d.reachable).slice(0, 6) : [];
 
   const row = (f: SafetyFinding) => (
-    <li key={f.id} className={`safety-item sev-${f.severity}`}>
-      <span className="safety-sevdot" aria-hidden="true" />
-      <span className="safety-title" title={`${f.title}. ${f.message}`}>{clip(f.title)}</span>
-      <button className="icon-btn" aria-pressed={shown === f.id} aria-label="Show" title="Show" onClick={() => show(f)}><Icon name="eye" size={14} /></button>
+    <li key={f.id} className={`safety-item sev-${f.severity}${shown === f.id ? ' on' : ''}`}>
+      <button type="button" className="safety-pick" aria-pressed={shown === f.id} aria-label={`${f.title}. ${f.message}`} title={`${f.title}. ${f.message}`} onClick={() => show(f)}>
+        <Icon className="safety-sev-ico" name={f.severity === 'advice' ? 'info' : 'alert'} size={14} aria-hidden="true" />
+        <span className="safety-title">{clip(f.title)}</span>
+        <span className="safety-mv">{measuredVsRequired(f)}</span>
+      </button>
       {f.fix && <button className="btn btn-sm" onClick={() => fix(f)} title={f.fix.label}><Icon name="check" size={14} /> Fix</button>}
     </li>
   );
@@ -177,22 +187,16 @@ export function SafetyPanel() {
       {tab === 'fire' && (
         <>
           <DrillButton onStart={evacuate} extra={<>
-            {play?.on && <span className="safety-chip" title="Inside">{Math.round(play.t)} s · {left}</span>}
-            {!play?.on && ev && ev.unreachable > 0 && <span className="safety-chip bad" title="Trapped">{ev.unreachable} trapped</span>}
-            {!play?.on && ev?.bottleneck && <span className="safety-chip" title={`Bottleneck: ${ev.bottleneck.label}, ${ev.bottleneck.people} people`}>{clip(ev.bottleneck.label)}</span>}
-          </>} />
+            {play?.on && <span className="safety-chip" title={`Inside: ${left}`}>{Math.round(play.t)} s</span>}
+          </>} trapped={!play?.on && ev ? ev.unreachable : 0} bottleneck={!play?.on && ev?.bottleneck ? `Bottleneck: ${ev.bottleneck.label}, ${ev.bottleneck.people} people` : ''} />
 
-          {list.length > 0 && <ul className="safety-list">{list.map(row)}</ul>}
+          {list.length > 0
+            ? <ul className="safety-list">{list.map(row)}</ul>
+            : <div className="safety-clear" role="status" aria-label="All clear" title="All clear"><Icon name="check" size={20} /></div>}
 
           {plc && plc.suggestions.length > 0 && (
             <div className="safety-adv" role="group" aria-label="Equipment">
               <button className="btn btn-sm btn-ghost" aria-pressed={showEquip} onClick={toggleEquip}><Icon name="eye" size={14} /> Equipment</button>
-              <div className="safety-chips">
-                {([['smoke-alarm', 'Alarms'], ['extinguisher', 'Extinguishers'], ['exit-sign', 'Signs'], ['fire-blanket', 'Blankets']] as const).map(([k, n]) => {
-                  const c = plc.suggestions.filter((x) => x.kind === k).length;
-                  return c ? <span key={k} className="safety-chip">{n} {c}</span> : null;
-                })}
-              </div>
             </div>
           )}
 
@@ -242,15 +246,18 @@ export function SafetyPanel() {
         <>
           {acc && acc.total > 0 && (
             <div className="safety-adv-head">
-              <span className={`safety-chip ${acc.reachableCount === acc.total ? 'ok' : 'bad'}`} title="Reachable">{acc.reachableCount}/{acc.total}</span>
+              <span className={`safety-reach ${acc.reachableCount === acc.total ? 'ok' : 'bad'}`} role="img" aria-label={`Reachable ${acc.reachableCount} of ${acc.total}`} title={`Reachable ${acc.reachableCount}/${acc.total}`}><Icon name={acc.reachableCount === acc.total ? 'check' : 'alert'} size={14} /></span>
               <button className="btn btn-sm btn-ghost" aria-pressed={showRoutes} onClick={toggleRoutes}><Icon name="eye" size={14} /> Routes</button>
             </div>
           )}
+          {unreachable.length === 0 && list.length === 0 && <div className="safety-clear" role="status" aria-label="All clear" title="All clear"><Icon name="check" size={20} /></div>}
           <ul className="safety-list">
             {unreachable.map((d) => (
               <li key={d.id} className="safety-item sev-important">
-                <span className="safety-sevdot" aria-hidden="true" />
-                <span className="safety-title" title={d.label}>{clip(d.label)}</span>
+                <span className="safety-pick static" title={d.label}>
+                  <Icon className="safety-sev-ico" name="alert" size={14} aria-hidden="true" />
+                  <span className="safety-title">{clip(d.label)}</span>
+                </span>
                 {d.fix && <button className="btn btn-sm" onClick={() => fixAccess(d.fix!.ops)} title={d.fix.label}><Icon name="check" size={14} /> Fix</button>}
               </li>
             ))}

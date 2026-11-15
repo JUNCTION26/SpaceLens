@@ -26,7 +26,7 @@ export const useDrill = create<DrillState>((set) => ({
   replay: () => set((s) => ({ runKey: s.runKey + 1 })),
 }));
 
-export function DrillButton({ onStart, extra }: { onStart?: () => void; extra?: ReactNode }) {
+export function DrillButton({ onStart, extra, trapped = 0, bottleneck = '' }: { onStart?: () => void; extra?: ReactNode; trapped?: number; bottleneck?: string }) {
   const model = useStore((s) => s.model);
   const select = useStore((s) => s.select);
   const { result, block, people, setBlock, setPeople } = useDrill();
@@ -55,22 +55,27 @@ export function DrillButton({ onStart, extra }: { onStart?: () => void; extra?: 
         <button type="button" className="btn btn-primary drill-go" onClick={go} aria-label={result ? 'Replay drill' : 'Start drill'}>
           <Icon name="play" size={14} /> <span>Drill</span>
         </button>
-        <span className="drill-step" role="group" aria-label="People">
-          <button type="button" className="btn" aria-label="Fewer people" onClick={() => step(-1)}>{'−'}</button>
-          <output aria-live="polite">{shown || 'Auto'}</output>
-          <button type="button" className="btn" aria-label="More people" onClick={() => step(1)}>+</button>
-        </span>
-        <button type="button" className={`btn drill-block${block ? ' on' : ''}`} aria-pressed={block} aria-label="Block an exit" onClick={() => { setBlock(!block); if (result) start(!block); }}>
-          Block exit
-        </button>
         {result && <button type="button" className="btn btn-ghost drill-clear" aria-label="Clear drill" title="Clear" onClick={() => useDrill.getState().set(null)}><Icon name="x" size={14} /></button>}
       </div>
       {(result || extra) && (
         <div className="safety-chips drill-chips" aria-live="polite">
-          {result && <span className={`safety-chip ${result.pass && result.allOut ? 'ok' : 'bad'}`} title="Time out">{fmtClock(result.totalS)}</span>}
+          {result && <span className={`safety-chip ${result.pass && result.allOut ? 'ok' : 'bad'}`} title={`Time out${trapped > 0 ? `, ${trapped} trapped` : ''}${bottleneck ? `. ${bottleneck}` : ''}`}>{fmtClock(result.totalS)}</span>}
           {extra}
         </div>
       )}
+      <details className="drill-more">
+        <summary>More</summary>
+        <div className="drill-opts">
+          <span className="drill-step" role="group" aria-label="People">
+            <button type="button" className="btn" aria-label="Fewer people" onClick={() => step(-1)}>{'−'}</button>
+            <output aria-live="polite">{shown || 'Auto'}</output>
+            <button type="button" className="btn" aria-label="More people" onClick={() => step(1)}>+</button>
+          </span>
+          <button type="button" className={`btn drill-block${block ? ' on' : ''}`} aria-pressed={block} aria-label="Block an exit" onClick={() => { setBlock(!block); if (result) start(!block); }}>
+            Block exit
+          </button>
+        </div>
+      </details>
       {fix && <button type="button" className="btn drill-fix" onClick={pickFix}>{clipWords(fix.label)}</button>}
     </div>
   );

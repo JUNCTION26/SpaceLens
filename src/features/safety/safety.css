@@ -67,3 +67,23 @@
 .safety-sub-fold > summary { cursor: pointer; color: var(--muted); }
 .safety-chip.ok { border-color: var(--ok); }
 .safety-chip.bad { border-color: var(--warn); }
+
+/* Findings: one pressable row each, severity icon, short title, measured against required. */
+.safety-item { min-height: 32px; }
+.safety-pick { flex: 1; min-width: 0; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.safety-pick.static { cursor: default; }
+button.safety-pick:hover { background: var(--hover); }
+.safety-pick:focus-visible, .safety-more > summary:focus-visible, .safety-sub-fold > summary:focus-visible, .drill-more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.safety-item.on .safety-pick { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.safety-pick .safety-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.safety-mv { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.safety-sev-ico { flex: none; color: var(--accent); }
+.sev-critical .safety-sev-ico { color: var(--bad); }
+.sev-important .safety-sev-ico { color: var(--warn); }
+.safety-clear { display: flex; align-items: center; justify-content: center; min-height: 64px; color: var(--ok); }
+.safety-reach { display: inline-flex; align-items: center; color: var(--ok); }
+.safety-reach.bad { color: var(--warn); }
+.safety-load { gap: 8px; min-height: 160px; }
+.safety-skel { display: block; height: 32px; border-radius: var(--radius-sm); background: var(--panel-2); }
+.safety-country { min-height: 32px; }
+.safety-more > summary, .safety-sub-fold > summary { min-height: 32px; display: flex; align-items: center; }

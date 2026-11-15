@@ -1,6 +1,6 @@
 .drill { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 .drill .btn { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
-.drill-block.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.drill-block.on { background: var(--bad); border-color: var(--bad); color: var(--accent-ink); }
 .drill-step { display: inline-flex; align-items: center; gap: 4px; }
 .drill-step output { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
 .drill-fix { border-color: var(--warn); color: var(--warn); font-weight: var(--fw-strong); }
@@ -20,3 +20,6 @@
 .drill-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .drill-main .drill-go { flex: 1 1 auto; justify-content: center; }
 .drill-chips { display: flex; }
+
+.drill-more > summary { cursor: pointer; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
+.drill-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 4px; }
