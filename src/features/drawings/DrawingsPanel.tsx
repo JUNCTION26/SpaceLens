@@ -11,6 +11,7 @@ import { drawingToBuilding, type BuildReport } from './toBuilding';
 import { answerFromGeometry } from './geoAnswer';
 import { buildFromProposals, cleanProposals, PROPOSAL_PROMPT, PROPOSAL_SCHEMA, scaleFromAreas, type RoomProposal } from './rasterRooms';
 import type { SpaceModel } from '../../core/types';
+import { dxfToModel } from '../formats/dxfRead';
 import './drawings.css';
 
 type Tool = 'pan' | 'calibrate' | 'trace';
@@ -180,6 +181,14 @@ export function DrawingsPanel() {
   }
 
   async function openBlob(blob: Blob, name: string) {
+    if (/\.dxf$/i.test(name)) {
+      try {
+        const out = dxfToModel(await blob.text(), name);
+        dispatch({ type: 'REPLACE_MODEL', model: out.model });
+        toast(out.report.warnings?.[0] ?? `Opened ${name}`, out.report.warnings?.length ? 'warn' : 'info');
+      } catch (e) { toast(`Could not read the file: ${(e as Error).message}`, 'error'); }
+      return;
+    }
     const cached = docCache.get(name);
     if (cached) return openDoc(cached);
     setLoading('Opening');
@@ -504,7 +513,7 @@ export function DrawingsPanel() {
           {loading && <span className="muted">{loading}…</span>}
           <label className="btn btn-ghost btn-sm drawings-open">
             <Icon name="file" size={14} /> Open
-            <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
+            <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
           </label>
         </div>
       )}
@@ -514,7 +523,7 @@ export function DrawingsPanel() {
           <label className="drawings-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void openBlob(f, f.name); }}>
             <Icon name="file" size={20} />
             <b>Drop a plan</b>
-            <input type="file" accept="application/pdf,image/png,image/jpeg" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
+            <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
           </label>
           {loading && <p className="muted">{loading}…</p>}
           {samples.length > 0 && (

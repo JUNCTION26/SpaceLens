@@ -220,7 +220,7 @@ async function walk(c) {
   await c.page.click('text=Test').catch((e) => c.ok(false, `door test button: ${e.message}`));
   await c.until('!!s.analysis.passage', 30000).catch(() => {});
   c.ok(await c.state('!!s.analysis.passage'), 'fit-through-door test gives a result');
-  await c.page.click('text~Walk through');
+  await c.page.click('button.sim-walk');
   await sleep(2000);
   await c.shot('walking');
   const walking = await c.page.evaluate(`!!document.pointerLockElement || /Esc|exit|stop walking/i.test(document.body.innerText)`);

@@ -3,6 +3,8 @@ import { useStore } from '../../core/store';
 import { centroid } from '../../core/geometry';
 import type { RouteResult } from '../../core/types';
 import { Icon } from '../../ui/icons';
+import { RuleSelector } from '../jurisdiction/RuleSelector';
+import { applyPack, type PackId } from '../jurisdiction/rulepacks';
 import { assessSafety, SAFETY_DEFAULT_INFO, SAFETY_DEFAULTS, type SafetyConfig, type SafetyFinding, type SafetyKey, type SafetyReport } from './assess';
 import { evacHeat } from './evac';
 import { evacuationPlanSvg } from './plan';
@@ -33,6 +35,7 @@ export function SafetyPanel() {
   const toast = useStore((s) => s.toast);
 
   const [saved, setSaved] = useState<Saved>(loadSaved);
+  const [country, setCountry] = useState<PackId>('generic');
   const [tab, setTab] = useState<'fire' | 'access'>('fire');
   const [occ, setOcc] = useState('');
   const [report, setReport] = useState<SafetyReport | null>(null);
@@ -190,6 +193,7 @@ export function SafetyPanel() {
 
       <details className="safety-block">
         <summary>Assumptions</summary>
+        <RuleSelector country={country} onChange={(id, pack) => { setCountry(id); update({ ...saved, config: { ...applyPack(pack) } }); }} />
         {GROUPS.map(([g, name]) => (
           <fieldset key={g} className="safety-defaults">
             <legend>{name}</legend>
