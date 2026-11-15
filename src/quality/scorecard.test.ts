@@ -5,10 +5,13 @@ type NodeProc = { env: Record<string, string | undefined>; stderr: { write: (s: 
 const proc = (globalThis as unknown as { process: NodeProc }).process;
 import { CASES, runCase, scorecardMarkdown, scorecardOn, type Scorecard } from './scorecard';
 
+// Heavy: furnishes ten rooms before the tests run. Opt in with SCORECARD_RUN=1 (SCORECARD=1 also writes the table).
+const RUN = Boolean(proc.env.SCORECARD_RUN || proc.env.SCORECARD);
 const cards = new Map<string, Scorecard>();
 const normal = CASES.filter((c) => c.normal);
 
 beforeAll(async () => {
+  if (!RUN) return;
   for (const c of CASES) { cards.set(c.name, (await runCase(c)).card); proc.stderr.write(`case ${c.name} ${cards.get(c.name)!.ms}ms
 `); }
   if (scorecardOn) {
@@ -18,7 +21,7 @@ beforeAll(async () => {
   }
 }, 240_000);
 
-describe('furnishing scorecard', () => {
+describe.skipIf(!RUN)('furnishing scorecard', () => {
   for (const c of normal) {
     describe(c.name, () => {
       it('has no overlaps', () => { expect(cards.get(c.name)!.overlaps).toEqual([]); });
