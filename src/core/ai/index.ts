@@ -122,7 +122,7 @@ export async function ai<T = unknown>(call: AiCall): Promise<AiResult<T>> {
   let data: T | undefined;
   let out: StreamOutcome;
   // Routed again on each attempt: a call that waited in the queue sees what was learned meanwhile.
-  const routed = () => {
+  const routed = (): Promise<StreamOutcome> => {
     const order = routeFor(t, call.task);
     if (!order.length && candidatesFor(call.task).some((m) => isExhausted(m))) return Promise.reject(new AiError('Daily quota used on every model', 'http', 429, 'quota'));
     return runRouted(t, order, {
