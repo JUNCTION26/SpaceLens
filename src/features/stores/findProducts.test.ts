@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FurnitureItem } from '../../core/types';
-import { findProducts, parseCandidates, shopTheRoom, type FindDeps } from './findProducts';
+import { findProducts, findProductsReport, kindFromTitle, matchByName, parseCandidates, shopTheRoom, type FindDeps } from './findProducts';
 import type { ReadListing } from './read';
 
 const U1 = 'https://www.ikea.com/se/en/p/bekant-desk-white-s19022855/';
@@ -59,7 +59,7 @@ describe('shopTheRoom', () => {
   it('runs at most 3 at once, skips owned, reports unmatched', async () => {
     let live = 0, peak = 0;
     const deps: FindDeps = {
-      ask: async (p) => { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 10)); live--; return p.includes('"nomatch"') ? 'none' : reply; },
+      ask: async (p) => { live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 10)); live--; return p.includes('"nomatch"') || p.startsWith('IKEA ') ? 'none' : reply; },
       read: async (u) => page(u),
     };
     const furniture = [f('a'), f('b'), f('c'), f('d'), f('e'), f('nomatch'), f('mine', { owned: true })];
@@ -85,5 +85,68 @@ describe('fitState and sameKind', () => {
     expect(sameKind('desk', 'table')).toBe(true);
     expect(sameKind('desk', 'dresser')).toBe(false);
     expect(sameKind('desk', 'weird')).toBe(false);
+  });
+});
+
+describe('yield', () => {
+  const REAL = 'https://www.ikea.com/se/sv/p/micke-skrivbord-vit-80213074/';
+  const FAKE = 'https://www.ikea.com/se/sv/p/trotten-skrivbord-vit-1012710/';
+  const fakeReply = '```json\n' + JSON.stringify({ products: [{ name: 'TROTTEN skrivbord', url: FAKE }] }) + '\n```';
+  const realOnly = (u: string) => {
+    if (u === REAL) return page(u, { title: 'MICKE skrivbord, vit', category: 'desk' });
+    throw new Error('x');
+  };
+  it('prefers the source links the search tool returned', async () => {
+    const deps: FindDeps = {
+      ask: async () => ({ text: fakeReply, sources: ['https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc', 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/def'] }),
+      resolve: async (u) => (u.endsWith('abc') ? REAL : null),
+      read: async (u) => realOnly(u),
+    };
+    const { matches, report } = await findProductsReport(item, win, { deps });
+    expect(matches.map((m) => m.listing.url)).toEqual([REAL]);
+    expect(report.asked).toBe(2);
+  });
+  it('looks a dropped candidate up by name on the store search page', async () => {
+    const deps: FindDeps = {
+      ask: async () => fakeReply,
+      read: async (u) => realOnly(u),
+      search: async () => [{ title: 'TROTTEN skrivbord', url: FAKE }, { title: 'MICKE skrivbord', url: REAL }],
+    };
+    const redirected = { ...deps, ask: async () => '```json\n' + JSON.stringify({ products: [{ name: 'MICKE skrivbord', url: 'https://www.ikea.com/se/sv/p/micke-skrivbord-vit-1234567/' }] }) + '\n```' };
+    const { matches, report } = await findProductsReport(item, win, { deps: redirected });
+    expect(matches.map((m) => m.listing.url)).toEqual([REAL]);
+    expect(report.dropped).toHaveLength(1);
+  });
+  it('never accepts a name match whose page does not verify', async () => {
+    const deps: FindDeps = { ask: async () => fakeReply, read: async () => { throw new Error('x'); }, search: async () => [{ title: 'TROTTEN skrivbord', url: REAL }] };
+    expect((await findProductsReport(item, win, { deps })).matches).toEqual([]);
+  });
+  it('asks again with a plain query when the first answer is empty', async () => {
+    const asked: string[] = [];
+    const deps: FindDeps = { ask: async (p) => { asked.push(p); return asked.length === 1 ? '' : `See ${REAL} and more`; }, read: async (u) => realOnly(u) };
+    const { matches } = await findProductsReport(item, win, { deps });
+    expect(asked[1]).toBe('IKEA desk under 130 cm wide site:ikea.com/se');
+    expect(matches).toHaveLength(1);
+  });
+  it('retries a slow page read once', async () => {
+    let n = 0;
+    const deps: FindDeps = { ask: async () => reply, read: async (u) => { if (u === U1 && n++ === 0) throw new Error('The page took too long to read.'); return page(u); } };
+    expect((await findProductsReport(item, win, { deps })).matches.length).toBeGreaterThan(0);
+  });
+  it('reads kind from Swedish, Finnish and English words', () => {
+    expect(kindFromTitle('desk', 'MICKE skrivbord, vit')).toBe('match');
+    expect(kindFromTitle('desk', 'ALEX lådor')).toBe('other');
+    expect(kindFromTitle('desk', 'ALEX')).toBe('unknown');
+    expect(kindFromTitle('desk', 'MALM byrå')).toBe('other');
+    expect(kindFromTitle('desk', 'MICKE työpöytä')).toBe('match');
+    expect(kindFromTitle('bed', 'x', 'https://www.ikea.com/fi/fi/p/malm-sanky-s1234567/')).toBe('match');
+    expect(kindFromTitle('bed', 'SLATTUM klädd sängstomme')).toBe('match');
+    expect(kindFromTitle('bed', 'EKET sängbord')).toBe('other');
+    expect(kindFromTitle('wardrobe', 'PAX garderob')).toBe('match');
+    expect(kindFromTitle('armchair', 'POANG fåtölj')).toBe('match');
+    expect(kindFromTitle('bed', 'KIVIK soffa')).toBe('other');
+  });
+  it('matches search links by name', () => {
+    expect(matchByName([{ title: '', url: 'https://www.ikea.com/se/sv/p/lillasen-skrivbord-1/' }, { title: '', url: 'https://www.ikea.com/se/sv/p/micke-skrivbord-vit-80213074/' }], 'MICKE')).toEqual(['https://www.ikea.com/se/sv/p/micke-skrivbord-vit-80213074/']);
   });
 });
