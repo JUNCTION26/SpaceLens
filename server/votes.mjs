@@ -33,7 +33,12 @@ function validatePlan(plan) {
     if (!i || !num(i.x, -200, 400) || !num(i.y, -200, 400) || !num(i.w, 0, 50) || !num(i.d, 0, 50) || !num(i.r ?? 0, -10, 10)) throw bad('Plan data is not valid.');
     return { x: i.x, y: i.y, w: i.w, d: i.d, r: i.r ?? 0 };
   });
-  return { w: plan.w, h: plan.h, items };
+  const out = { w: plan.w, h: plan.h, items };
+  if (plan.room !== undefined) {
+    if (!Array.isArray(plan.room) || plan.room.length < 3 || plan.room.length > 40 || plan.room.some((p) => !p || !num(p.x, -200, 400) || !num(p.y, -200, 400))) throw bad('Plan data is not valid.');
+    out.room = plan.room.map((p) => ({ x: p.x, y: p.y }));
+  }
+  return out;
 }
 
 /** @returns {{ layouts: { name: string, priceSek: number, thumb?: string, plan?: object }[] }} */
