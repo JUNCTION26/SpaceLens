@@ -88,3 +88,34 @@ export function backWall(m: SpaceModel, f: FurnitureItem, tol = 0.05): number {
   }
   return best;
 }
+
+/** Like backWall, but against every room of a building: true when the piece's back rests on any wall. */
+export function backToAnyWall(m: SpaceModel, f: FurnitureItem, tol = 0.08): boolean {
+  return m.spaces.some((sp) => backWall({ ...m, spaces: [sp] }, f, tol) >= 0);
+}
+
+const DEG20 = (20 * Math.PI) / 180;
+const SEAT = /^(chair|desk-chair|office-chair|stool|dining-chair|bar-stool)$/;
+const HOST = /desk|table|counter|bar|vanity/;
+/** Task seats: chairs and stools that belong to a desk or table (armchairs and sofas are not counted). */
+export const isTaskSeat = (f: FurnitureItem) => (SEAT.test(f.category) || SEAT.test(f.catalogId ?? '')) && !/pouf|step-stool|clinic-stool/.test(f.catalogId ?? '');
+/** Pieces a task seat can belong to. */
+export const isSeatHost = (f: FurnitureItem) => (HOST.test(f.category) || HOST.test(f.catalogId ?? '')) && !/coffee|side|bedside|night|dressing/.test(`${f.category} ${f.catalogId}`);
+
+/**
+ * Chairs that are neither at a desk or table (within `gapM`, facing it within 20 degrees) nor
+ * standing with their back to a wall. Each entry says what the nearest host was and why it failed.
+ */
+export function looseChairs(m: SpaceModel, list: FurnitureItem[], gapM = 0.7): string[] {
+  const hosts = list.filter(isSeatHost);
+  const out: string[] = [];
+  for (const c of list.filter(isTaskSeat)) {
+    const ok = hosts.some((h) => gapBetween(c, h) < gapM && facingErrRect(c, h) < DEG20);
+    if (ok || backToAnyWall(m, c)) continue;
+    const h = hosts.slice().sort((a, b) => gapBetween(c, a) - gapBetween(c, b))[0];
+    out.push(h
+      ? `${c.id} (${c.category}) at ${c.x.toFixed(2)},${c.y.toFixed(2)}: nearest ${h.category} ${gapBetween(c, h).toFixed(2)} m away, facing off by ${Math.round((facingErrRect(c, h) * 180) / Math.PI)} deg`
+      : `${c.id} (${c.category}) at ${c.x.toFixed(2)},${c.y.toFixed(2)}: no desk or table, back not to a wall`);
+  }
+  return out;
+}
