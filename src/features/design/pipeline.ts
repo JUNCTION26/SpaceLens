@@ -200,12 +200,14 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
       }
     } catch (e) { if ((e as Error).name === 'AbortError') throw e; }
   }
-  const concepts: Concept[] = await planP;
-  const planned = concepts[0]?.by === 'gemini';
+  const asked: Concept[] = await planP;
+  const planned = asked[0]?.by === 'gemini';
+  // The rules layout stays a candidate beside the model's concepts, so a model concept wins only on score.
+  const concepts: Concept[] = planned ? [...asked, rulesConcept(model, items, req)] : asked;
   end('plan', t, {
-    label: planned ? `Planned ${concepts.length} concept${concepts.length > 1 ? 's' : ''}` : 'Planned with rules',
-    model: planned ? concepts[0].model : 'rules',
-    detail: planned ? concepts.map((c) => c.name).join(', ') : concepts[0]?.notes.find((n) => n.startsWith('Planner unavailable')),
+    label: planned ? `Planned ${asked.length} concept${asked.length > 1 ? 's' : ''}` : 'Planned with rules',
+    model: planned ? asked[0].model : 'rules',
+    detail: planned ? asked.map((c) => c.name).join(', ') : asked[0]?.notes.find((n) => n.startsWith('Planner unavailable')),
     status: online && !planned ? 'failed' : 'done',
   });
   abortIf(opts.signal);
@@ -219,7 +221,7 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
   const entries: Entry[] = [];
   solved.forEach((s, i) => s.candidates.forEach((cand, k) => {
     const c = concepts[i];
-    const name = planned && c.name ? (k === 0 ? c.name : `${c.name} ${k + 1}`) : cand.name;
+    const name = c.by === 'gemini' && c.name ? (k === 0 ? c.name : `${c.name} ${k + 1}`) : cand.name;
     entries.push({ cand: { ...cand, name }, concept: c, report: s.reports?.find((r) => r.candidateId === cand.id) });
   }));
   // Dress the walls of every layout: art, curtains, shelves, mirror, and a wall TV when one was asked for.

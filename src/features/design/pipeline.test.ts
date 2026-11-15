@@ -72,8 +72,9 @@ describe('designRoom', () => {
         fixes: [{ op: 'add', relation: { kind: 'against-wall', subject: 'i1', target: 'wall:0', weight: 1, reason: 'Back to wall.' }, why: 'Stability.' }] } };
     });
     const res = await designRoom(model, req, { variants: 2 });
-    expect(res.candidates.map((c) => c.name).sort()).toEqual(['Open', 'Window']);
-    expect(solveCalls).toBe(4);
+    // the rules layout stays beside the model's two concepts
+    expect(res.candidates.map((c) => c.name).sort()).toEqual(['Layout 1', 'Open', 'Window']);
+    expect(solveCalls).toBe(6); // three concepts, each solved and re-solved once
     expect(res.reports.every((r) => r.critique?.score === 8)).toBe(true);
     expect(res.stages.map((s) => s.id)).toEqual(['room', 'plan', 'solve', 'rules', 'critic']);
     expect(res.stages.find((s) => s.id === 'plan')?.model).toBe('flash');
