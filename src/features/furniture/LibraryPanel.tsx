@@ -213,7 +213,6 @@ export function LibraryPanel() {
         <section className="furniture-bill">
           <button className="furniture-summary" aria-expanded={billOpen} onClick={() => setBillOpen(!billOpen)}>
             <Icon name={billOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-            <span>{model.furniture.length}</span>
             <span className={`furniture-sum ${tone}`}>{fmtSek(total)}</span>
           </button>
           {budget != null && budget > 0 && (
