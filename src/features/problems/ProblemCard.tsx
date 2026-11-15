@@ -32,10 +32,3 @@ export function FixButtons({ problem, max = 3, compact = false }: { problem: Pro
     </div>
   );
 }
-
-/** The hover card used to float over the plan. Problems and their fixes now live only in the checks list in the left panel. */
-export function ProblemCard(_props: {
-  problems: Problem[]; style?: React.CSSProperties; onEnter?: () => void; onLeave?: () => void; onClose?: () => void;
-}) {
-  return null;
-}
