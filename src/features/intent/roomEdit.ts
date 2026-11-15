@@ -704,6 +704,57 @@ function nearestTo(text: string): string {
   return 'More space';
 }
 
+
+// ---- Room size by sentence ----------------------------------------------------------------------
+
+const NUM = String.raw`(\d+(?:[.,]\d+)?)`;
+const ROOM_KW = String.raw`(?:room|rummet|rum|huoneen|huone)`;
+const DIMS_RE = new RegExp(String.raw`^(?:please |can you |could you )?(?:(?:make|set|resize|gör|ändra|tee|muuta)\s+)?(?:(?:the|my|it|det|den|rummet|huoneen)\s+)?(?:${ROOM_KW}\s+)?(?:(?:to|till|be|är|on|ksi)\s+)?${NUM}\s*(?:x|×|\*|by|gånger|på|kertaa)\s*${NUM}\s*(?:m|meter|metres|meters|metriä)?$`);
+const CEIL_RE = new RegExp(String.raw`^(?:please |can you )?(?:(?:make|set|gör|ändra|tee|aseta)\s+)?(?:(?:the|my|taket|katto)\s+)?(?:ceiling|ceiling height|room height|takhöjd|takhöjden|taket|tak|kattokorkeus|katto)\s*(?:to|till|at|på|on|ksi)?\s*${NUM}\s*(?:m|meter|metres|meters|metriä)?$`);
+const GROW_RE = new RegExp(String.raw`^(?:please |can you )?(?:(?:make|gör|tee)\s+)?(?:(?:the|my|rummet|huonetta)\s+)?(?:${ROOM_KW}\s+)?(wider|bredare|leveämpi|leveämmäksi|deeper|djupare|syvempi|syvemmäksi|longer|längre|pidempi|pidemmäksi|taller|higher|högre|korkeampi|korkeammaksi)\s*(?:by|med|with)?\s*${NUM}\s*(cm|m)?$`);
+const SCALE_RE = new RegExp(String.raw`^(?:please |can you |could you )?(?:(?:make|gör|tee)\s+)?(?:(?:the|my|rummet|huonetta)\s+)?(?:(?:room|rummet|rum|huone|huonetta|it|det|den)\s+)?(bigger|larger|större|suurempi|suuremmaksi|isompi|isommaksi|smaller|mindre|pienempi|pienemmäksi)$`);
+
+const numOf = (s: string) => parseFloat(s.replace(',', '.'));
+const fmt = (n: number) => String(+n.toFixed(2));
+
+/** Room-size sentences ("make the room 5 by 6", "ceiling 2.7", "wider by 1 m", "bigger"). Null when the text is not one. */
+export function roomSizeEdit(model: SpaceModel, text: string): RoomEdit | null {
+  const t = norm(text).replace(/[?!.]+$/, '');
+  const space = model.spaces[0];
+  if (!space || !t) return null;
+  const bb = bounds(space.polygon);
+  const done = (op: Op, label: string): RoomEdit => ({ ok: true, ops: [op], label, by: 'rules', notes: [] });
+  const resize = (o: { widthM?: number; depthM?: number; heightM?: number }, label: string): RoomEdit => {
+    const bad = [o.widthM, o.depthM, o.heightM].some((n) => n !== undefined && !(n >= 0.5 && n <= 100));
+    if (bad) return cannot('Size out of range', 'Room 5 x 6 m');
+    return done({ type: 'RESIZE_SPACE', spaceId: space.id, ...o }, label);
+  };
+
+  let m = t.match(DIMS_RE);
+  if (m && (ROOM_KW_TEST.test(t) || /^(?:make|set|resize|gör|ändra|tee|muuta)\b/.test(t))) {
+    const w = numOf(m[1]), d = numOf(m[2]);
+    return resize({ widthM: w, depthM: d }, `${fmt(w)} × ${fmt(d)} m`);
+  }
+  m = t.match(CEIL_RE);
+  if (m) { const h = numOf(m[1]); return resize({ heightM: h }, `Ceiling ${fmt(h)} m`); }
+  m = t.match(GROW_RE);
+  if (m) {
+    const kind = m[1];
+    const by = numOf(m[2]) / (m[3] === 'cm' ? 100 : 1);
+    if (/^(?:wider|bredare|leve)/.test(kind)) return resize({ widthM: bb.w + by }, `Wider ${fmt(by)} m`);
+    if (/^(?:deeper|djupare|syvem|longer|längre|pidem)/.test(kind)) return resize({ depthM: bb.h + by }, `Deeper ${fmt(by)} m`);
+    return resize({ heightM: model.ceilingM + by }, `Ceiling +${fmt(by)} m`);
+  }
+  m = t.match(SCALE_RE);
+  if (m) {
+    const up = /^(?:bigger|larger|större|suurem|isom)/.test(m[1]);
+    const k = up ? 1.2 : 0.85;
+    return resize({ widthM: bb.w * k, depthM: bb.h * k }, up ? 'Bigger +20%' : 'Smaller -15%');
+  }
+  return null;
+}
+const ROOM_KW_TEST = /\b(?:room|rummet|rum|huoneen|huone)\b/;
+
 // ---- Public: offline ---------------------------------------------------------------------------
 
 /**
@@ -718,6 +769,8 @@ export function refineRoomOffline(model: SpaceModel, text: string, opts: { previ
     if (opts.previous) return { ok: true, ops: [{ type: 'SET_FURNITURE', items: opts.previous, label: 'Undo' }], label: 'Undo', by: 'rules', notes: [], undo: true };
     return { ok: true, ops: [], label: 'Undo', by: 'rules', notes: [], undo: true };
   }
+  const sized = roomSizeEdit(model, t);
+  if (sized) return sized;
   const clauses = t.split(SPLIT_RE).map((c) => c.trim()).filter(Boolean);
   let cur = model;
   const allOps: Op[] = [];

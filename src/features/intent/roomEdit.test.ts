@@ -320,3 +320,42 @@ describe('ai patch conversion', () => {
     expect(apply(m, diffToOps(m.furniture, next)).furniture.map((f) => f.x)).toEqual(next.map((f) => f.x));
   });
 });
+
+describe('room size by sentence', () => {
+  const size = (text: string, m = base()) => {
+    const r = ok(refineRoomOffline(m, text));
+    expect(r.ops).toHaveLength(1);
+    return { r, op: r.ops[0] as Extract<Op, { type: 'RESIZE_SPACE' }>, out: apply(m, r.ops) };
+  };
+  it('sets width and depth', () => {
+    for (const t of ['make the room 5 by 6', 'room 5x6 m', 'room 5 x 6', 'gör rummet 5 gånger 6', 'huone 5x6 m', 'make it 5,0 x 6,0 m']) {
+      const { op, r } = size(t);
+      expect(op.type).toBe('RESIZE_SPACE'); expect(op.widthM).toBe(5); expect(op.depthM).toBe(6);
+      expect(r.label).toBe('5 × 6 m');
+    }
+  });
+  it('sets the ceiling', () => {
+    for (const t of ['ceiling 2.7', 'set the ceiling to 2,7 m', 'takhöjd 2.7', 'katto 2.7 m']) {
+      const { op, out } = size(t);
+      expect(op.heightM).toBeCloseTo(2.7); expect(out.ceilingM).toBeCloseTo(2.7);
+    }
+  });
+  it('widens by an amount', () => {
+    expect(size('wider by 1 m').op.widthM).toBeCloseTo(4.4);
+    expect(size('make the room wider by 50 cm').op.widthM).toBeCloseTo(3.9);
+    expect(size('djupare med 1 m').op.depthM).toBeCloseTo(5.2);
+    expect(size('leveämpi 1 m').op.widthM).toBeCloseTo(4.4);
+  });
+  it('bigger is +20% and smaller is -15% both ways', () => {
+    for (const t of ['make it bigger', 'make the room bigger', 'större', 'suurempi']) {
+      const { op } = size(t); expect(op.widthM).toBeCloseTo(3.4 * 1.2); expect(op.depthM).toBeCloseTo(4.2 * 1.2);
+    }
+    for (const t of ['smaller', 'make it smaller', 'mindre', 'pienempi']) {
+      const { op } = size(t); expect(op.widthM).toBeCloseTo(3.4 * 0.85); expect(op.depthM).toBeCloseTo(4.2 * 0.85);
+    }
+  });
+  it('leaves furniture sentences alone', () => {
+    const r = refineRoomOffline(base(), 'make the sofa bigger');
+    expect(r?.ok && r.ops.some((o) => o.type === 'RESIZE_SPACE')).toBeFalsy();
+  });
+});

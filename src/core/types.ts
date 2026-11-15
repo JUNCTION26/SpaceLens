@@ -241,6 +241,7 @@ export type Op =
   | { type: 'INSERT_VERTEX'; spaceId: string; afterIndex: number; at: Vec2 }
   | { type: 'REMOVE_VERTEX'; spaceId: string; index: number }
   | { type: 'SET_CEILING'; heightM: number }
+  | { type: 'RESIZE_SPACE'; spaceId: string; widthM?: number; depthM?: number; heightM?: number }
   | { type: 'ADD_OPENING'; opening: Opening }
   | { type: 'UPDATE_OPENING'; id: string; patch: Partial<Opening> }
   | { type: 'REMOVE_OPENING'; id: string }
