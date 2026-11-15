@@ -185,6 +185,7 @@ export function parseDxf(text: string): DxfDoc {
 const WALL_RE = /wall|mur|wand|wände|vägg|vagg|seina|muro/i;
 const DOOR_RE = /door|porte|tür|tuer|dörr|dorr|ovi|porta/i;
 const WINDOW_RE = /window|fenster|fönster|fonster|fenêtre|fenetre|ikkuna|finestra|a-glaz/i;
+const FURN_RE = /furn|mobil|mebl|möbel|mobel|möbler|a-furn/i;
 const ROOM_RE = /room|raum|space|zone|piece|pièce|rum\b|huone|stanza|a-area/i;
 const NOT_ROOM_RE = /unit|apart|building|site|plot|boundary|level|storey|floor_outline|text|label|name|number/i;
 
@@ -193,6 +194,10 @@ export interface DxfReport {
   rooms: number;
   doors: number;
   windows: number;
+  /** Furniture outlines read from furniture layers. */
+  furniture: number;
+  /** Layers whose content was not used (dimensions, hatches, anything unrecognised). */
+  ignoredLayers: string[];
   unitM: number | null;
   scaleAssumed: boolean;
   layers: string[];
@@ -211,7 +216,7 @@ function dedupe(poly: Pt[]): Pt[] {
   return out.filter((p, i) => { const a = out[(i + out.length - 1) % out.length], b = out[(i + 1) % out.length]; return Math.abs((p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x)) > 1e-6 * (Math.hypot(b.x - a.x, b.y - a.y) || 1); });
 }
 
-interface Box { x0: number; y0: number; x1: number; y1: number; arcs: number }
+interface Box { x0: number; y0: number; x1: number; y1: number; arcs: number; members: DxfLine[] }
 
 /** Clusters entities on a layer by touching bounding boxes; returns one box per cluster. */
 function clusters(ls: DxfLine[], margin: number): Box[] {
@@ -226,9 +231,50 @@ function clusters(ls: DxfLine[], margin: number): Box[] {
   boxes.forEach((b, i) => {
     const r = f(i); const c = m.get(r);
     const arc = ls[i].kind === 'arc' ? 1 : 0;
-    if (!c) m.set(r, { ...b, arcs: arc }); else { c.x0 = Math.min(c.x0, b.x0); c.y0 = Math.min(c.y0, b.y0); c.x1 = Math.max(c.x1, b.x1); c.y1 = Math.max(c.y1, b.y1); c.arcs += arc; }
+    if (!c) m.set(r, { ...b, arcs: arc, members: [ls[i]] }); else { c.members.push(ls[i]); c.x0 = Math.min(c.x0, b.x0); c.y0 = Math.min(c.y0, b.y0); c.x1 = Math.max(c.x1, b.x1); c.y1 = Math.max(c.y1, b.y1); c.arcs += arc; }
   });
   return [...m.values()];
+}
+
+/**
+ * A drawn door: two jamb marks across the wall, and, when it swings, a leaf line from the hinge with
+ * an arc of the same radius around the hinge. Gives the width between the jambs, the swing side
+ * (into the room the edge belongs to, or out) and which end the hinge is at.
+ */
+function doorDetail(members: DxfLine[], s: Space, i: number): { offset: number; width: number; swing: Opening['swing']; hinge: Opening['hinge'] } | null {
+  const a = s.polygon[i], b = s.polygon[(i + 1) % s.polygon.length];
+  const L = Math.hypot(b.x - a.x, b.y - a.y);
+  if (L < 0.2) return null;
+  const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L };
+  const sg = shoelace(s.polygon) >= 0 ? 1 : -1;
+  const n = { x: -u.y * sg, y: u.x * sg };
+  const along = (p: Pt) => (p.x - a.x) * u.x + (p.y - a.y) * u.y;
+  const across = (p: Pt) => (p.x - a.x) * n.x + (p.y - a.y) * n.y;
+  const segs = members.filter((m) => m.kind === 'line' && m.pts.length === 2);
+  const arcs = members.filter((m) => m.kind === 'arc');
+  // the leaf is the line from the hinge to the arc's far end; every point of the arc lies one leaf-length from the hinge
+  let leaf: { m: DxfLine; h: Pt; e: Pt } | null = null;
+  if (arcs.length) {
+    const ar = arcs[0].pts;
+    for (const m of segs) {
+      for (const [h, e] of [[m.pts[0], m.pts[1]], [m.pts[1], m.pts[0]]]) {
+        const r = Math.hypot(e.x - h.x, e.y - h.y);
+        if (!leaf && r >= 0.2 && ar.every((q) => Math.abs(Math.hypot(q.x - h.x, q.y - h.y) - r) < 0.03 * Math.max(1, r))) leaf = { m, h, e };
+      }
+    }
+  }
+  // jambs run across the wall: their ends differ in the across coordinate, not along it
+  const jambs = segs.filter((m) => m !== leaf?.m && Math.abs(along(m.pts[0]) - along(m.pts[1])) < 0.02 && Math.abs(across(m.pts[0]) - across(m.pts[1])) > 0.02);
+  if (jambs.length < 2) return null;
+  const js = jambs.map((m) => along(m.pts[0])).sort((x, y) => x - y);
+  const lo = js[0], hi = js[js.length - 1];
+  if (hi - lo < 0.3) return null;
+  if (!leaf) return { offset: (lo + hi) / 2, width: hi - lo, swing: 'none', hinge: 'start' };
+  return {
+    offset: (lo + hi) / 2, width: hi - lo,
+    swing: (leaf.e.x - leaf.h.x) * n.x + (leaf.e.y - leaf.h.y) * n.y >= 0 ? 'in' : 'out',
+    hinge: Math.abs(along(leaf.h) - lo) <= Math.abs(along(leaf.h) - hi) ? 'start' : 'end',
+  };
 }
 
 function placeOpenings(kind: 'door' | 'window', cl: Box[], spaces: Space[]): Opening[] {
@@ -245,6 +291,14 @@ function placeOpenings(kind: 'door' | 'window', cl: Box[], spaces: Space[]): Ope
       if (!best || d < best.d) best = { s, i, d, t };
     }
     if (!best || best.d > 0.6) continue;
+    const det = kind === 'door' ? doorDetail(c.members, best.s, best.i) : null;
+    if (det) {
+      out.push({
+        id: `door-${out.length + 1}`, kind, spaceId: best.s.id, wallIndex: best.i, offsetM: r3(det.offset), widthM: r3(det.width),
+        heightM: 2.05, sillM: 0, swing: det.swing, hinge: det.hinge, sourceKind: 'pdf-annotation', status: 'estimated',
+      });
+      continue;
+    }
     out.push({
       id: `${kind}-${out.length + 1}`, kind, spaceId: best.s.id, wallIndex: best.i, offsetM: r3(best.t), widthM: r3(Math.min(w, kind === 'door' ? 1.2 : 3)),
       heightM: kind === 'door' ? 2.05 : 1.2, sillM: kind === 'door' ? 0 : 0.9, swing: kind === 'door' && c.arcs ? 'in' : 'none', hinge: 'start',
@@ -267,7 +321,7 @@ export function dxfToModel(textIn: string, name = 'drawing.dxf', opts: { now?: n
   const all0 = doc.lines.flatMap((l) => l.pts);
   const empty = (m: string): DxfResult => ({
     model: { id: `dxf-${now}`, name: base, version: 1, units: 'm', ceilingM: 2.6, sourceLabel: `DXF: ${name}`, spaces: [], openings: [], furniture: [], measurements: [], evidence: [] },
-    report: { method: 'none', rooms: 0, doors: 0, windows: 0, unitM, scaleAssumed, layers: doc.layers, warnings: [...warnings, m] },
+    report: { method: 'none', rooms: 0, doors: 0, windows: 0, furniture: 0, ignoredLayers: [], unitM, scaleAssumed, layers: doc.layers, warnings: [...warnings, m] },
   });
   if (!all0.length) return empty('No drawing lines found.');
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -279,9 +333,15 @@ export function dxfToModel(textIn: string, name = 'drawing.dxf', opts: { now?: n
     warnings.push(`The file does not state its units; assumed ${unitM === 0.001 ? 'millimetres' : unitM === 0.01 ? 'centimetres' : 'metres'}.`);
   }
   const u = unitM;
-  const M = (p: Pt): Pt => ({ x: (p.x - minX) * u, y: (maxY - p.y) * u });
-  const lines = doc.lines.map((l) => ({ ...l, pts: l.pts.map(M) }));
-  const texts = doc.texts.map((t) => ({ ...t, at: M(t.at), h: t.h * u }));
+  // The plan origin is the top-left of the room outlines when the file has them (so wall faces and
+  // dimension marks outside the rooms do not shift the plan); otherwise the top-left of everything.
+  const rawRooms = doc.lines.filter((l) => l.closed && ROOM_RE.test(l.layer) && !NOT_ROOM_RE.test(l.layer) && l.pts.length >= 3);
+  const rp = rawRooms.flatMap((l) => l.pts);
+  const ox = rp.length ? Math.min(...rp.map((p) => p.x)) : minX, oy = rp.length ? Math.max(...rp.map((p) => p.y)) : maxY;
+  const mk = (x0: number, y0: number) => (p: Pt): Pt => ({ x: (p.x - x0) * u, y: (y0 - p.y) * u });
+  const M = mk(ox, oy);
+  let lines = doc.lines.map((l) => ({ ...l, pts: l.pts.map(M) }));
+  let texts = doc.texts.map((t) => ({ ...t, at: M(t.at), h: t.h * u }));
 
   const wallLines = lines.filter((l) => WALL_RE.test(l.layer));
   const roomLines = lines.filter((l) => l.closed && ROOM_RE.test(l.layer) && !NOT_ROOM_RE.test(l.layer) && l.pts.length >= 3);
@@ -330,6 +390,11 @@ export function dxfToModel(textIn: string, name = 'drawing.dxf', opts: { now?: n
   if (!spaces.length) {
     // Fall back to the drawing-sheet pipeline: lines become strokes (walls thick) and it finds the rooms.
     try {
+      if (rp.length) { // room outlines gave nothing usable: lay everything out from the drawing's own corner
+        const M2 = mk(minX, maxY);
+        lines = doc.lines.map((l) => ({ ...l, pts: l.pts.map(M2) }));
+        texts = doc.texts.map((t) => ({ ...t, at: M2(t.at), h: t.h * u }));
+      }
       const W = maxX * 0 + (maxX - minX) * u + 1, H = (maxY - minY) * u + 1;
       const useWalls = wallLines.length > 0;
       const keep = useWalls ? lines.filter((l) => WALL_RE.test(l.layer) || DOOR_RE.test(l.layer) || WINDOW_RE.test(l.layer)) : lines;
@@ -353,6 +418,49 @@ export function dxfToModel(textIn: string, name = 'drawing.dxf', opts: { now?: n
     ...placeOpenings('window', clusters(winLines, 0.05), spaces).map((o, i) => ({ ...o, id: `window-${i + 1}` })),
   ];
   const furniture: FurnitureItem[] = [];
+  for (const l of lines) {
+    if (!FURN_RE.test(l.layer) || !l.closed || l.pts.length < 3) continue;
+    const pts = dedupe(l.pts);
+    let cx: number, cy: number, w: number, d: number, rot = 0;
+    if (pts.length === 4) {
+      // the writer starts at the item's back-left corner, so the first edge is its width axis
+      const [p0, p1, p2] = pts;
+      w = Math.hypot(p1.x - p0.x, p1.y - p0.y); d = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      rot = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+      cx = (pts[0].x + pts[2].x) / 2; cy = (pts[0].y + pts[2].y) / 2;
+    } else {
+      const x0 = Math.min(...pts.map((q) => q.x)), x1 = Math.max(...pts.map((q) => q.x));
+      const y0 = Math.min(...pts.map((q) => q.y)), y1 = Math.max(...pts.map((q) => q.y));
+      w = x1 - x0; d = y1 - y0; cx = (x0 + x1) / 2; cy = (y0 + y1) / 2;
+    }
+    if (w < 0.1 || d < 0.1 || w > 6 || d > 6) continue;
+    const n = furniture.length + 1;
+    furniture.push({
+      id: `furn-${n}`, catalogId: 'dxf-outline', name: `Item ${n}`, category: 'furniture', x: r3(cx), y: r3(cy), rotation: r3(rot),
+      w: r3(w), d: r3(d), h: 0.75, clearance: { front: 0, back: 0, left: 0, right: 0 }, locked: false, owned: false, priceSek: 0,
+      priceStatus: 'estimated', color: '#9aa0a6', sourceKind: 'pdf-annotation',
+    });
+  }
+  // wall thickness: the outermost parallel wall line on either side of a room edge
+  if (method === 'room-outlines' && wallLines.length) {
+    for (const sp of spaces) sp.polygon.forEach((a, i) => {
+      const b = sp.polygon[(i + 1) % sp.polygon.length];
+      const L = Math.hypot(b.x - a.x, b.y - a.y);
+      if (L < 0.2) return;
+      const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L;
+      let off = 0;
+      for (const w of wallLines) {
+        if (w.pts.length !== 2) continue;
+        const [p, q] = w.pts;
+        const dp = Math.abs((p.x - a.x) * -uy + (p.y - a.y) * ux), dq = Math.abs((q.x - a.x) * -uy + (q.y - a.y) * ux);
+        if (Math.abs(dp - dq) > 0.01 || dp > 0.3 || dp < 0.01) continue;
+        const t0 = (p.x - a.x) * ux + (p.y - a.y) * uy, t1 = (q.x - a.x) * ux + (q.y - a.y) * uy;
+        if (Math.min(Math.max(t0, t1), L) - Math.max(Math.min(t0, t1), 0) < L * 0.5) continue;
+        off = Math.max(off, dp);
+      }
+      if (off > 0) sp.walls[i] = { ...sp.walls[i], thicknessM: r3(off * 2) };
+    });
+  }
   const model: SpaceModel = {
     id: `dxf-${now}`, name: base, version: 1, units: 'm', ceilingM: 2.6,
     sourceLabel: `DXF: ${name}, rooms ${method === 'room-outlines' ? 'from room outlines' : 'found between walls'}; all estimated`,
@@ -360,6 +468,6 @@ export function dxfToModel(textIn: string, name = 'drawing.dxf', opts: { now?: n
   };
   return {
     model,
-    report: { method, rooms: spaces.length, doors: openings.filter((o) => o.kind === 'door').length, windows: openings.filter((o) => o.kind === 'window').length, unitM, scaleAssumed, layers: doc.layers, warnings },
+    report: { method, rooms: spaces.length, doors: openings.filter((o) => o.kind === 'door').length, windows: openings.filter((o) => o.kind === 'window').length, furniture: furniture.length, ignoredLayers: doc.layers.filter((ly) => !(WALL_RE.test(ly) || DOOR_RE.test(ly) || WINDOW_RE.test(ly) || FURN_RE.test(ly) || (ROOM_RE.test(ly) && !NOT_ROOM_RE.test(ly)) || ly === 'TEXT')), unitM, scaleAssumed, layers: doc.layers, warnings },
   };
 }
