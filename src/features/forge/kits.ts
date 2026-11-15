@@ -7,7 +7,7 @@
 // supplies the craft (joinery, profiles, bedding, casters) that a fast model rarely gets right.
 // `mirror` duplicates any item across the centre plane; `count` + `step` repeats a plain part.
 
-import * as THREE from 'three';
+import { applyQuat, eulerToQuat, quatMul, quatToEuler } from './rot';
 import type { MaterialId, ObjectMotion, ObjectPart, PartShape } from '../../core/types';
 import { presetProfile } from './profiles';
 import { DECOR_KITS, type DecorKit } from './decorKits';
@@ -671,23 +671,24 @@ function plant(c: Ctx, w: number, h: number, d: number) {
 
 // ---- transform + public API ---------------------------------------------------------------
 
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3();
-
 /** Rotate parts and motions about `origin` by Euler `rot` (XYZ). */
 export function rotateAll(parts: ObjectPart[], motions: ObjectMotion[], rot: V3, origin: V3): void {
-  _q.setFromEuler(_e.set(rot[0], rot[1], rot[2], 'XYZ'));
+  const q = eulerToQuat(rot[0], rot[1], rot[2]);
   for (const p of parts) {
-    _v.set(p.pos[0] - origin[0], p.pos[1] - origin[1], p.pos[2] - origin[2]).applyQuaternion(_q);
-    p.pos = [r4(_v.x + origin[0]), r4(_v.y + origin[1]), r4(_v.z + origin[2])];
-    _q2.setFromEuler(_e.set(...(p.rot ?? [0, 0, 0]), 'XYZ')).premultiply(_q);
-    _e.setFromQuaternion(_q2, 'XYZ');
-    const r: V3 = [r4(_e.x), r4(_e.y), r4(_e.z)];
+    const v = applyQuat([p.pos[0] - origin[0], p.pos[1] - origin[1], p.pos[2] - origin[2]], q);
+    p.pos = [r4(v[0] + origin[0]), r4(v[1] + origin[1]), r4(v[2] + origin[2])];
+    const pr = p.rot ?? [0, 0, 0];
+    const e = quatToEuler(quatMul(q, eulerToQuat(pr[0], pr[1], pr[2])));
+    const r: V3 = [r4(e[0]), r4(e[1]), r4(e[2])];
     if (r.some((v) => Math.abs(v) > 1e-5)) p.rot = r; else delete p.rot;
   }
   for (const m of motions) {
-    _v.set(...m.axis).applyQuaternion(_q);
-    m.axis = [r4(_v.x), r4(_v.y), r4(_v.z)];
-    if (m.pivot) { _v.set(m.pivot[0] - origin[0], m.pivot[1] - origin[1], m.pivot[2] - origin[2]).applyQuaternion(_q); m.pivot = [r4(_v.x + origin[0]), r4(_v.y + origin[1]), r4(_v.z + origin[2])]; }
+    const a = applyQuat(m.axis, q);
+    m.axis = [r4(a[0]), r4(a[1]), r4(a[2])];
+    if (m.pivot) {
+      const v = applyQuat([m.pivot[0] - origin[0], m.pivot[1] - origin[1], m.pivot[2] - origin[2]], q);
+      m.pivot = [r4(v[0] + origin[0]), r4(v[1] + origin[1]), r4(v[2] + origin[2])];
+    }
   }
 }
 

@@ -3,7 +3,7 @@
 // are recoloured: the main colour must cover a real share of the surface, an accent at least a little.
 
 import type { MaterialId, ObjectPart, ObjectSpec } from '../../core/types';
-import { MATERIAL_DEFS } from './materials';
+import { MATERIAL_DEFS } from './materialDefs';
 import { colorDistance } from './palette';
 import type { ParsedRequest } from './parseRequest';
 

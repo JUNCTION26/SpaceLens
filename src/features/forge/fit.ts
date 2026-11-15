@@ -7,7 +7,7 @@
 // it maps the old bounds onto the new bounds, the result fills `size` exactly.
 import type { ObjectMotion, ObjectPart, ObjectSpec } from '../../core/types';
 import { coneTopRadius, partBounds, partsBounds, posedParts, rotMatrix, withOpenSize } from './spec';
-import * as THREE from 'three';
+import { applyQuat, axisAngleToQuat } from './rot';
 
 type Size = { w: number; d: number; h: number };
 type Map1 = (x: number) => number;
@@ -174,9 +174,8 @@ function keepOpenFloorContact(before: ObjectSpec, after: ObjectSpec): ObjectSpec
     const now = openGroupMinY({ ...after, motions: [m] }, m.group);
     if (Math.abs(now) < 1e-5) return m;
     // Effect of a unit pivot shift along y on the open pose: ((I - R) y)_y.
-    const R = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...m.axis), m.open);
-    const ry = new THREE.Vector3(0, 1, 0).applyMatrix4(R);
-    const e = 1 - ry.y;
+    const ry = applyQuat([0, 1, 0], axisAngleToQuat(m.axis, m.open));
+    const e = 1 - ry[1];
     if (Math.abs(e) < 0.2) return m;
     return { ...m, pivot: [m.pivot[0], r5(m.pivot[1] - now / e), m.pivot[2]] as [number, number, number] };
   });

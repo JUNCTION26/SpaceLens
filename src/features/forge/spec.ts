@@ -2,7 +2,7 @@
 // forge module shares (part bounds, footprint).
 //
 // Local frame: metres, origin at the floor centre of the footprint, +y up, front faces +z.
-import * as THREE from 'three';
+import { applyQuat, axisAngleToQuat, eulerToQuat, quatMul, quatToEuler, quatToMatrix } from './rot';
 import type { MaterialId, ObjectMotion, ObjectPart, ObjectRole, ObjectSemantics, ObjectSpec, PartShape } from '../../core/types';
 import { coerceKit, expandItem, expands, KITS, type KitItem } from './kits';
 import { PROFILE_STYLES } from './profiles';
@@ -101,15 +101,11 @@ export const SPEC_JSON_SCHEMA = {
 export interface Bounds { min: [number, number, number]; max: [number, number, number] }
 
 const ROUND: ReadonlySet<PartShape> = new Set(['cylinder', 'cone', 'tube', 'lathe']);
-const _m = new THREE.Matrix4(), _e = new THREE.Euler(), _q = new THREE.Quaternion();
 
 /** Rotation matrix columns (local x, y, z axes in object space), row-major 3x3. */
 export function rotMatrix(rot?: [number, number, number]): number[] {
   if (!rot || (!rot[0] && !rot[1] && !rot[2])) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
-  _e.set(rot[0], rot[1], rot[2], 'XYZ');
-  _m.makeRotationFromQuaternion(_q.setFromEuler(_e));
-  const e = _m.elements; // column-major
-  return [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]];
+  return quatToMatrix(eulerToQuat(rot[0], rot[1], rot[2])); // row-major, same layout three's matrix elements give when read row by row
 }
 
 /** Index of the longest of three numbers. */
@@ -444,21 +440,19 @@ export function coerceMotions(v: unknown, parts: readonly ObjectPart[], unit = 1
 export function posedParts(spec: Pick<ObjectSpec, 'parts' | 'motions'>, t: number): ObjectPart[] {
   if (!spec.motions?.length || t <= 0) return spec.parts;
   const byGroup = new Map(spec.motions.map((m) => [m.group, m]));
-  const v = new THREE.Vector3(), q = new THREE.Quaternion(), pq = new THREE.Quaternion(), e = new THREE.Euler(), ax = new THREE.Vector3();
   return spec.parts.map((p) => {
     const m = p.group ? byGroup.get(p.group) : undefined;
     if (!m) return p;
-    ax.set(...m.axis);
     if (m.kind === 'slide') {
       const k = m.open * t;
-      return { ...p, pos: [p.pos[0] + ax.x * k, p.pos[1] + ax.y * k, p.pos[2] + ax.z * k] };
+      return { ...p, pos: [p.pos[0] + m.axis[0] * k, p.pos[1] + m.axis[1] * k, p.pos[2] + m.axis[2] * k] };
     }
     const pv = m.pivot ?? [0, 0, 0];
-    q.setFromAxisAngle(ax, m.open * t);
-    v.set(p.pos[0] - pv[0], p.pos[1] - pv[1], p.pos[2] - pv[2]).applyQuaternion(q);
-    pq.setFromEuler(e.set(...(p.rot ?? [0, 0, 0]), 'XYZ'));
-    e.setFromQuaternion(pq.premultiply(q), 'XYZ');
-    return { ...p, pos: [v.x + pv[0], v.y + pv[1], v.z + pv[2]], rot: [e.x, e.y, e.z] };
+    const q = axisAngleToQuat(m.axis, m.open * t);
+    const v = applyQuat([p.pos[0] - pv[0], p.pos[1] - pv[1], p.pos[2] - pv[2]], q);
+    const r = p.rot ?? [0, 0, 0];
+    const e = quatToEuler(quatMul(q, eulerToQuat(r[0], r[1], r[2])));
+    return { ...p, pos: [v[0] + pv[0], v[1] + pv[1], v[2] + pv[2]], rot: e };
   });
 }
 
