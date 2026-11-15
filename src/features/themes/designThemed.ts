@@ -60,6 +60,7 @@ function itemFor(spec: ObjectSpec, o: ThemeObject, ceilingM: number): FurnitureI
     f.mount = 'wall';
     f.clearance = { front: 0, back: 0, left: 0, right: 0 };
     f.elevationM = wallElevation(f, ceilingM);
+    if (o.eyeM) f.elevationM = Math.max(0, Math.min(o.eyeM - f.h / 2, ceilingM - f.h - 0.05));
   }
   return f;
 }

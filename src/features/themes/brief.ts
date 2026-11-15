@@ -3,6 +3,7 @@
 import { ai, aiReady, partialJson } from '../../core/ai';
 import { CATALOG } from '../furniture/catalog';
 import { motifOf } from '../forge/decorKits';
+import { kitBrief, matchKit, namesIn } from './kits';
 
 export const RECIPES = ['poster', 'sign', 'banner', 'wallshelf', 'clock', 'neon', 'statue', 'cat-tree', 'pet-bed', 'scratching-post', 'litter-box', 'pet-bowls', 'toy-basket', 'window-perch', 'vanity'] as const;
 export type Recipe = (typeof RECIPES)[number];
@@ -33,6 +34,12 @@ export interface ThemeObject {
   /** Where it wants to be. */
   place?: 'corner' | 'window' | 'wall' | 'free';
   qty?: number;
+  /** The one piece the room is built around; hangs on the wall facing the door. */
+  hero?: boolean;
+  /** Centre height on the wall in metres (1.4 to 1.6, eye height). */
+  eyeM?: number;
+  /** Keep the colours given; the 60/30/10 pass leaves it alone. */
+  locked?: boolean;
 }
 
 export interface ThemeBrief {
@@ -42,6 +49,8 @@ export interface ThemeBrief {
   names: string[];
   palette: string[];
   mood: string;
+  /** Lighting mood of the room: warm, cool or neon accent. */
+  light?: 'warm' | 'cool' | 'neon';
   objects: ThemeObject[];
   realProducts: boolean;
   notes: string[];
@@ -93,7 +102,7 @@ export function findNames(text: string): string[] {
   const re = /\b(?:named|called|name is|for)\s+([A-ZÅÄÖ][a-zåäöé]+(?:\s+[A-ZÅÄÖ][a-zåäöé]+)?)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) if (!/^(My|The|A|An|Two|Three|Four|Me|Us|Him|Her|IKEA)$/i.test(m[1])) out.push(m[1]);
-  return [...new Set(out)];
+  return [...new Set([...out, ...namesIn(text)])];
 }
 
 // ---- rules brief -----------------------------------------------------------------------------
@@ -299,6 +308,7 @@ export function rulesBrief(text: string): ThemeBrief {
   else if (/gam(ing|er)/.test(lc)) b = gamingRoom(Math.min(4, n));
   else if (/read|nook|book|librar/.test(lc) && !/board.?game/.test(lc)) b = readingNook();
   else if (/\b(home office|office|study)\b/.test(lc) && !roomKind(lc.replace(/\b(home )?office|study|work\b/g, ''))) b = homeOffice(real, store);
+  else if (matchKit(text)) b = kitBrief(text, matchKit(text)!, names);
   else if (fr || (!roomKind(lc) && (motifOf(lc) || THEMED.test(lc)))) b = genericRoom(text, names, fr?.[1] ?? motifOf(lc), fr?.[2]);
   else b = generalRoom(text, names, n, motifOf(lc));
   if (real && !b.realProducts) b = { ...b, realProducts: true, objects: b.objects.map((o) => (o.source === 'catalogue' ? { ...o, source: 'store', query: `${store} ${o.name}` } : o)) };
@@ -471,7 +481,9 @@ export async function themeBrief(text: string, opts: BriefOpts | AbortSignal = {
   const stop = () => ctrl.abort();
   signal?.addEventListener('abort', stop);
   const timer = setTimeout(stop, BRIEF_LIMIT_MS);
-  const real = rulesBrief(text).realProducts;
+  const seedBrief = rulesBrief(text);
+  const real = seedBrief.realProducts;
+  const seed = `\nStarting point from the room kit (adapt freely, keep what fits): palette ${seedBrief.palette.join(' ')}, light ${seedBrief.light ?? 'warm'}, pieces ${seedBrief.objects.map((x) => `${x.name}${x.qty ? ` x${x.qty}` : ''}`).join(', ')}.`;
   let emitted = 0;
   const onPartial = o.onObject && ((raw: string) => {
     const list = (partialJson(raw) as { objects?: unknown[] } | undefined)?.objects;
@@ -484,7 +496,7 @@ export async function themeBrief(text: string, opts: BriefOpts | AbortSignal = {
   });
   try {
     const res = await ai<unknown>({
-      task: 'fast', system: system(), parts: [{ text: `Room idea: """${text}"""${o.room ? `\nRoom: ${o.room}` : ''}` }],
+      task: 'fast', system: system(), parts: [{ text: `Room idea: """${text}"""${o.room ? `\nRoom: ${o.room}` : ''}${seed}` }],
       schema: BRIEF_SCHEMA, signal: ctrl.signal, temperature: 0.5, budgetMs: 4000, onPartial,
     });
     return cleanBrief(res.data, text, res.ms, res.model);
