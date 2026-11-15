@@ -312,12 +312,12 @@ export function compileThemed(text: string, model: SpaceModel): Requirements {
 /**
  * True when the words describe a particular kind of room ("a ramen bar for 10", "a Viking hall")
  * rather than a plain catalogue list: those are planned as a whole idea with custom pieces and
- * decor. With a key the model plans any such idea; offline only kinds the rules know go that way.
+ * decor. The route is the same with or without a key: an unknown adjective alone ("double",
+ * "cosy") does not make a room themed, only a purpose the plain rules cannot furnish does.
  */
 export function wantsBrief(text: string, model: SpaceModel): boolean {
   if (isThemedRequest(text)) return true;
   if (!unknownWords(text).length) return false;
-  if (hasGemini()) return true;
   const r = compileRules(text, model);
   if (!r.purpose || !r.items.length) return true;
   const kind = roomKind(text);
