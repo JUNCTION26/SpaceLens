@@ -67,7 +67,7 @@ export function ShoppingList({ model }: { model: Pick<SpaceModel, 'furniture'> &
         <tbody>
           {list.lines.map((l, i) => (
             <tr key={i}>
-              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shop-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</td>
+              <td className="shop-name">{cands[lineKey(l)] && l.listed && cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl && <img className="shoplist-thumb" src={cands[lineKey(l)].ms[cands[lineKey(l)].i].listing.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />}{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</td>
               <td className="shop-dim">{l.wCm}×{l.dCm}×{l.hCm} cm</td>
               <td>{l.unitPrice != null && l.currency ? money(l.unitPrice * l.qty, l.currency) : '-'}</td>
               <td><a href={l.link} target="_blank" rel="noreferrer noopener" aria-label={l.listed ? `Open ${l.name}` : `Search ${l.name}`} title={l.listed ? 'Open' : 'Search'}>{l.listed ? '↗' : '⌕'}</a></td>

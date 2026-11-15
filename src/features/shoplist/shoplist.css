@@ -5,6 +5,14 @@
 .shoplist-foot button + button, .shoplist-foot button { margin-left: 6px; }
 @media (prefers-reduced-motion: reduce) { .shoplist .find-spin { animation: none; } }
 
-.shoplist .shop-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+.shoplist .shoplist-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; vertical-align: middle; margin-right: 6px; }
 .shoplist .find-ok.unsure { opacity: 0.6; }
 .shoplist .swap { margin-left: 4px; }
+
+.shoplist { min-width: 0; font-size: 12px; }
+.shoplist table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.shoplist td { padding: 4px 4px 4px 0; vertical-align: middle; overflow-wrap: anywhere; }
+.shoplist .shop-dim { color: var(--muted); font-variant-numeric: tabular-nums; }
+.shoplist-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.shoplist-foot strong { flex: 1 1 100%; font-variant-numeric: tabular-nums; }
+.shoplist-foot button, .shoplist-foot button + button { margin-left: 0; }
