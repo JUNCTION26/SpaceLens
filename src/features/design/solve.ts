@@ -1269,7 +1269,9 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
       // Last resort without a brief: allow the window walkway to narrow and say so.
       return solveOnce(model, items, program, { ...opts, req: { purpose: '', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' } });
     }
-    return { candidates: [], reports: [], infeasibility: infeasible(ctx, failedGroup, lastPlaced, work, req) };
+    // The group that found no spot is the first thing to give up (a dining set, not the nightstand).
+    const unplacedGroup = failedGroup && !failedGroup.fixed ? failedGroup.members.filter((id) => !fixed.has(id)) : undefined;
+    return { candidates: [], reports: [], infeasibility: infeasible(ctx, failedGroup, lastPlaced, work, req), unplaced: unplacedGroup?.length ? unplacedGroup : undefined };
   }
 
   // Deferred optional pieces: best free spot each.
