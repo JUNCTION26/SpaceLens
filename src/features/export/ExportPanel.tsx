@@ -1,6 +1,7 @@
 import { ArButton } from '../ar/ArButton';
 import { ShoppingList } from '../shoplist/ShoppingList';
 import { IfcButton } from '../formats/IfcButton';
+import { DxfButton } from '../formats/DxfButton';
 import { useMemo, useRef, useState } from 'react';
 import { useShownFurniture, useStore } from '../../core/store';
 import { fmtSek } from '../../core/geometry';
@@ -162,6 +163,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
             <button className="btn btn-sm" onClick={printSheet}>Room sheet</button>
             <ArButton model={model} className="btn btn-sm" label="View in AR" />
             <span className="export-ifc"><IfcButton model={model} /></span>
+            <span className="export-ifc"><DxfButton model={model} /></span>
           </div>
           <div className="export-label">Shopping list</div>
           <ShoppingList model={model} />
