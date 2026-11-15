@@ -36,3 +36,8 @@
 @keyframes layout-pulse { 50% { opacity: .3; } }
 .layout-second { animation: layout-in 240ms var(--ease) both; }
 @media (prefers-reduced-motion: reduce) { .layout-card, .layout-second, .layout-progress i { animation: none; } }
+
+.layout-taste { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.layout-taste > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
+.layout-taste > summary::-webkit-details-marker { display: none; }
+.layout-taste[open] > summary { margin-bottom: 6px; }

@@ -12,6 +12,7 @@ import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from './progress';
 import { SharePoll } from '../vote/VoteUi';
+import { TastePanel } from '../taste/TastePanel';
 import './layout.css';
 
 
@@ -38,6 +39,15 @@ function Thumb({ model, cand, scale }: { model: SpaceModel; cand: LayoutCandidat
       <polygon points={pts(sp.polygon)} fill="none" stroke="var(--muted)" />
       {cand.furniture.map((f) => <polygon key={f.id} points={pts(itemCorners(f))} fill={f.color} opacity={0.8} />)}
     </svg>
+  );
+}
+
+function TasteDisclosure() {
+  return (
+    <details className="layout-taste">
+      <summary>Taste</summary>
+      <TastePanel />
+    </details>
   );
 }
 
@@ -82,7 +92,7 @@ export function DesignPanel() {
       showLayouts(res);
     } catch (e) {
       console.error(e);
-      notify('Could not make layouts. Nothing changed.', {
+      notify('Layouts failed', {
         tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void regenerate(r) }, { label: 'Edit the brief', run: () => useUi.getState().openSection('describe') }],
       });
     } finally { setBusy(false); useReports.getState().setStages(useReports.getState().stages, false); }
@@ -95,10 +105,10 @@ export function DesignPanel() {
       const c = await crossover(a, b, model, req);
       const st = useStore.getState();
       if (c) { st.setCandidates([...st.candidates, c]); st.previewCandidate(c.id); setPins([]); }
-      else notify('These two do not combine into a layout that fits.', { tone: 'warn', actions: [{ label: 'Pick another pair', run: () => setPins([]) }] });
+      else notify('These do not combine', { tone: 'warn', actions: [{ label: 'Pick another pair', run: () => setPins([]) }] });
     } catch (e) {
       console.error(e);
-      notify('Could not combine these two.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
+      notify('Combine failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void combine() }] });
     } finally { setBusy(false); }
   };
   const togglePin = (id: string) => setPins((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
@@ -126,6 +136,7 @@ export function DesignPanel() {
               : <button className="btn btn-primary" onClick={() => useUi.getState().openSection('describe')}>Describe</button>}
           </div>
         )}
+        <TasteDisclosure />
       </div>
     );
   }
@@ -196,6 +207,7 @@ export function DesignPanel() {
           );
         })}
       </div>
+      <TasteDisclosure />
     </div>
   );
 }
