@@ -5,7 +5,7 @@ import { gemini, hasGemini, usage, dataUrlToInlineData } from '../../core/gemini
 import { emptyModel } from '../../core/sample';
 import { signedArea, uid } from '../../core/geometry';
 import type { Evidence, Measurement, Space, Vec2, WallMeta } from '../../core/types';
-import { cropRegion, downscale, indexStats, loadImage, loadPdf, saveSummary, type DrawingDoc, type TextItem } from './drawingIndex';
+import { cropRegion, downscale, loadImage, loadPdf, saveSummary, type DrawingDoc, type TextItem } from './drawingIndex';
 import { answerFromIndex, type Answer, type Region } from './answer';
 import { drawingToBuilding, type BuildReport } from './toBuilding';
 import { answerFromGeometry } from './geoAnswer';
@@ -60,7 +60,6 @@ export function DrawingsPanel() {
   const [focus, setFocus] = useState<Region[] | null>(null);
   const [q, setQ] = useState('');
   const [asking, setAsking] = useState(false);
-  const [stats, setStats] = useState({ asked: 0, free: 0 });
   const [calPts, setCalPts] = useState<Pt[]>([]);
   const [calDist, setCalDist] = useState('');
   const [mPerPx, setMPerPx] = useState<Record<number, number>>({});
@@ -70,8 +69,6 @@ export function DrawingsPanel() {
   const [hover, setHover] = useState<Region | null>(null);
   const [anim, setAnim] = useState(false);
   const [stageSize, setStageSize] = useState({ w: 1, h: 1 });
-  const [buildBench, setBuildBench] = useState<{ plans: number; convertedPct: number; within2PctPct: number; medianMsPerPlan: number } | null>(null);
-  const [bench, setBench] = useState<{ accuracyOnAnswered: number; coverage: number; questions: number; files: number; dataset: string } | null>(null);
   const [built, setBuilt] = useState<{ page: number; model: SpaceModel; report: BuildReport } | null>(null);
   const [building, setBuilding] = useState(false);
   const [pickRoom, setPickRoom] = useState<string | null>(null);
@@ -128,23 +125,6 @@ export function DrawingsPanel() {
     }).catch(() => { /* no samples yet */ });
   }, []);
 
-  useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}samples/stoa/eval-results.json`).then((r) => (r.ok ? r.json() : null)).then((j) => setBench(j?.summary ?? null)).catch(() => { /* not generated yet */ });
-    fetch(`${import.meta.env.BASE_URL}samples/stoa/build-results.json`).then((r) => (r.ok ? r.json() : null)).then((j) => setBuildBench(j?.summary ?? null)).catch(() => { /* not generated yet */ });
-  }, []);
-
-  const benchCard = bench && (
-    <details className="drawings-more">
-      <summary>More</summary>
-      <div className="drawings-chips">
-        <span className="chip" title="Accuracy">{bench.accuracyOnAnswered}%</span>
-        <span className="chip" title="Answered">{bench.coverage}% <Icon name="check" size={12} /></span>
-        <span className="chip" title="Plans">{bench.files} <Icon name="file" size={12} /></span>
-        {buildBench && <span className="chip" title="Built in 3D">{buildBench.convertedPct}% <Icon name="cube" size={12} /></span>}
-        {buildBench && <span className="chip" title="Areas within 2%">{buildBench.within2PctPct}% <Icon name="ruler" size={12} /></span>}
-      </div>
-    </details>
-  );
 
   function openDoc(d: DrawingDoc) {
     docCache.set(d.name, d); lastDoc = d; saveSummary(d);
@@ -314,8 +294,7 @@ export function DrawingsPanel() {
     setAsking(true);
     const geo = built?.report.ok ? answerFromGeometry(built.report, built.model, question) : null;
     const local = geo ?? answerFromIndex(doc, question, page);
-    if (local) { setStats((s) => ({ asked: s.asked + 1, free: s.free + 1 })); show(local); setAsking(false); setQ(''); return; }
-    setStats((s) => ({ ...s, asked: s.asked + 1 }));
+    if (local) { show(local); setAsking(false); setQ(''); return; }
     if (!hasGemini()) {
       show({ id: uid('a'), question, answer: '–', kind: 'inferred', method: 'none', regions: [] });
       setAsking(false); return;
@@ -443,7 +422,6 @@ export function DrawingsPanel() {
     setMode('design');
   }
 
-  const st = doc ? indexStats(doc) : null;
   const pageFocus = (focus ?? []).filter((r) => r.page === page);
   const rep = built && built.page === page ? built.report : null;
   const picked = rep?.rooms.find((r) => r.spaceId === pickRoom) ?? null;
@@ -461,7 +439,6 @@ export function DrawingsPanel() {
     setView('split'); setMode('design');
     toast(`${out.rooms.length} rooms built from the picture`, 'ok');
   }
-  const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
   const hasLines = !!doc?.vectors?.[page];
   const sampleList = samples.length > 0 && (
     <div className="drawings-chips" role="group" aria-label="Examples">
@@ -514,16 +491,13 @@ export function DrawingsPanel() {
       {rep && rep.ok && (
         <>
           <div className="drawings-chips">
-            <span className="chip" title="Rooms">{rep.rooms.length} <Icon name="layout" size={12} /></span>
-            <span className="chip" title="Doors">{rep.doors} <Icon name="door" size={12} /></span>
-            <span className="chip" title="Windows">{rep.windows} <Icon name="window" size={12} /></span>
-            {rep.withPrintedArea > 0 && <span className={`chip ${rep.verified === rep.withPrintedArea ? 'chip-ok' : 'chip-warn'}`} title="Areas within 2% of printed">{rep.verified}/{rep.withPrintedArea} <Icon name="check" size={12} /></span>}
+
           </div>
           <div className="drawings-chips" role="group" aria-label="Rooms">
             {rep.rooms.map((r) => (
               <button key={r.spaceId} className={`chip drawings-ex${pickRoom === r.spaceId ? ' is-on' : ''}${r.printedArea != null && r.status !== 'verified' ? ' chip-bad' : ''}`} aria-pressed={pickRoom === r.spaceId}
                 title={r.printedArea != null ? `${r.name}: ${r.printedArea.toFixed(2)} / ${r.computedArea.toFixed(2)} m²` : r.name} onClick={() => flyToRoom(r.spaceId)}>
-                {r.name} {r.computedArea.toFixed(1)} m²{r.errorPct != null ? ` ${fmtPct(r.errorPct)}` : ''}
+                {r.name} {r.computedArea.toFixed(1)} m²
               </button>
             ))}
           </div>
@@ -548,9 +522,6 @@ export function DrawingsPanel() {
   const picCard = pic && (
     <section className="drawings-sec drawings-pic">
       <div className="drawings-chips">
-        <span className={`chip ${pic.report.confidence >= 0.7 ? 'chip-ok' : pic.report.confidence >= 0.4 ? 'chip-warn' : 'chip-bad'}`}>{Math.round(pic.report.confidence * 100)}%</span>
-        <span className="chip" title="Scale">{pic.report.scale.source === 'dimensions' ? 'Dims' : pic.report.scale.source === 'areas' ? 'Areas' : pic.report.scale.source === 'door' ? 'Door' : '–'} <Icon name="ruler" size={12} /></span>
-        <span className="chip" title="Rooms">{pic.model.spaces.length} <Icon name="layout" size={12} /></span>
         <span className="chip" title="Size">{pic.report.sizeM.w.toFixed(1)} x {pic.report.sizeM.h.toFixed(1)} m</span>
       </div>
       <label className="row drawings-underlay">
@@ -602,7 +573,6 @@ export function DrawingsPanel() {
       {!doc ? (
         <div className="drawings-empty">
           {sampleList}
-          {benchCard}
         </div>
       ) : (
         <div className="drawings-main">
@@ -653,7 +623,6 @@ export function DrawingsPanel() {
           <aside className="drawings-side">
             {picCard}
             {buildCard}
-            {overlay && <div className="drawings-chips" role="group" aria-label="Overlay legend">{OVERLAY_KINDS.map((k) => <span key={k} className={`chip lg-${k}`}>{k}</span>)}</div>}
             {pg && zoom > 1.05 && (() => {
               const sb = sheetBox(); const vw = Math.min(1, stageSize.w / (sb.w * zoom)), vh = Math.min(1, stageSize.h / (sb.h * zoom));
               const cxn = 0.5 - pan.x / (sb.w * zoom), cyn = 0.5 - pan.y / (sb.h * zoom);
@@ -679,7 +648,6 @@ export function DrawingsPanel() {
 
             {(tool === 'calibrate' || mpp) && <section className="drawings-sec">
               <div className="drawings-chips">
-                {mpp && <span className="chip chip-ok" title="Scale">{(mpp * 1000).toFixed(1)} mm/px</span>}
                 {scaleItems.length > 0 && pg?.ptW && [...new Set(scaleItems.map((s) => s.value!))].map((n) => <button key={n} className="chip drawings-ex" onClick={() => applyScale(n)}>1:{n}</button>)}
               </div>
               {tool === 'calibrate' && (
@@ -715,19 +683,10 @@ export function DrawingsPanel() {
                 <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask" aria-label="Ask about this drawing" />
                 <button className="btn btn-sm" disabled={asking || !q.trim()} aria-label="Ask">{asking ? <span className="intent-spin" aria-label="Working" /> : <Icon name="send" size={14} />}</button>
               </form>
-              <div className="drawings-chips">
-                <span className="chip" title="Rooms">{st!.rooms} <Icon name="layout" size={12} /></span>
-                <span className="chip" title="Dimensions">{st!.dimensions} <Icon name="ruler" size={12} /></span>
-                {stats.asked > 0 && <span className="chip" title="Answered free">{stats.free}/{stats.asked}</span>}
-              </div>
               {answers.map((a) => (
                 <div key={a.id} className="drawings-answer" onClick={() => focusAnswer(a)}>
                   <div className="muted drawings-aq">{a.question}</div>
                   <div className="drawings-at">{a.answer}</div>
-                  <div className="drawings-chips">
-                    <span className={`chip ${a.kind === 'printed' ? 'chip-ok' : a.kind === 'calculated' ? 'chip-warn' : 'chip-bad'}`}>{a.kind}</span>
-                    {a.check && <span className={`chip ${a.check.ok ? 'chip-ok' : 'chip-bad'}`} title={`Index ${a.check.index} m², model ${a.check.model} m²`}>{a.check.index} / {a.check.model} m²</span>}
-                  </div>
                   {(crops[a.id] ?? []).length > 0 && (
                     <div className="drawings-crops">{crops[a.id].map((c, i) => <img key={i} src={c} alt="Source on drawing" />)}</div>
                   )}
