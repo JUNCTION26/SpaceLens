@@ -28,6 +28,7 @@ import { Coach } from './ui/onboarding/Coach';
 import { VisionPanel } from './features/vision/VisionPanel';
 import { VoiceAdd } from './features/voice/VoiceAdd';
 import { AgentDock, OPTIONAL_PANELS } from './ui/sections';
+import { PollOverlay } from './features/vote/VoteUi';
 
 applyDeepLink();
 
@@ -60,7 +61,7 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
 }
 
 function Globals({ help, setHelp }: { help: boolean; setHelp: (b: boolean) => void }) {
-  return (<><CommandPalette /><DemoRunner /><Coach /><Toasts />{help && <ShortcutHelp onClose={() => setHelp(false)} />}</>);
+  return (<><PollOverlay /><CommandPalette /><DemoRunner /><Coach /><Toasts />{help && <ShortcutHelp onClose={() => setHelp(false)} />}</>);
 }
 
 const PANELS: Record<string, React.ComponentType> = {

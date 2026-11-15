@@ -21,6 +21,7 @@ const ALL_NAV: NavItem[] = [
   { key: 'walk', label: 'Walk', icon: 'walk', mode: 'experience', group: 'Review', hint: 'Walk through' },
   { key: 'safety', label: 'Safety', icon: 'shield', mode: 'experience', group: 'Review', hint: 'Exits and hazards' },
   { key: 'export', label: 'Export', icon: 'download', mode: 'deliver', group: 'Share', hint: 'Plans and lists' },
+  { key: 'movein', label: 'Move in', icon: 'door', mode: 'deliver', group: 'Share', hint: 'Carry-in check' },
   { key: 'render', label: 'Render', icon: 'image', mode: 'deliver', group: 'Share', hint: 'Picture of the room' },
 ];
 /** Top-level destinations in the sidebar; each holds a few sections shown as a segmented control. */

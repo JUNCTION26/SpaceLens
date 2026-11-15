@@ -11,6 +11,7 @@ import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from './progress';
+import { SharePoll } from '../vote/VoteUi';
 import './layout.css';
 
 
@@ -144,6 +145,7 @@ export function DesignPanel() {
         <span />
         {(current || busy) && <span className="layout-progress" role="status" aria-label="Working"><i aria-hidden="true" /></span>}
         <button className="btn btn-sm btn-ghost" aria-pressed={compare} onClick={() => { setCompare((c) => !c); setPins([]); }}>{compare ? 'Done' : 'Compare'}</button>
+        <SharePoll />
       </div>
       {compare && (
         <div className="layout-combine muted">
