@@ -34,10 +34,12 @@ export function skipReason(space: Space): string | null {
   if (defaultBrief(space)) return null;
   const p = roomPurpose(space);
   if (p === 'stair') return 'Stairs';
+  if (isCirculation(p)) return 'Circulation';
   if (area(space.polygon) < 4) return 'Too small';
   return 'Nothing to furnish';
 }
 
+const isCirculation = (p: string) => p === 'hall' || p === 'hallway' || p === 'entrance';
 const bathBrief = (a: number) => (a >= 6 ? 'toilet, washbasin, shower and bathtub' : a >= 4.5 ? 'toilet, washbasin, shower and washing machine' : 'toilet, washbasin and shower');
 
 /** Wet and utility rooms are furnished from fixed catalogue pieces: a brief in words cannot name them reliably. */
@@ -47,6 +49,8 @@ function fixtureSets(space: Space): string[][] {
   if (a < 1.2) return [];
   if (p === 'wc') return [['toilet', 'washbasin'], ['toilet']];
   if (p === 'utility') return [['washing-machine', 'storage-cabinet'], ['washing-machine']];
+  // Halls and corridors: only slim wall pieces (depth at most 0.4 m) so the way through stays open.
+  if (isCirculation(p)) return [['shoe-bench', 'bookshelf-low'], ['shoe-bench'], ['bookshelf-low']];
   if (p !== 'bathroom') return [];
   // Largest set first; a narrow bathroom falls back to fewer pieces rather than being left empty.
   return [
@@ -55,8 +59,36 @@ function fixtureSets(space: Space): string[][] {
     ['toilet', 'washbasin', 'shower'], ['toilet', 'washbasin'],
   ];
 }
-const requirementsFor = (purpose: string, ids: string[]): Requirements =>
-  ({ purpose, people: 1, budgetSek: null, items: ids.map((catalogId) => ({ catalogId, qty: 1 })), routeTargets: [], minRouteWidthM: 0.7, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' });
+/** Catalogue pieces that fit a room of this size, largest set first. Used when the brief route finds no layout. */
+function fallbackSets(space: Space): string[][] {
+  const p = roomPurpose(space);
+  const a = area(space.polygon);
+  const x = (id: string, k: number) => Array<string>(k).fill(id);
+  const nd = Math.max(1, Math.min(4, Math.floor(a / 8)));
+  switch (p) {
+    case 'bedroom': return [
+      ...(a >= 16 ? [['bed-160', 'wardrobe-150', 'nightstand', 'nightstand', 'desk-120', 'desk-chair']] : []),
+      ...(a >= 12 ? [['bed-160', 'wardrobe-100', 'nightstand', 'nightstand']] : []),
+      ['bed-double', 'wardrobe-100', 'nightstand'], ['bed-single', 'wardrobe-100'], ['bed-single']];
+    case 'living': return [['sofa-3', 'armchair', 'coffee-table', 'rug-160'], ['sofa-2', 'coffee-table'], ['sofa-2']];
+    case 'kitchen': case 'dining': case 'staff': return [['dining-6', ...x('chair', 6)], ['dining-4', ...x('chair', 4)], ['dining-4', 'chair', 'chair'], ['dining-4']];
+    case 'workspace': case 'office': case 'study': return [[...x('desk-140', nd), ...x('desk-chair', nd)], ['desk-120', 'desk-chair'], ['desk-120']];
+    case 'meeting': return [['dining-6', ...x('chair', 6)], ['dining-4', ...x('chair', 4)], ['dining-4']];
+    case 'reception': return [['reception-desk', 'armchair'], ['reception-desk']];
+    case 'cafe': return [[...x('cafe-4', 3), ...x('chair', 12)], ['cafe-4', ...x('chair', 4)], ['cafe-2', 'chair', 'chair']];
+    case 'clinic': return [['treatment-bed', 'desk-120', 'chair', 'chair'], ['treatment-bed', 'desk-120'], ['treatment-bed']];
+    case 'balcony': return [['cafe-2', 'chair', 'chair'], ['cafe-2']];
+    case 'phone': return [['desk-120', 'desk-chair'], ['desk-120']];
+    case 'counter': return [['counter', 'bar-stool', 'bar-stool'], ['counter']];
+    case 'storage': return [['storage-cabinet'], ['shoe-bench']];
+    default: return [];
+  }
+}
+const requirementsFor = (purpose: string, ids: string[]): Requirements => {
+  const qty = new Map<string, number>();
+  for (const id of ids) qty.set(id, (qty.get(id) ?? 0) + 1);
+  return { purpose, people: 1, budgetSek: null, items: [...qty].map(([catalogId, q]) => ({ catalogId, qty: q })), routeTargets: [], minRouteWidthM: 0.7, style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules' };
+};
 
 /** A furnishing brief from a room's purpose and size; null for rooms left empty. */
 export function defaultBrief(space: Space): string | null {
@@ -67,8 +99,8 @@ export function defaultBrief(space: Space): string | null {
   if (a < (min[p] ?? 0)) return null;
   const n = (per: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(a / per)));
   switch (p) {
-    case 'bedroom': return a >= 12 ? 'bedroom with a double bed, wardrobe and two lamps' : 'bedroom with a bed, wardrobe and a desk';
-    case 'living': return 'living room with a sofa, armchair, coffee table and rug';
+    case 'bedroom': return a >= 16 ? 'bedroom with a double bed, wardrobe, two nightstands, a desk and a desk chair' : a >= 12 ? 'bedroom with a double bed, wardrobe and two nightstands' : a >= 9 ? 'bedroom with a bed, wardrobe and a nightstand' : 'bedroom with a single bed and a wardrobe';
+    case 'living': return a >= 20 ? 'living room with a sofa, armchair, coffee table, rug and a floor lamp' : a >= 14 ? 'living room with a sofa, armchair, coffee table and rug' : 'living room with a sofa and a coffee table';
     case 'kitchen': return `dining table for ${n(3.5, 2, 8)} people`;
     case 'dining': return `dining table for ${n(2.5, 4, 10)} people`;
     case 'workspace': return `office with ${n(6, 2, 12)} desks and chairs`;
@@ -78,7 +110,7 @@ export function defaultBrief(space: Space): string | null {
     case 'cafe': return `cafe with tables for ${n(1.5, 4, 60)} people`;
     case 'clinic': return 'clinic treatment room with a treatment bed, desk and two chairs';
     case 'staff': return `dining table for ${n(2.5, 2, 8)} people`;
-    case 'hall': case 'hallway': case 'entrance': return a >= 4 ? 'shoe cabinet with seat and a plant' : null;
+    case 'hall': case 'hallway': case 'entrance': return a >= 3 ? 'shoe cabinet with seat' : null;
     case 'balcony': return a >= 3 ? 'small cafe table and two chairs' : null;
     case 'study': return 'office with a desk, an office chair and a bookshelf';
     case 'phone': return 'small desk and a desk chair';
@@ -96,6 +128,8 @@ export interface RoomProgress { spaceId: string; name: string; status: RoomStatu
 
 export interface FurnishOptions {
   onRoom?: (p: RoomProgress) => void;
+  /** Count only: rooms finished so far (done, skipped or failed) and the total. */
+  onProgress?: (finished: number, total: number) => void;
   /** Rooms laid out at the same time (default 3). */
   parallel?: number;
   signal?: AbortSignal;
@@ -107,7 +141,17 @@ export interface FurnishOptions {
   solve?: (sub: SpaceModel, req: Requirements, brief?: string) => Promise<FurnitureItem[] | null>;
 }
 
-export interface FurnishResult { furniture: FurnitureItem[]; rooms: RoomProgress[] }
+export interface FurnishResult {
+  furniture: FurnitureItem[];
+  rooms: RoomProgress[];
+  /** Furniture id to the id of its room (FurnitureItem itself has no room field). */
+  roomByItem: Record<string, string>;
+}
+
+/** Room of an item by position, for furniture not placed through furnishBuilding. */
+export function roomIdOf(model: SpaceModel, f: Pick<FurnitureItem, 'x' | 'y'>): string | null {
+  return model.spaces.find((s) => pointInPolygon(f, s.polygon))?.id ?? null;
+}
 
 /** Lay out every room that has a brief. Returns the whole building's furniture. */
 export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<string, string> = {}, opts: FurnishOptions = {}): Promise<FurnishResult> {
@@ -128,7 +172,12 @@ export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<str
     return solveRoomAsync({ kind: 'layout', sub, req, seed, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
   });
   const progress: RoomProgress[] = model.spaces.map((s) => ({ spaceId: s.id, name: s.name, status: 'waiting' }));
-  const emit = (i: number, patch: Partial<RoomProgress>) => { progress[i] = { ...progress[i], ...patch }; opts.onRoom?.({ ...progress[i] }); };
+  let finished = 0;
+  const emit = (i: number, patch: Partial<RoomProgress>) => {
+    progress[i] = { ...progress[i], ...patch };
+    opts.onRoom?.({ ...progress[i] });
+    if (patch.status === 'done' || patch.status === 'skipped' || patch.status === 'failed') opts.onProgress?.(++finished, progress.length);
+  };
   const results = new Map<string, { items: FurnitureItem[]; offset: Vec2 }>();
   const jobs = model.spaces.map((s, i) => async () => {
     if (opts.signal?.aborted) return;
@@ -138,19 +187,31 @@ export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<str
     if (!sub) { emit(i, { status: 'failed', message: 'Room not found' }); return; }
     emit(i, { status: 'running', message: brief });
     try {
-      const sets = briefByRoom[s.id] ? [] : fixtureSets(s);
-      let items: FurnitureItem[] | null = null;
-      if (sets.length) {
+      const runSets = async (sets: string[][]) => {
         for (const ids of sets) {
           const req = requirementsFor(roomPurpose(s), ids);
-          items = opts.solve ? await opts.solve(sub.model, req, brief) : await solveRoomAsync({ kind: 'layout', sub: sub.model, req, seed, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
-          if (items?.length) break;
+          const got = opts.solve ? await opts.solve(sub.model, req, brief) : await solveRoomAsync({ kind: 'layout', sub: sub.model, req, seed, timeBudgetMs: opts.timeBudgetMs ?? 1200 });
+          if (got?.length) return got;
         }
+        return null;
+      };
+      const custom = !!briefByRoom[s.id];
+      const sets = custom ? [] : fixtureSets(s);
+      let items: FurnitureItem[] | null = null;
+      if (sets.length) {
+        items = await runSets(sets);
       } else {
-        const req = await compile(brief, sub.model);
-        items = await solve(sub.model, req, brief);
+        try {
+          const req = await compile(brief, sub.model);
+          items = await solve(sub.model, req, brief);
+        } catch (e) { if (custom) throw e; }
+        if (!items?.length && !custom) items = await runSets(fallbackSets(s));
       }
-      if (!items?.length) { emit(i, { status: 'failed', message: 'No layout fits this room' }); return; }
+      if (!items?.length) {
+        if (isCirculation(roomPurpose(s))) { emit(i, { status: 'skipped', message: 'Circulation' }); return; }
+        emit(i, { status: 'failed', message: 'No layout fits this room' });
+        return;
+      }
       results.set(s.id, { items, offset: sub.offset });
       emit(i, { status: 'done', items: items.length });
     } catch (e) {
@@ -161,11 +222,16 @@ export async function furnishBuilding(model: SpaceModel, briefByRoom: Record<str
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(width, jobs.length) }, async () => { while (next < jobs.length) await jobs[next++](); }));
   let furniture = model.furniture;
+  const roomByItem: Record<string, string> = {};
+  for (const f of model.furniture) { const id = roomIdOf(model, f); if (id) roomByItem[f.id] = id; }
   for (const s of model.spaces) {
     const r = results.get(s.id);
-    if (r) furniture = mergeFurniture({ ...model, furniture }, s.id, r.items, r.offset);
+    if (!r) continue;
+    furniture = mergeFurniture({ ...model, furniture }, s.id, r.items, r.offset);
+    // merged items are appended after the ones kept from other rooms
+    for (const f of furniture.slice(furniture.length - r.items.length)) roomByItem[f.id] = s.id;
   }
-  return { furniture, rooms: progress };
+  return { furniture, rooms: progress, roomByItem };
 }
 
 export interface BillLine { catalogId: string; name: string; category: string; qty: number; unitSek: number; totalSek: number; rooms: string[] }
