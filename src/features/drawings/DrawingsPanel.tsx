@@ -37,8 +37,8 @@ const SCHEMA = {
 
 function friendlyName(raw: string): string {
   const t = raw.replace(/\.[a-z0-9]{2,4}$/i, '').replace(/[_\-.]+/g, ' ')
-    .replace(/b(?=[a-z0-9]*\d)[a-z0-9]{6,}b/gi, ' ').replace(/\s+/g, ' ').trim();
-  return (t || raw).replace(/b\w/g, (c) => c.toUpperCase());
+    .replace(/\b(?=[a-z0-9]*\d)[a-z0-9]{6,}\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  return (t || raw).replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function DrawingsPanel() {
