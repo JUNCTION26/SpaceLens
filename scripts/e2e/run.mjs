@@ -83,6 +83,13 @@ function ctxFor(page, name) {
   return c;
 }
 
+// The sample room sits inside the closed "Your own space" fold on home.
+async function openSample(page) {
+  await page.evaluate(`document.querySelector('details.home-start')?.setAttribute('open', '')`);
+  await sleep(150);
+  await page.click('details.home-start .home-row:last-of-type');
+}
+
 // ---------- flows ----------
 
 async function home(c) {
@@ -91,10 +98,10 @@ async function home(c) {
   if (NOKEY) await c.page.evaluate(`window.__spacelens.useStore.getState().setSettings({ geminiKey: '' })`);
   c.ok(await c.state(`s.mode === 'home'`), 'fresh visit lands on home');
   const body = await c.text();
-  c.ok(/Open the sample room/i.test(body), 'home offers the sample room');
+  c.ok(await c.page.evaluate(`!!document.querySelector('details.home-start')`) && /Your own space/i.test(body), 'home offers the sample room (inside "Your own space")');
   await c.shot('home');
   const t0 = Date.now();
-  await c.page.click('text~Open the sample room');
+  await openSample(c.page);
   c.ok(await c.until(`s.mode !== 'home'`, 15000).catch(() => false), 'sample room opens the workspace');
   c.ok(await c.state(`s.model.spaces.length >= 1`), 'sample has a room');
   await c.canvasReady().then(() => { c.timings.to3d = Date.now() - t0; }).catch(() => c.ok(false, '3D view rendered within 90 s'));
@@ -386,7 +393,7 @@ async function phone(c) {
   await c.shot('home');
   const overflow = async () => c.page.evaluate('document.scrollingElement.scrollWidth - window.innerWidth');
   c.ok((await overflow()) <= 1, 'home has no horizontal scroll at 390 px');
-  await c.page.click('text~Open the sample room');
+  await openSample(c.page);
   await sleep(2500);
   await c.page.settled();
   c.ok((await overflow()) <= 1, `workspace has no horizontal scroll (${await overflow()} px over)`);
