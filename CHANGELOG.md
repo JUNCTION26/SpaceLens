@@ -4,6 +4,16 @@ All notable changes, grouped by area. The project is at version 0.1.0 and has no
 
 ## Unreleased
 
+### Rooms, formats and sharing
+- Photo to room: one photo becomes an editable, estimated room with furniture and openings; unknown pieces are generated as custom objects; one measured wall rescales the room.
+- Move-in planner: each piece is tested through every door from the entrance to its room (fits, tilt, assemble inside, won't fit), with an arrival order.
+- Share and vote: a layout poll link backed by the API server (in-memory, 48 hours, one vote per browser token).
+- Taste learning: a local profile from applied, skipped, moved and removed layouts and pieces that weights the solver and planner hints; viewable, switchable and clearable.
+- Finland and Sweden rule packs with document, section and link for every value, listed in `docs/RULE-SOURCES.md`. Planning guidance, not a compliance check.
+- DXF import in the Drawings panel; IFC4 export.
+- Shopping list with CSV download; USDZ export for AR Quick Look.
+- Layout search stops at a wall-clock ceiling (20 s by default) and returns the best layout found.
+
 ### Security and documentation
 - Content-Security-Policy for production builds, with a threat model, security policy and privacy note.
 - Import boundary check (`npm run check:boundaries`) run in CI.
