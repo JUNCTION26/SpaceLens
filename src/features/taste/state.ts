@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { MIN_C } from './apply';
 import { buildProfile } from './profile';
 import type { TasteProfile } from './profile';
 import { onTasteChange, readSignals } from './signals';
@@ -31,5 +32,5 @@ export const useTasteOn = () => useSyncExternalStore(subscribe, tasteEnabled);
 /** The profile to apply, or null when the person turned taste off or nothing is learned yet. */
 export function activeProfile(): TasteProfile | null {
   const p = currentProfile();
-  return tasteEnabled() && p.confidence >= 0.25 ? p : null;
+  return tasteEnabled() && p.confidence >= MIN_C ? p : null;
 }

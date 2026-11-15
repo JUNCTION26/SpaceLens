@@ -3,7 +3,8 @@ import type { AppState } from '../../core/store';
 import type { FurnitureItem, LayoutCandidate } from '../../core/types';
 import { makeItem } from '../furniture/catalog';
 import { opening, rect, room } from '../referee/fixtures';
-import { rankByTaste, tasteHints, tasteWeights } from './apply';
+import { learnedChips, rankByTaste, tasteHints, tasteWeights } from './apply';
+import { layoutFeatures } from './features';
 import { buildProfile } from './profile';
 import { observe } from './signals';
 import type { Signal } from './signals';
@@ -72,5 +73,24 @@ describe('taste', () => {
     const next = { ...st({ ...base(), furniture: a.furniture }, {}, 1, [a, b]), changes: [{ op: 'SET_FURNITURE', label: 'Applied "Open floor"', at: 0, version: 2 }] } as unknown as AppState;
     observe(next, prev, (x) => out.push(x));
     expect(out.map((s) => s.k)).toEqual(['apply', 'skip']);
+  });
+  it('shows at most 3 short chips from the strongest traits', () => {
+    const chips = learnedChips(p);
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips.length).toBeLessThanOrEqual(3);
+    expect(chips.every((c) => c.split(' ').length <= 3)).toBe(true);
+    expect(chips).toContain('Desk by window');
+    expect(chips).toContain('No rugs');
+    expect(learnedChips(buildProfile([], now))).toEqual([]);
+  });
+  it('re-ranks after only 3 consistent actions', () => {
+    const near = cand('near', [at('desk-120', 2, 0.5)]), far = cand('far', [at('desk-120', 2, 3.4), at('rug-160', 2, 2)]);
+    const m = base();
+    const fNear = layoutFeatures(m, near.furniture), fFar = layoutFeatures(m, far.furniture);
+    const three: Signal[] = [0, 1, 2].map((i) => ({ t: now - i, k: 'skip', f: fFar }));
+    const p3 = buildProfile(three, now);
+    expect(p3.confidence).toBeGreaterThanOrEqual(0.15);
+    expect(rankByTaste([far, near], p3, m).map((c) => c.id)).toEqual(['near', 'far']);
+    expect(fNear).toBeDefined();
   });
 });

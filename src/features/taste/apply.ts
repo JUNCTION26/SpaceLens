@@ -4,7 +4,7 @@ import { layoutFeatures } from './features';
 import type { Anchor } from './features';
 import type { TasteProfile } from './profile';
 
-const MIN_C = 0.25; // below this a trait is a guess and is ignored
+export const MIN_C = 0.15; // below this a trait is a guess and is ignored; about 3 consistent actions clear it
 const ANCHORS: Anchor[] = ['desk', 'bed', 'sofa'];
 const lean = (r: { v: number; c: number }) => (r.c < MIN_C ? 0 : (r.v - 0.5) * 2 * r.c); // -1..1
 
@@ -73,4 +73,20 @@ export function rankByTaste(candidates: LayoutCandidate[], p: TasteProfile, mode
     .map((c, i) => ({ c, i, s: tasteScore(c, model, p) }))
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.c);
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Up to 3 short chips (1 to 3 words) for the strongest things learned so far. */
+export function learnedChips(p: TasteProfile): string[] {
+  const out: Array<{ s: number; t: string }> = [];
+  const lr = (r: { v: number; c: number }, hi: string, lo: string) => { const s = Math.abs(r.v - 0.5) * 2 * r.c; if (r.c >= MIN_C && s >= 0.1) out.push({ s, t: r.v >= 0.5 ? hi : lo }); };
+  lr(p.traits.open, 'Open floor', 'Full rooms');
+  lr(p.traits.hug, 'Against walls', 'Floating');
+  lr(p.traits.sym, 'Symmetric', 'Relaxed layout');
+  lr(p.traits.spend, 'Premium', 'Low cost');
+  for (const a of ANCHORS) lr(p.window[a], `${cap(a)} by window`, `${cap(a)} away`);
+  for (const a of p.avoid.slice(0, 2)) out.push({ s: 0.3 + Math.min(1, a.w / 3) * 0.7, t: `No ${a.cat.replace(/s$/, '')}s` });
+  if (p.materials[0]) out.push({ s: 0.2 + Math.min(1, p.materials[0].w / 2) * 0.6, t: cap(p.materials[0].name) });
+  return out.sort((a, b) => b.s - a.s).slice(0, 3).map((x) => x.t);
 }

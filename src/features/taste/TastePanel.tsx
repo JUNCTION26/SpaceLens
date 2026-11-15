@@ -1,7 +1,10 @@
 import { Icon } from '../../ui/icons';
+import { MIN_C, learnedChips } from './apply';
 import { clearSignals } from './signals';
 import { setTasteEnabled, useTasteOn, useTasteProfile } from './state';
 import './taste.css';
+
+const dots = (c: number) => (c >= 0.7 ? 3 : c >= 0.4 ? 2 : c >= MIN_C ? 1 : 0);
 
 export function TastePanel() {
   const p = useTasteProfile();
@@ -17,6 +20,7 @@ export function TastePanel() {
     { icon: 'sofa', hi: 'Dense', lo: 'Sparse', v: p.traits.density.v, c: p.traits.density.c },
     { icon: 'sparkles', hi: 'Premium', lo: 'Thrifty', v: p.traits.spend.v, c: p.traits.spend.c },
   ];
+  const chips = learnedChips(p);
   return (
     <div className="taste" aria-label="Taste">
       <div className="taste-head">
@@ -26,13 +30,17 @@ export function TastePanel() {
         </label>
         <button className="taste-reset" onClick={clearSignals} disabled={!p.events}>Reset</button>
       </div>
+      {chips.length > 0 && (
+        <div className="taste-chips" aria-label="What I learned">{chips.map((c) => <span key={c} className="taste-chip">{c}</span>)}</div>
+      )}
       {rows.map((r) => (
-        <div key={r.hi} className="taste-row" title={`${Math.round(r.c * 100)}% sure`}>
+        <div key={r.hi} className={`taste-row${r.c < MIN_C ? ' unlearned' : ''}`} title={`${Math.round(r.c * 100)}% sure`}>
           <Icon name={r.icon} size={14} />
-          <span className="taste-name">{r.c < 0.25 ? '-' : r.v >= 0.5 ? r.hi : r.lo}</span>
+          <span className="taste-name">{r.c < MIN_C ? `${r.hi} / ${r.lo}` : r.v >= 0.5 ? r.hi : r.lo}</span>
           <span className="taste-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.v * 100)} aria-label={`${r.hi} or ${r.lo}`}>
-            <i style={{ width: `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
+            <i style={{ width: r.c < MIN_C ? 0 : `${Math.round(r.v * 100)}%`, opacity: 0.35 + 0.65 * r.c }} />
           </span>
+          <span className="taste-conf" aria-label={`${dots(r.c)} of 3 sure`}>{[0, 1, 2].map((i) => <i key={i} className={i < dots(r.c) ? 'on' : ''} />)}</span>
         </div>
       ))}
       {(p.palette.length > 0 || p.materials.length > 0) && (
