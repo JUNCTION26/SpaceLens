@@ -41,3 +41,7 @@
 .budget-why[open] > summary { color: var(--text); margin-bottom: var(--s2); }
 .budget-reason { border-top: 1px solid var(--line); padding: var(--s2) 0; line-height: 1.45; font-size: var(--fs-sm); }
 .budget-reason:first-child { border-top: 0; }
+.budget-tag { font-size: var(--fs-sm); color: var(--muted); }
+.budget-moves-bar.good .budget-fill { background: var(--ok); }
+.budget-moves-bar.short .budget-fill { background: var(--bad); }
+.budget-swap input:disabled { opacity: .5; }

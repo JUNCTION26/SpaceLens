@@ -6,6 +6,7 @@ import { argueItems, polishArguments, type Argument } from './argue';
 import { costOf, kr, totalOf } from './money';
 import { applySwaps, newFailures, optimiseBudget, type BudgetPlan } from './optimise';
 import { planPhases } from './phases';
+import { MovesBlock } from './MovesBlock';
 import './budget.css';
 
 const LS = 'spacelens.budget.v1';
@@ -88,6 +89,7 @@ export function BudgetPanel() {
           <label htmlFor="budget-target" className="budget-label">Budget</label>
           <span className="budget-input"><input id="budget-target" inputMode="numeric" value={String(target)} onChange={(e) => setTarget(num(e.target.value))} /><span>kr</span></span>
         </div>
+        <input type="range" aria-label="Budget" min={0} max={max} step={100} value={Math.min(target, max)} onChange={(e) => setTarget(num(e.target.value))} />
         <div className="budget-bar" role="img" aria-label={`${kr(shownTotal)} to buy against a budget of ${kr(target)}${over ? `, ${kr(over)} over` : ''}`}>
           <i className="budget-fill" style={{ width: `${(Math.min(shownTotal, target) / scale) * 100}%` }} />
           {over > 0 && <i className="budget-over" style={{ width: `${(over / scale) * 100}%` }} />}
@@ -102,6 +104,8 @@ export function BudgetPanel() {
           <Icon name="sparkles" />{busy ? 'Working' : result ? 'Optimise again' : 'Optimise'}
         </button>
       </section>
+
+      <MovesBlock model={model} target={target} onApply={(items, n) => dispatch({ type: 'SET_FURNITURE', items, label: `Applied budget moves (${n})` })} />
 
       {result && (
         <section className="budget-block" aria-label="Plan" aria-live="polite">
