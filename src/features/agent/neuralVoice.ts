@@ -4,6 +4,7 @@
 
 import { getState } from '../../core/store';
 import { SseParser } from '../../core/ai/sse';
+import { MEDIA_STOP_CODES, MediaError, pickTransport, requestSpeech, type Transport } from '../../core/ai/transport';
 import { setSpeechEngine, useBrowserSpeech, type SpeechEngine } from './speech';
 
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -97,6 +98,31 @@ export async function streamSpeech(key: string, model: string, text: string, onA
   return first;
 }
 
+/** Whole-clip speech through the server transport; decodes the base64 clip like a streamed chunk. Tries each model in order. */
+export async function clipSpeech(t: Transport, text: string, onAudio: (pcm: Float32Array, rate: number) => void, signal?: AbortSignal, models: string[] = TTS_MODELS): Promise<number | null> {
+  const t0 = performance.now();
+  let last: unknown = new Error('voice unavailable');
+  for (const model of models) {
+    try {
+      const r = await requestSpeech(t, model, text, VOICE, signal);
+      const { samples } = pcm16ToFloat(stripWavHeader(b64ToBytes(r.data)));
+      if (!samples.length) continue;
+      onAudio(samples, pcmRate(r.mimeType));
+      return performance.now() - t0;
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') throw e;
+      last = e;
+      if (e instanceof MediaError && MEDIA_STOP_CODES.has(e.code)) break;
+    }
+  }
+  throw last;
+}
+
+/** One sentence of speech on either transport: streamed with a personal key, one clip from the server. */
+export function speak(t: Transport, model: string, text: string, onAudio: (pcm: Float32Array, rate: number) => void, signal?: AbortSignal): Promise<number | null> {
+  return t.kind === 'direct' ? streamSpeech(t.key, model, text, onAudio, signal) : clipSpeech(t, text, onAudio, signal);
+}
+
 // ---------- engine ----------
 
 export class GeminiSpeech implements SpeechEngine {
@@ -106,7 +132,10 @@ export class GeminiSpeech implements SpeechEngine {
   private ctrl = new AbortController();
   private sources = new Set<AudioBufferSourceNode>();
 
-  constructor(private key: string, private model: string) {}
+  private transport: Transport;
+  constructor(key: string | Transport, private model: string) {
+    this.transport = typeof key === 'string' ? { kind: 'direct', key } : key;
+  }
 
   get available() { return typeof window !== 'undefined' && typeof AudioContext !== 'undefined'; }
 
@@ -141,7 +170,7 @@ export class GeminiSpeech implements SpeechEngine {
     const ended: Promise<void>[] = [];
     void prev.then(() => { myTurn = true; for (const h of held.splice(0)) ended.push(this.play(ctx, h.pcm, h.rate)); });
     try {
-      await streamSpeech(this.key, this.model, text, (pcm, rate) => {
+      await speak(this.transport, this.model, text, (pcm, rate) => {
         if (myTurn) ended.push(this.play(ctx, pcm, rate)); else held.push({ pcm, rate });
       }, signal);
       await prev;
@@ -200,10 +229,16 @@ export async function applyVoicePreference(on = neuralVoiceWanted()): Promise<Vo
   try { ls()?.setItem(LS_ON, on ? '1' : '0'); } catch { /* storage blocked */ }
   const key = getState().settings.geminiKey;
   if (!on) { useBrowserSpeech(); return { engine: 'browser', note: 'Using the browser voice.' }; }
-  if (!key) return { engine: 'browser', note: 'Add a Gemini key to use the Gemini voice.' };
-  const pick = await pickNeuralModel(key);
+  const t = pickTransport(key);
+  if (!t) return { engine: 'browser', note: 'Add a Gemini key to use the Gemini voice.' };
+  if (t.kind === 'server') {
+    // The server returns whole clips, so first-audio timing is not comparable; use it directly.
+    setSpeechEngine(new GeminiSpeech(t, TTS_MODELS[0]));
+    return { engine: 'gemini', model: TTS_MODELS[0], note: 'Gemini voice from the SpaceLens server.' };
+  }
+  const pick = await pickNeuralModel(t.key);
   if ('model' in pick) {
-    setSpeechEngine(new GeminiSpeech(key, pick.model));
+    setSpeechEngine(new GeminiSpeech(t, pick.model));
     return { engine: 'gemini', model: pick.model, firstAudioMs: pick.ms, note: `Gemini voice, starts in ${(pick.ms / 1000).toFixed(1)} s.` };
   }
   return { engine: 'browser', note: pick.slowest === null ? 'Gemini voice is not available on this key, using the browser voice.' : `Gemini voice took ${(pick.slowest / 1000).toFixed(1)} s to start, using the browser voice.` };
