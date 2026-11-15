@@ -1,5 +1,6 @@
 // The case for a layout: what makes it different from its siblings, at a glance. Pure; numbers only.
 import type { DesignReport, FurnitureItem, LayoutCandidate, SpaceModel } from '../../core/types';
+import { realName, titleFor } from './progress';
 import { area, bounds, distPointPolygonEdges, itemCorners, openingSegment } from '../../core/geometry';
 
 export interface Case { title: string; chips: string[]; tradeoff?: string; leftOut: string[]; passed: number; total: number }
@@ -101,7 +102,10 @@ export function caseFor(candidate: LayoutCandidate, report: DesignReport | undef
   for (const c of [...all].sort((a, b) => a.id.localeCompare(b.id))) {
     const pick = ideas.get(c.id)!.find((i) => !taken.has(i.title));
     const fallback = ['Classic plan', 'Easy flow', 'Fresh take', 'Simple plan', 'Tidy edges'].find((t) => !taken.has(t)) ?? `Plan ${taken.size + 1}`;
-    const t = leftOutOf(c).length && !taken.has('Trimmed set') ? 'Trimmed set' : pick?.title ?? fallback;
+    const own = realName(c.name, c.id);
+    const base = leftOutOf(c).length && !taken.has('Trimmed set') ? 'Trimmed set' : pick?.title ?? (own && !taken.has(own) ? own : fallback);
+    const themed = titleFor(c, base);
+    const t = taken.has(themed) ? base : themed;
     taken.add(t); titles.set(c.id, t);
   }
   const chips: string[] = [];

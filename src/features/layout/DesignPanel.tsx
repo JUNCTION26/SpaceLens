@@ -6,7 +6,6 @@ import { speak } from '../agent/speech';
 import { useSketch } from '../agent/sketchStore';
 import { mark } from '../agent/actions';
 import { useStore } from '../../core/store';
-import { fmtSek } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
@@ -15,7 +14,7 @@ import { useReports } from '../design/reportStore';
 import { DecisionsPanel } from '../design/DecisionsPanel';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
-import { showLayouts } from './progress';
+import { showLayouts, priceLabel } from './progress';
 import { TastePanel } from '../taste/TastePanel';
 import './layout.css';
 
@@ -123,7 +122,7 @@ export function DesignPanel() {
   const pair = pins.length === 2 ? pins.map((id) => candidates.find((c) => c.id === id)) : [];
   const holdPreview = (id: string) => { if (base.current === null) base.current = useStore.getState().activeCandidateId ?? ''; useStore.getState().previewCandidate(id); };
   const releasePreview = () => { if (base.current !== null) { useStore.getState().previewCandidate(base.current || null); base.current = null; } };
-  const choose = (id: string) => { base.current = null; useStore.getState().previewCandidate(id); };
+  const choose = (id: string) => { base.current = null; if (id !== appliedId) useStore.getState().applyCandidate(id); };
   const why = (c: LayoutCandidate) => {
     const k = cases.get(c.id); if (!k) return;
     void speak(whyText(k, c));
@@ -173,7 +172,7 @@ export function DesignPanel() {
                 </div>
                 <Chips c={k} degraded={degraded} />
                 <div className="layout-foot">
-                  <span>{fmtSek(c.metrics.costSek)}</span>
+                  <span>{priceLabel(c.metrics.costSek)}</span>
                   {compare && (
                     <button className="btn btn-sm btn-ghost icon-btn" aria-label="Pick" title="Pick" aria-pressed={pins.includes(c.id)} onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}>
                       <Icon name="check" size={14} />

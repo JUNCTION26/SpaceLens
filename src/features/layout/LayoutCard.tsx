@@ -1,6 +1,7 @@
-import { bounds, fmtSek } from '../../core/geometry';
+import { bounds } from '../../core/geometry';
 import type { FurnitureItem, LayoutCandidate, SpaceModel } from '../../core/types';
 import type { Case } from './caseFor';
+import { checksRan, priceLabel } from './progress';
 
 const pose = (f: FurnitureItem) => `${f.x.toFixed(2)},${f.y.toFixed(2)},${f.rotation.toFixed(2)}`;
 
@@ -29,6 +30,7 @@ export function PlanThumb({ model, cand, size, diff }: { model: SpaceModel; cand
 
 /** Passed checks out of total, as a thin ring. */
 export function CheckRing({ passed, total, degraded }: { passed: number; total: number; degraded?: boolean }) {
+  if (!checksRan(total)) return null;
   const r = 12, c = 2 * Math.PI * r, frac = total ? passed / total : 0;
   const tone = degraded ? 'var(--warn)' : frac >= 1 ? 'var(--ok)' : frac >= 0.75 ? 'var(--warn)' : 'var(--bad)';
   return (
@@ -60,7 +62,7 @@ export function CompareView({ model, a, b, ca, cb }: { model: SpaceModel; a: Lay
   const diffB = new Set(b.furniture.filter((f) => pa.get(f.id) !== pb.get(f.id)).map((f) => f.id));
   const rows: Array<{ k: string; va: string; vb: string; winA: boolean; winB: boolean }> = [
     { k: 'Free', va: `${freeOf(a).toFixed(1)} m²`, vb: `${freeOf(b).toFixed(1)} m²`, winA: freeOf(a) > freeOf(b), winB: freeOf(b) > freeOf(a) },
-    { k: 'Price', va: fmtSek(a.metrics.costSek), vb: fmtSek(b.metrics.costSek), winA: a.metrics.costSek < b.metrics.costSek, winB: b.metrics.costSek < a.metrics.costSek },
+    { k: 'Price', va: priceLabel(a.metrics.costSek) ?? '-', vb: priceLabel(b.metrics.costSek) ?? '-', winA: a.metrics.costSek < b.metrics.costSek, winB: b.metrics.costSek < a.metrics.costSek },
     { k: 'Checks', va: `${ca.passed}/${ca.total}`, vb: `${cb.passed}/${cb.total}`, winA: ca.passed > cb.passed, winB: cb.passed > ca.passed },
   ];
   return (

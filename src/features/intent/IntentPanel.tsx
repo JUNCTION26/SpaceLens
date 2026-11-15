@@ -5,17 +5,16 @@ import type { Requirements } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
 import { designRoom, type Stage } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
-import { useUi } from '../../ui/uiStore';
-import { refineRoom } from './refine';
+import { aiReady } from '../../core/ai';
 import { applyRoomOps, wantsNewRoom } from '../agent/actions';
-import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
+import { refineRoom, compileWithMeta, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
-import { showLayouts } from '../layout/progress';
+import { showLayouts, isFinalResult, pickAuto, failReason, wholeRoomAsk } from '../layout/progress';
 import { takePendingBrief } from '../demo/starts';
 import './intent.css';
 
 const two = (t: string) => t.split(/\s+/).slice(0, 2).join(' ');
-const EXAMPLES = ['Home office', 'Bedroom', 'Cafe'];
+const EXAMPLES = ['Cat room for Gerard', 'Home office for two', 'Tiny studio'];
 
 export function IntentPanel() {
   const model = useStore((s) => s.model);
@@ -28,14 +27,12 @@ export function IntentPanel() {
   const [compiling, setCompiling] = useState(false);
   const [triedGen, setTriedGen] = useState(false);
   const [meta, setMeta] = useState<CompileMeta | null>(null);
-  const [follow, setFollow] = useState('');
-  const [refining, setRefining] = useState(false);
   const [adjust, setAdjust] = useState(false);
   const [chip, setChip] = useState('');
-  const [retry, setRetry] = useState<{ label: string; run: () => void } | null>(null);
+  const [retry, setRetry] = useState<{ label: string; reason: string; run: () => void } | null>(null);
   const [cannot, setCannot] = useState<{ nearest: string; label: string } | null>(null);
-  const [thread, setThread] = useState<Array<{ ask: string; reply: string; diff: string[]; meta: CompileMeta }>>([]);
-  const compileRef = useRef<(t?: string) => Promise<void>>(async () => {});
+  const [offline, setOffline] = useState(false);
+  const compileRef = useRef<(t?: string, fresh?: boolean) => Promise<void>>(async () => {});
   const runRef = useRef<AbortController | null>(null);
   const briefRef = useRef('');
   const stages = useReports((s) => s.stages);
@@ -76,74 +73,79 @@ export function IntentPanel() {
     finally { setCompiling(false); }
   }
 
-  async function compile(input?: string) {
+  /** "start over" and "another layout" act on the whole design; each is one undoable step at most. */
+  function wholeRoom(kind: 'again' | 'reset'): boolean {
+    const st = useStore.getState();
+    if (kind === 'reset') {
+      runRef.current?.abort();
+      if (st.model.furniture.length) st.dispatch({ type: 'SET_FURNITURE', items: [], label: 'Started over' });
+      st.setCandidates([]); st.setRequirements(null);
+      useReports.getState().setStages([], false);
+      setReq(null); setTriedGen(false); setCannot(null); setRetry(null); setOffline(false); setChip('Cleared'); setText('');
+      return true;
+    }
+    const r = req ?? st.requirements;
+    if (!r?.items.length) return false;
+    setText(''); setChip(''); void generate(r, true);
+    return true;
+  }
+
+  async function compile(input?: string, fresh = false) {
     const q = input ?? text;
     if (!q.trim()) return;
     setRetry(null);
-    if (await followUp(q)) return;
+    const whole = fresh ? null : wholeRoomAsk(q);
+    if (whole && wholeRoom(whole)) return;
+    if (!fresh && await followUp(q)) return;
     setCompiling(true);
     briefRef.current = q;
     try {
       const { req: r, meta: m } = await compileWithMeta(q, useStore.getState().model);
-      setReq(r); setMeta(m); setTriedGen(false); setThread([]);
+      setReq(r); setMeta(m); setTriedGen(false);
       if (r.items.length) void generate(r);
     } catch (e) {
       console.error(e);
-      setChip(''); setRetry({ label: 'Retry', run: () => void compileRef.current(q) });
+      setChip(''); setRetry({ label: 'Retry', reason: failReason({ offline: !aiReady(), error: e }), run: () => void compileRef.current(q, true) });
     }
     finally { setCompiling(false); }
   }
   compileRef.current = compile;
 
-  async function refine(ask: string) {
-    if (!req || !ask.trim()) return;
-    setRefining(true);
-    try {
-      const { next, reply, meta: m } = await refineIntent(req, ask, thread.map((t) => t.ask), useStore.getState().model);
-      const diff = diffRequirements(req, next);
-      setThread((th) => [...th, { ask, reply, diff, meta: m }].slice(-6));
-      setFollow('');
-      if (diff.length) { setReq(next); if (next.items.length) void generate(next); }
-    } catch (e) {
-      console.error(e);
-      setRetry({ label: 'Retry', run: () => void refine(ask) });
-    }
-    finally { setRefining(false); }
-  }
-
-  async function generate(r: Requirements) {
+  async function generate(r: Requirements, another = false) {
     runRef.current?.abort();
     const ctrl = new AbortController();
     runRef.current = ctrl;
     const st = useStore.getState();
     const rs = useReports.getState();
+    const wasOffline = !aiReady();
+    setRetry(null); setChip(''); setOffline(false);
     st.setBusy('Designing');
     rs.setStages([], true);
     try {
       const res = await designRoom(st.model, r, {
         variants: 3, signal: ctrl.signal, brief: briefRef.current,
         onStage: (s) => { if (runRef.current === ctrl) useReports.getState().setStages(s); },
-        // Show rule-based layouts as soon as they exist; later phases update the same list.
-        onProgress: (p, phase) => {
-          if (runRef.current !== ctrl) return;
-          showLayouts(p);
-          if (phase === 'rules' && p.candidates.length) { st.setRequirements(r); useUi.getState().setTab('design', 'layouts'); }
-        },
+        // The room fills in as pieces arrive: whatever exists is previewed, never applied, until the run is final.
+        onProgress: (p) => { if (runRef.current === ctrl && p.candidates.length) showLayouts(p); },
       });
       if (runRef.current !== ctrl) return;
       showLayouts(res);
       st.setRequirements(r);
       setTriedGen(true);
-      if (res.candidates.length) {
-        useUi.getState().setTab('design', 'layouts');
-      } else {
-        useUi.getState().setTab('design', 'layouts');
+      const now = useStore.getState();
+      // One sentence furnishes the room: the best final layout is applied as one undo step; the others wait on Layouts.
+      const best = isFinalResult(res) ? pickAuto(res.candidates, res.reports, another ? now.model.furniture : undefined) : null;
+      if (best) { now.applyCandidate(best.id); setOffline(wasOffline); }
+      else {
+        const pending = res.candidates.length > 0;
+        setRetry({ label: 'Retry', reason: failReason({ offline: wasOffline, infeasible: !pending && !!res.infeasibility }), run: () => void generate(r) });
+        if (!pending) useStore.getState().previewCandidate(null);
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         console.error(e);
-        // Rule-based layouts already on screen stay; a late model phase failing is not worth a warning.
-        if (!useStore.getState().candidates.length) setRetry({ label: 'Retry', run: () => void generate(r) });
+        useStore.getState().previewCandidate(null);
+        setRetry({ label: 'Retry', reason: failReason({ offline: wasOffline, error: e }), run: () => void generate(r) });
       }
     } finally {
       if (runRef.current === ctrl) {
@@ -186,12 +188,14 @@ export function IntentPanel() {
         </div>
       </div>
       {!text && !req && !chip && !cannot && !retry && !compiling && (
-        <div className="intent-chips">{EXAMPLES.map((x) => <button key={x} className="chip" onClick={() => { setText(x); void compile(x); }}>{x}</button>)}</div>
+        <div className="intent-chips">{EXAMPLES.map((x) => <button key={x} className="chip" onClick={() => { setText(x); void compile(x, true); }}>{x}</button>)}</div>
       )}
-      {(chip || cannot || retry) && (
+      {(chip || cannot || retry || offline) && (
         <div className="intent-chips" role="status">
           {chip && <span className="chip chip-ok" title={chip}>{two(chip)}</span>}
           {retry && <button className="chip" onClick={() => { const r = retry; setRetry(null); r.run(); }}>{retry.label}</button>}
+          {retry && <span className="chip chip-muted">{retry.reason}</span>}
+          {offline && !retry && <span className="chip chip-muted">Offline</span>}
           {cannot && <button className="chip" title={`${cannot.label}: ${cannot.nearest}`} onClick={() => { const n = cannot.nearest; setCannot(null); setText(n); void compile(n); }}>{two(cannot.nearest)}</button>}
         </div>
       )}
@@ -237,24 +241,11 @@ export function IntentPanel() {
 
       {triedGen && candidates.length === 0 && infeasibility && (
         <div className="intent-infeasible">
-          <strong>No layout fits</strong>
+          <span className="chip chip-muted">No fit</span>
           <div className="row">
             {infeasibility.relaxations.map((rx) => (
               <button key={rx.label} className="btn btn-sm" disabled={!!busy} onClick={() => relax(rx.patch)} title={rx.label}>{shortRelax(rx.label)}</button>
             ))}
-          </div>
-        </div>
-      )}
-
-      {req && candidates.length > 0 && (
-        <div className="intent-chat">
-          <div className="intent-follow">
-            <input aria-label="Refine" value={follow} disabled={refining} placeholder="Refine"
-              onChange={(e) => setFollow(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void refine(follow); }} />
-            <MicButton onText={(t) => setFollow(t)} />
-            <button className="btn btn-sm btn-primary intent-send" aria-label="Send refinement" disabled={refining || !follow.trim()} onClick={() => refine(follow)}>
-              {refining ? <span className="intent-spin" aria-label="Working" /> : <Icon name="send" size={14} />}
-            </button>
           </div>
         </div>
       )}
