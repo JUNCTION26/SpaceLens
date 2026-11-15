@@ -35,6 +35,12 @@ const SCHEMA = {
   required: ['answer', 'kind', 'regions'],
 };
 
+function friendlyName(raw: string): string {
+  const t = raw.replace(/\.[a-z0-9]{2,4}$/i, '').replace(/[_\-.]+/g, ' ')
+    .replace(/(?=[a-z0-9]*\d)[a-z0-9]{6,}/gi, ' ').replace(/\s+/g, ' ').trim();
+  return (t || raw).replace(/\w/g, (c) => c.toUpperCase());
+}
+
 export function DrawingsPanel() {
   const dispatch = useStore((s) => s.dispatch);
   const setMode = useStore((s) => s.setMode);
@@ -143,6 +149,7 @@ export function DrawingsPanel() {
       try { imageUrl = URL.createObjectURL(await (await fetch(pg.dataUrl)).blob()); } catch { /* keep the data URL */ }
       const out = drawingToBuilding(doc, page, { imageUrl });
       setBuilt({ page, model: out.model, report: out.report });
+      if (out.report.ok) { dispatch({ type: 'REPLACE_MODEL', model: out.model }); setView('3d'); setMode('design'); toast(`${out.report.rooms.length} rooms built`, 'ok'); }
       setPickRoom(null); setOverlay(false); setTool('pan');
       // frame the detected building on the sheet
       const pts = out.report.rooms.flatMap((r) => r.outline);
@@ -410,6 +417,16 @@ export function DrawingsPanel() {
   }
   const fmtPct = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
   const hasLines = !!doc?.vectors?.[page];
+  const sampleList = samples.length > 0 && (
+    <div className="drawings-samples">
+      <h4>Samples</h4>
+      {samples.map((s) => (
+        <button key={s.url} className="drawings-sample" onClick={() => void openSample(s)}>
+          <span>{friendlyName(s.name)}</span><Icon name="chevronRight" size={14} />
+        </button>
+      ))}
+    </div>
+  );
   const buildCard = doc && (
     <section className="card drawings-build">
       {!rep && (
@@ -526,16 +543,7 @@ export function DrawingsPanel() {
             <input type="file" accept="application/pdf,image/png,image/jpeg,.dxf" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void openBlob(f, f.name); e.target.value = ''; }} />
           </label>
           {loading && <p className="muted">{loading}…</p>}
-          {samples.length > 0 && (
-            <div className="drawings-samples">
-              <h4>Sample drawings</h4>
-              {samples.map((s) => (
-                <button key={s.url} className="drawings-sample" onClick={() => void openSample(s)}>
-                  <span>{s.name}</span><Icon name="chevronRight" size={14} />
-                </button>
-              ))}
-            </div>
-          )}
+          {sampleList}
           {benchCard}
         </div>
       ) : (
@@ -597,6 +605,7 @@ export function DrawingsPanel() {
 
           <aside className="drawings-side">
             {buildCard}
+            {sampleList}
             <section className="card drawings-ask">
               <form className="row" onSubmit={(e) => { e.preventDefault(); void ask(); }}>
                 <input className="field drawings-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this drawing" />
