@@ -172,7 +172,7 @@ function polySegDist(poly: Vec2[], a: Vec2, b: Vec2): number {
 }
 const distToPoly = (p: Vec2, poly: Vec2[]) => (pointInPolygon(p, poly) ? 0 : distPointPolygonEdges(p, poly));
 
-function roomOf(model: SpaceModel, p: Vec2): number { return model.spaces.findIndex((s) => s.polygon.length >= 3 && pointInPolygon(p, s.polygon)); }
+export function roomOf(model: SpaceModel, p: Vec2): number { return model.spaces.findIndex((s) => s.polygon.length >= 3 && pointInPolygon(p, s.polygon)); }
 
 const SEAT_RE = /chair|stool|seat|armchair/i, SOFA_RE = /sofa|couch|bench/i, DESK_RE = /desk|workstation/i, BED_RE = /bed|crib/i;
 export function seatsOf(f: FurnitureItem, all: FurnitureItem[]): number {
@@ -231,13 +231,13 @@ function blockersAt(g: SafetyGrid, p: Vec2, furniture: FurnitureItem[], reach: n
   return out.filter((f) => furniture.includes(f));
 }
 
-function doorZone(d: DoorInfo, depthIn: number, depthOut: number): Vec2[] {
+export function doorZone(d: DoorInfo, depthIn: number, depthOut: number): Vec2[] {
   const h = d.widthM / 2;
   return [add(add(d.c, mul(d.dir, -h)), mul(d.outward, depthOut)), add(add(d.c, mul(d.dir, h)), mul(d.outward, depthOut)),
     add(add(d.c, mul(d.dir, h)), mul(d.inward, depthIn)), add(add(d.c, mul(d.dir, -h)), mul(d.inward, depthIn))];
 }
 
-function swingZone(model: SpaceModel, d: DoorInfo): Vec2[] | null {
+export function swingZone(model: SpaceModel, d: DoorInfo): Vec2[] | null {
   return doorSwingPolygon(d.space, d.opening);
 }
 
@@ -612,7 +612,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
 
 // ---- Fixes ------------------------------------------------------------------------------------
 
-const DIR_WORD = (d: Vec2) => (Math.abs(d.x) >= Math.abs(d.y) ? (d.x > 0 ? 'right' : 'left') : d.y > 0 ? 'down' : 'up');
+export const DIR_WORD = (d: Vec2) => (Math.abs(d.x) >= Math.abs(d.y) ? (d.x > 0 ? 'right' : 'left') : d.y > 0 ? 'down' : 'up');
 const crit = (fs: SafetyFinding[]) => fs.filter((f) => f.severity !== 'advice').length;
 
 interface Plan { item: FurnitureItem; dir: Vec2; minD: number }
@@ -622,7 +622,7 @@ function axesOf(f: FurnitureItem): Vec2[] {
   return [ax, mul(ax, -1), ay, mul(ay, -1)];
 }
 
-function poseValid(model: SpaceModel, item: FurnitureItem, x: number, y: number, others: FurnitureItem[], zones: Vec2[][]): boolean {
+export function poseValid(model: SpaceModel, item: FurnitureItem, x: number, y: number, others: FurnitureItem[], zones: Vec2[][]): boolean {
   const body = itemCorners({ ...item, x, y });
   const r = roomOf(model, { x, y }); if (r < 0 || !polygonInside(body, model.spaces[r].polygon)) return false;
   for (const o of others) if (o.id !== item.id && !isRug(o) && convexOverlap(body, itemCorners(o)) > 1e-3) return false;
