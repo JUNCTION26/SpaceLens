@@ -29,6 +29,7 @@ const ITEM_RULES: ItemRule[] = [
   { re: /\bstorage\b/, keys: ['storage', 'shelf'] },
   { re: /armchairs?/, keys: ['armchair'] },
   { re: /\bsofas?\b|couch/, keys: ['sofa'] },
+  { re: /\btv\b|television/, keys: ['tv-unit', 'tv unit'] },
   { re: /\btables?\b/, keys: ['table', 'dining'] },
   { re: /\bchairs?\b/, keys: ['chair'] },
   { re: /\bplants?\b/, keys: ['plant'] },
@@ -61,7 +62,7 @@ function templateFor(purpose: string, people: number): Array<[string[], number]>
     case 'clinic': return [[['treatment', 'treatment-bed'], 1], [['desk'], 1], [['chair'], 2], [['storage'], 1]];
     case 'kids': return [[['bed', 'crib'], 1], [['rug'], 1], [['storage', 'shelf'], 1]];
     case 'dining': return [[['table'], 1], [['chair'], Math.max(4, p)]];
-    case 'living': return [[['sofa'], 1], [['armchair'], 1], [['table'], 1], [['rug'], 1], [['lamp'], 1]];
+    case 'living': return [[['sofa'], 1], [['armchair'], 1], [['table'], 1], [['tv-unit'], 1], [['rug'], 1], [['lamp'], 1]];
     default: return [];
   }
 }
