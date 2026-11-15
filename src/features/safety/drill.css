@@ -5,9 +5,6 @@
 .drill-step output { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
 .drill-fix { border-color: var(--warn); color: var(--warn); font-weight: var(--fw-strong); }
 
-.drill-chip { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-strong); color: var(--text); font-weight: var(--fw-strong); font-size: 14px; font-variant-numeric: tabular-nums; pointer-events: none; }
-.drill-chip.pass { background: var(--ok); border-color: var(--ok); color: #fff; }
-.drill-chip.fail { background: var(--bad); border-color: var(--bad); color: #fff; }
 
 .drill-smoke { fill: #5b5f66; opacity: .22; pointer-events: none; }
 .drill-flame { fill: #ff7a2f; stroke: #ffd27a; pointer-events: none; }
@@ -23,5 +20,3 @@
 .drill-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .drill-main .drill-go { flex: 1 1 auto; justify-content: center; }
 .drill-chips { display: flex; }
-/* The clock lives in the panel chip; the on-plan copy stays readable to screen readers only. */
-.drill-chip { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; padding: 0 !important; border: 0 !important; background: none !important; color: transparent !important; }
