@@ -21,9 +21,9 @@ describe.skipIf(!live)('photo room live', () => {
     await Promise.all(files.map(async (f: string) => {
       const t0 = Date.now();
       const photo = `data:image/jpeg;base64,${fs.readFileSync(path.join(dir, f)).toString('base64')}`;
-      const est = await estimateRoom(photo);
+      const est = await estimateRoom(photo, { prefer: penv.PHOTOROOM_MODEL ? [penv.PHOTOROOM_MODEL] : undefined });
       const model = buildPhotoRoom(est);
-      fs.writeFileSync(path.join(dir, f.replace(/\.\w+$/, '.json')), JSON.stringify({ ms: Date.now() - t0, aiModel: getState().settings.geminiModel, est, model }, null, 1));
+      fs.writeFileSync(path.join(dir, f.replace(/\.\w+$/, `.${penv.PHOTOROOM_MODEL ?? 'default'}.json`)), JSON.stringify({ ms: Date.now() - t0, aiModel: est.model, est, model }, null, 1));
       expect(model.spaces[0].polygon).toHaveLength(4);
     }));
   }, 240_000);

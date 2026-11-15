@@ -1,8 +1,9 @@
 // Photo -> Gemini vision -> SpaceModel, then custom objects for anything the catalogue has no piece for.
 
-import { dataUrlToInlineData, gemini } from '../../core/gemini';
+import { dataUrlToInlineData } from '../../core/gemini';
 import { getState } from '../../core/store';
 import type { SpaceModel } from '../../core/types';
+import { strongCall } from './strong';
 import { buildPhotoRoom, parseEstimate, PHOTO_ROOM_PROMPT, PHOTO_ROOM_SCHEMA, type PhotoRoomEstimate } from './room';
 
 /** Draws an image file into a JPEG data URL no larger than `max` pixels on its long side. */
@@ -19,10 +20,9 @@ export async function shrinkImage(file: Blob, max: number, quality = 0.85): Prom
 }
 
 /** Asks Gemini for the room behind one photo (data URL). Throws a safe message on failure. */
-export async function estimateRoom(photo: string, signal?: AbortSignal): Promise<PhotoRoomEstimate> {
-  const raw = await gemini<unknown>([dataUrlToInlineData(photo), { text: PHOTO_ROOM_PROMPT }], { schema: PHOTO_ROOM_SCHEMA, task: 'vision', timeoutMs: 90_000 });
-  if (signal?.aborted) throw new Error('cancelled');
-  return parseEstimate(raw);
+export async function estimateRoom(photo: string, opts: { prefer?: string[]; signal?: AbortSignal } = {}): Promise<PhotoRoomEstimate & { model: string }> {
+  const r = await strongCall<unknown>({ parts: [dataUrlToInlineData(photo), { text: PHOTO_ROOM_PROMPT }], schema: PHOTO_ROOM_SCHEMA, thinking: 'low', temperature: 0.2 }, { prefer: opts.prefer, signal: opts.signal });
+  return { ...parseEstimate(r.data), model: r.model };
 }
 
 /** Replaces each 'other' item with a custom object built to its estimated size, a few at a time. */
