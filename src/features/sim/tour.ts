@@ -114,6 +114,26 @@ export function planTour(model: SpaceModel, g: OccGrid | undefined, start: Vec2,
     stopIndex.push(Math.max(0, points.length - 1));
   }
   for (const h of back) { go(h.door); go(spot.get(h.to)!); }
+  // One room: walk a loop past its corners and stop once more on the far side, looking back in.
+  if (stops.length === 1 && model.spaces.length === 1) {
+    const sp = model.spaces.find((s) => s.id === stops[0].spaceId)!;
+    const xs = sp.polygon.map((p) => p.x), ys = sp.polygon.map((p) => p.y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const inset = Math.min(0.8, (x1 - x0) / 4, (y1 - y0) / 4);
+    const corners = [{ x: x0 + inset, y: y0 + inset }, { x: x1 - inset, y: y0 + inset }, { x: x1 - inset, y: y1 - inset }, { x: x0 + inset, y: y1 - inset }]
+      .map((c) => { if (!g) return c; const i = snapFree(g, c, 0.4); return i >= 0 ? centreOf(g, i) : c; })
+      .filter((c) => pointInPolygon(c, sp.polygon));
+    if (corners.length) {
+      const near = corners.reduce((b, c, i) => (Math.hypot(c.x - cur.x, c.y - cur.y) < Math.hypot(corners[b].x - cur.x, corners[b].y - cur.y) ? i : b), 0);
+      const loop = [...corners.slice(near), ...corners.slice(0, near)];
+      let far = loop[0];
+      for (const c of loop) { go(c); if (Math.hypot(c.x - start.x, c.y - start.y) > Math.hypot(far.x - start.x, far.y - start.y)) far = c; }
+      const centre = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+      const hero = heroPiece(model, sp.id, furniture);
+      stops.push({ spaceId: sp.id, name: sp.name, at: far, look: hero ? { x: hero.x, y: hero.y } : centre });
+      stopIndex.push(Math.max(0, points.length - 1));
+    }
+  }
   go(start);
   return { stops, points, lengthM: Math.round(lengthM * 10) / 10, stopIndex };
 }
