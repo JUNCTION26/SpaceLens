@@ -17,7 +17,7 @@ const KEEP = new Set([
   'IFCSPACE', 'IFCLOCALPLACEMENT', 'IFCAXIS2PLACEMENT3D', 'IFCAXIS2PLACEMENT2D', 'IFCCARTESIANPOINT', 'IFCDIRECTION',
   'IFCPRODUCTDEFINITIONSHAPE', 'IFCSHAPEREPRESENTATION', 'IFCEXTRUDEDAREASOLID', 'IFCARBITRARYCLOSEDPROFILEDEF',
   'IFCARBITRARYPROFILEDEFWITHVOIDS', 'IFCPOLYLINE', 'IFCRECTANGLEPROFILEDEF', 'IFCSIUNIT', 'IFCCONVERSIONBASEDUNIT',
-  'IFCMEASUREWITHUNIT', 'IFCBUILDINGSTOREY',
+  'IFCMEASUREWITHUNIT', 'IFCBUILDINGSTOREY', 'IFCGEOMETRICCURVESET',
 ]);
 const MAX_ARGS_LEN = 200000;
 
@@ -235,6 +235,18 @@ export function ifcToModel(text: string, name = 'model.ifc', opts: { now?: numbe
       if (!Array.isArray(items)) continue;
       for (const it of items) {
         const se = isRef(it) ? ents.get(it.ref) : undefined;
+        if (se && se.name === 'IFCGEOMETRICCURVESET') {
+          // a footprint drawn as a closed polyline (no extrusion): height unknown
+          const curves = args(se.raw)[0];
+          for (const c of Array.isArray(curves) ? curves : []) {
+            const ce = isRef(c) ? ents.get(c.ref) : undefined;
+            if (!ce || ce.name !== 'IFCPOLYLINE') continue;
+            const pts: Vec2[] = [];
+            for (const r of (args(ce.raw)[0] as Arg[] | undefined) ?? []) if (isRef(r)) { const v = point(r.ref); if (v.length >= 2) pts.push({ x: v[0], y: v[1] }); }
+            if (pts.length >= 3) return { pts, tf: ID, depth: NaN };
+          }
+          continue;
+        }
         if (!se || se.name !== 'IFCEXTRUDEDAREASOLID') continue;
         const a = args(se.raw);
         const pts = isRef(a[0]) ? profile(a[0].ref) : null;
