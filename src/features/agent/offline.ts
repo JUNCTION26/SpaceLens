@@ -25,7 +25,7 @@ export function offlineReply(text: string, hasSketch: boolean, inRoom: (category
   if (/(?<![\p{L}])(undo|ångra|take that back|peru)(?![\p{L}])/u.test(t)) return reply(D(lang, 'undone'), [{ type: 'undo' }]);
   if (/\b(walk|walkthrough|walk through|first person)\b/.test(t) && /\b(show|let|go|start|view|me)\b/.test(t)) return reply('Walking you through it.', [{ type: 'set_view', view: 'walk' }]);
   const view = t.match(/\b(2d|3d|two d|three d|plan view|split)\b/);
-  if (view && /\b(show|switch|go|view|see)\b/.test(t)) {
+  if (view && /\b(show|switch|go|view|see|visa|byt)\b/.test(t)) {
     const v = /3d|three/.test(view[1]) ? '3d' : /split/.test(view[1]) ? 'split' : '2d';
     return reply(`Switching to ${v === 'split' ? 'split' : v.toUpperCase()} view.`, [{ type: 'set_view', view: v }]);
   }

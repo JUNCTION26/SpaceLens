@@ -197,6 +197,8 @@ export class Ear {
       const code = e?.error as string | undefined;
       if (code === 'not-allowed' || code === 'service-not-allowed') { this.keep = false; this.h.onError('Microphone access was blocked'); }
       else if (code === 'network') { this.keep = false; this.h.onError('Voice input needs a network connection'); }
+      // No microphone at all: say so once instead of restarting hands-free listening in a loop.
+      else if (code === 'audio-capture') { this.keep = false; this.h.onError('No microphone found'); }
     };
     r.onend = () => {
       this.rec = null;

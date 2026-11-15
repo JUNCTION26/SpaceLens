@@ -21,6 +21,14 @@ vi.mock('./actions', async (orig) => {
     ...real,
     execute: async (a: { type: string }, ctx: never) => {
       if (a.type === 'design_room') {
+        // Like the real action: the brief's requirements carry the person's lasting goals.
+        const { applyGoals } = await import('./conversation');
+        const goals = (ctx as { goals?: import('./conversation').Goals }).goals;
+        const base: import('../../core/types').Requirements = {
+          purpose: 'office', people: 1, budgetSek: null, items: [], routeTargets: [], minRouteWidthM: 0.8,
+          style: '', lockedIds: [], notes: [], questions: [], compiledBy: 'rules',
+        };
+        useStore.getState().setRequirements(goals ? applyGoals(base, goals) : base);
         const model = useStore.getState().model;
         const furniture = [makeItem('desk-120', { x: 1.5, y: 1.2 }), makeItem('sofa-2', { x: 3, y: 3 })];
         useStore.getState().setCandidates([{
@@ -47,7 +55,8 @@ describe('twelve-turn conversations', () => {
     store = await import('../../core/store');
     agent = await import('./agentStore');
     brain = await import('./brain');
-  });
+    // Loading the whole turn handling can take minutes on a busy machine.
+  }, 300_000);
   beforeEach(() => { spoken.length = 0; });
 
   const say = async (text: string) => {
@@ -121,7 +130,7 @@ describe('twelve-turn conversations', () => {
     for (const t of agent.useAgent.getState().turns) expect(t.meta ?? '').not.toMatch(/\bms\b/);
   }
 
-  it.skip('English', async () => {
+  it('English', async () => {
     await run({
       wfh: 'I work from home',
       budget: 'my budget is 15000',
@@ -138,7 +147,7 @@ describe('twelve-turn conversations', () => {
     }, 'en');
   });
 
-  it.skip('Swedish', async () => {
+  it('Swedish', async () => {
     store.useStore.getState().setView?.('split');
     agent.useAgent.getState().set({ conv: { ...agent.useAgent.getState().conv, goals: { avoid: [] }, lang: 'en' } });
     await run({

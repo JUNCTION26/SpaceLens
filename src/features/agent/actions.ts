@@ -388,7 +388,7 @@ export function explain(a: Action, ctx: Ctx): string {
     if (dec) parts.push(dec.reason);
     const bad = r?.verdicts?.find((v) => !v.pass && v.itemIds.includes(item.id));
     if (bad) parts.push(`One catch: ${bad.message}`);
-    if (!parts.length) parts.push(`${describeItemPlacement(model, item)}, with ${cm(item.clearance.front)} cm of use space in front.`);
+    if (!parts.length) parts.push(`${item.name}: ${describeItemPlacement(model, item)}, with ${cm(item.clearance.front)} cm of use space in front.`);
     return [...new Set(parts)].slice(0, 3).join(' ');
   }
   if (/price|cost|budget/.test(topic)) {

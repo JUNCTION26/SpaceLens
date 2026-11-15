@@ -170,7 +170,7 @@ export function AgentDock({ overlay = true }: { overlay?: boolean } = {}) {
       onState: (listening) => useAgent.getState().set({ listening, ...(listening ? {} : { interim: '' }) }),
       onError: (error) => {
         talk.current?.end();
-        if (/blocked/i.test(error)) setMicBlocked(true);
+        if (/blocked|no microphone/i.test(error)) setMicBlocked(true);
         useAgent.getState().set({ error, handsFree: false });
       },
     });
