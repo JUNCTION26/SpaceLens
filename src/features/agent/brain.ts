@@ -278,9 +278,7 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
       const world = buildWorld({ state: st, marks, turns: previous, report }, refs);
       const res = await ai<unknown>({
         task: 'fast', system: SYSTEM, schema: SCHEMA, signal: ac.signal, temperature: 0.5,
-        parts: [{ text: buildPrompt(words, refs, world) + (hasGoals(goals) ? `
-(The person's lasting goals: ${goalsBrief(goals)}. Reply in at most 20 words.)` : '
-(Reply in at most 20 words.)') }],
+        parts: [{ text: buildPrompt(words, refs, world) + (hasGoals(goals) ? `\n(The person's lasting goals: ${goalsBrief(goals)}. Reply in at most 20 words.)` : '\n(Reply in at most 20 words.)') }],
         onPartial: (raw) => { if (!ac.signal.aborted) stream.feed(raw); },
       });
       if (ac.signal.aborted) return;
