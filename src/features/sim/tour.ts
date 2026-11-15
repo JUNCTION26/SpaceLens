@@ -116,7 +116,8 @@ export function planTour(model: SpaceModel, g: OccGrid | undefined, start: Vec2,
   for (const h of back) { go(h.door); go(spot.get(h.to)!); }
   // One room to visit (alone, or with only a WC or closet off it): walk a loop past its corners and
   // stop once more on the far side, looking back in.
-  if (stops.length === 1) {
+  // Only when nothing else is worth visiting: a big room we simply cannot reach keeps the tour at one stop.
+  if (stops.length === 1 && !nodes.some((n) => n.id !== first && n.visit)) {
     const sp = model.spaces.find((s) => s.id === stops[0].spaceId)!;
     const xs = sp.polygon.map((p) => p.x), ys = sp.polygon.map((p) => p.y);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
