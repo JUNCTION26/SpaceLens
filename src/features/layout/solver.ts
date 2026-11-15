@@ -629,7 +629,7 @@ export async function generateLayouts(model: SpaceModel, req: Requirements, opts
   if (res.candidates.length) {
     for (const c of res.candidates) c.assumptions = [...built.assumptions, ...c.assumptions];
     reportsCache = res.reports;
-    return { candidates: res.candidates, infeasibility: null, reports: res.reports };
+    return { candidates: res.candidates, infeasibility: res.infeasibility ?? null, reports: res.reports };
   }
   // Fallback: the annealer, scored by the same rules (pointless when the floor area alone rules it out).
   const tooSmall = res.infeasibility?.reasons.some((r) => /need about|larger than the room/.test(r));

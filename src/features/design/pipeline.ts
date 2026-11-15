@@ -248,7 +248,7 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
       return { ...e.cand, name: d.name || e.cand.name, summary: d.summary || e.cand.summary, metrics: { ...e.cand.metrics, score: r.finalScore }, generator: r.critique ? `${e.cand.generator} + critic` : e.cand.generator };
     });
     const out: FullReport[] = ranked.map(({ e, r }) => ({ ...r, idea: undefined, reasons: describe(e.cand.furniture).reasons }));
-    return { candidates, reports: out, infeasibility: null, stages: stages.map((x) => ({ ...x })) };
+    return { candidates, reports: out, infeasibility: solved.find((x) => x.infeasibility)?.infeasibility ?? null, stages: stages.map((x) => ({ ...x })) };
   };
   if (planned) opts.onProgress?.(snapshot(), 'concepts');
 
