@@ -477,7 +477,7 @@ export function DrawingsPanel() {
       {!rep && (
         <>
           {hasLines ? (
-            <button className="btn drawings-big" onClick={() => void buildPlan()} disabled={building}>
+            <button className="btn btn-primary drawings-big" onClick={() => void buildPlan()} disabled={building}>
               <Icon name="cube" size={14} /> 3D
             </button>
           ) : proposals ? (
@@ -492,7 +492,7 @@ export function DrawingsPanel() {
                 ))}
               </div>
               <div className="drawings-actions">
-                <button className="btn drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}><Icon name="cube" size={14} /> 3D</button>
+                <button className="btn btn-primary drawings-big" disabled={!proposals.length || !proposalScale} onClick={openProposals}><Icon name="cube" size={14} /> 3D</button>
                 {!proposalScale && <button className="btn" onClick={() => setTool('calibrate')}><Icon name="ruler" size={14} /> Scale</button>}
               </div>
             </>
@@ -528,7 +528,7 @@ export function DrawingsPanel() {
             ))}
           </div>
           <div className="drawings-actions">
-            <button className="btn drawings-big" onClick={open3d}><Icon name="cube" size={14} /> 3D</button>
+            <button className="btn btn-primary drawings-big" onClick={open3d}><Icon name="cube" size={14} /> 3D</button>
             <button className="btn btn-ghost" aria-label="Clear" onClick={() => { setBuilt(null); setPickRoom(null); }}><Icon name="x" size={14} /></button>
           </div>
           {(rep.failed.length > 0 || rep.warnings.some((w) => !/could not be closed/.test(w))) && (
@@ -562,7 +562,7 @@ export function DrawingsPanel() {
         <button className="btn btn-sm" disabled={!knownLen.trim()} aria-label="Set length"><Icon name="check" size={14} /></button>
       </form>
       <div className="drawings-actions">
-        <button className="btn drawings-big" onClick={openPicture3d}><Icon name="cube" size={14} /> 3D</button>
+        <button className="btn btn-primary drawings-big" onClick={openPicture3d}><Icon name="cube" size={14} /> 3D</button>
         <button className="btn btn-ghost" aria-label="Clear" onClick={() => setPic(null)}><Icon name="x" size={14} /></button>
       </div>
       {pic.report.warnings.length > 0 && (
@@ -581,7 +581,7 @@ export function DrawingsPanel() {
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
       onDrop={(e) => { setDragOver(false); if (e.defaultPrevented) return; const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); void openBlob(f, f.name); } }}>
       <div className="drawings-bar row" role="toolbar" aria-label="Drawing tools">
-        <label className="btn btn-primary drawings-open"><Icon name="file" size={14} /> Open{openInput}</label>
+        <label className={`btn ${doc || pic ? '' : 'btn-primary '}drawings-open`}><Icon name="file" size={14} /> Open{openInput}</label>
         {spinner}
         {doc && (
           <>
@@ -704,7 +704,7 @@ export function DrawingsPanel() {
                 ))}
               </div>
               <div className="drawings-actions">
-                <button className="btn drawings-big" onClick={explore3d} disabled={trace.length < 3 || !mpp}><Icon name="cube" size={14} /> 3D</button>
+                <button className="btn btn-primary drawings-big" onClick={explore3d} disabled={trace.length < 3 || !mpp}><Icon name="cube" size={14} /> 3D</button>
                 <button className="btn btn-ghost" onClick={() => setTrace((t) => t.slice(0, -1))} disabled={!trace.length} aria-label="Undo"><Icon name="undo" size={14} /></button>
                 <button className="btn btn-ghost" onClick={() => setTrace([])} disabled={!trace.length} aria-label="Clear"><Icon name="x" size={14} /></button>
               </div>
