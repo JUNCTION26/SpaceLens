@@ -108,8 +108,18 @@ describe('swap, remove, add, rotate', () => {
     expect(a.priceSek).toBeLessThan(7990);
   });
   it('says so when nothing smaller exists', () => {
-    const r = refineRoomOffline(room([['plant', 1.7, 2.0]]), 'swap the plant for a smaller one');
+    const r = refineRoomOffline(room([['plant-small', 1.7, 2.0]]), 'swap the plant for a smaller one');
     expect(r && !r.ok).toBe(true);
+  });
+  it('steps down one size, not to the smallest', () => {
+    const m = room([['plant', 1.7, 2.0]]);
+    expect(apply(m, ok(refineRoomOffline(m, 'swap the plant for a smaller one')).ops).furniture[0].catalogId).toBe('plant-medium');
+  });
+  it('a bigger desk is a wider plain desk, not a standing one', () => {
+    const m = room([['desk-120', 1.0, 3.0]]);
+    const a = apply(m, ok(refineRoomOffline(m, 'make the desk bigger')).ops).furniture[0];
+    expect(a.h).toBeCloseTo(0.74);
+    expect(a.w).toBeCloseTo(1.4);
   });
   it('swaps one named piece for another', () => {
     const m = room([['sofa-2', 1.7, 2.5]]);

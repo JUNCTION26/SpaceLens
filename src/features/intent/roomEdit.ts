@@ -117,6 +117,11 @@ const ctxOf = (model: SpaceModel): Ctx => {
     windowZones: withSpace.filter(({ o }) => o.kind === 'window').map(({ o, s }) => openingStrip(s, o, 0.4)),
   };
 };
+/** True when a piece taller than the lowest sill would stand in front of window glass. */
+function coversGlass(ctx: Ctx, item: FurnitureItem, p: Pose): boolean {
+  const sill = Math.min(...ctx.model.openings.filter((o) => o.kind === 'window').map((o) => o.sillM ?? 0.9));
+  return item.h > sill - 0.02 && ctx.windowZones.some((z) => convexOverlap(itemCorners({ ...item, ...p }), z) > 0.005);
+}
 const spaceAt = (model: SpaceModel, p: Vec2): Space | undefined => model.spaces.find((s) => pointInPolygon(p, s.polygon));
 const OVERLAP_TOL = 0.03;
 
@@ -173,6 +178,49 @@ function searchPose(ctx: Ctx, item: FurnitureItem, others: FurnitureItem[], cost
 
 const centreOf = (m: SpaceModel): Vec2 => centroid((m.spaces[0] ?? { polygon: [{ x: 0, y: 0 }] }).polygon);
 const setPose = (list: FurnitureItem[], id: string, p: Partial<FurnitureItem>) => list.map((f) => (f.id === id ? { ...f, ...p } : f));
+/** Unit vector out of the item's front (local +y). */
+const forwardOf = (rotation: number): Vec2 => rot2({ x: 0, y: 1 }, rotation);
+const rectOf = (f: Pick<FurnitureItem, 'x' | 'y' | 'w' | 'd' | 'rotation'>) => ({ cx: f.x, cy: f.y, hw: f.w / 2, hd: f.d / 2, rot: f.rotation });
+/** Shortest edge-to-edge gap between two footprints (0 when they touch or overlap). */
+function gapBetween(a: Pick<FurnitureItem, 'x' | 'y' | 'w' | 'd' | 'rotation'>, b: Pick<FurnitureItem, 'x' | 'y' | 'w' | 'd' | 'rotation'>): number {
+  const ra = rectOf(a), rb = rectOf(b);
+  return Math.min(...itemCorners(a).map((p) => distPointRect(p, rb)), ...itemCorners(b).map((p) => distPointRect(p, ra)));
+}
+/**
+ * Cost of standing `item` at pose p "next to" ref: a small edge gap, beside it rather than in its front
+ * clearance (a lamp goes at the arm of a sofa, not in the legroom), and little travel from where it was.
+ */
+function besideCost(item: FurnitureItem, ref: FurnitureItem, here: Vec2, gap = 0.08) {
+  return (p: Pose) => {
+    const g = gapBetween({ ...item, ...p }, ref);
+    const f = forwardOf(ref.rotation);
+    const ahead = (p.x - ref.x) * f.x + (p.y - ref.y) * f.y;
+    const inFront = ahead > ref.d / 2 && ahead < ref.d / 2 + Math.max(0.5, ref.clearance.front) ? 1.5 : 0;
+    return Math.abs(g - gap) * 3 + inFront + 0.03 * dist(p, here);
+  };
+}
+/** Pronouns that point back at the last piece talked about. */
+const PRONOUN = /^(?:it|that|this|that one|this one|them|those|den|det|dem|den där|se|sitä|sen|ne)$/;
+const ORDINALS: Record<string, number> = { first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2, fourth: 3, '4th': 3, första: 0, andra: 1, tredje: 2, fjärde: 3, ensimmäinen: 0, toinen: 1, kolmas: 2, neljäs: 3 };
+const ORD_RE = /\b(first|1st|second|2nd|third|3rd|fourth|4th|last|other|första|andra|tredje|fjärde|sista|ensimmäinen|toinen|kolmas|neljäs|viimeinen)\s+/;
+/**
+ * Items a subject phrase points at, honouring pronouns ("it" = the last piece talked about) and ordinals
+ * ("the second chair" = the second chair in the plan's order). Returns [] when nothing matches.
+ */
+function resolveSubject(furniture: FurnitureItem[], phrase: string, mem?: RefMemory): FurnitureItem[] {
+  const p = stripArticle(norm(phrase));
+  if (PRONOUN.test(p)) {
+    for (const id of mem?.last ?? []) { const f = furniture.find((x) => x.id === id); if (f) return [f]; }
+    return [];
+  }
+  const o = ORD_RE.exec(p);
+  if (o) {
+    const hits = findItems(furniture, p.replace(ORD_RE, ''));
+    const k = /last|sista|viimeinen/.test(o[1]) ? hits.length - 1 : /other/.test(o[1]) ? hits.findIndex((h) => !(mem?.last ?? []).includes(h.id)) : ORDINALS[o[1]];
+    return k >= 0 && hits[k] ? [hits[k]] : [];
+  }
+  return findItems(furniture, p);
+}
 
 // ---- Handlers ----------------------------------------------------------------------------------
 
@@ -201,11 +249,11 @@ function openingPoints(model: SpaceModel, kind: 'window' | 'door'): Vec2[] {
 
 // Finnish puts the relation after the target: "siirrä sohva ikkunan viereen".
 const MOVE_FI = /^(?:siirrä|laita|työnnä)\s+(\S+)\s+(.+?)\s+(lähelle|viereen|luo|luokse|kauemmas|kauas)$/;
-const moveHandler: Handler = (model, clause, furniture) => {
+const moveHandler: Handler = (model, clause, furniture, mem) => {
   const fi = MOVE_FI.exec(clause);
   const m = MOVE_RE.exec(clause) ?? (fi ? [fi[0], fi[1], fi[3], fi[2]] as unknown as RegExpExecArray : null);
   if (!m) return null;
-  const subjects = findItems(furniture, m[1]);
+  const subjects = resolveSubject(furniture, m[1], mem);
   if (!subjects.length) return cannot(`No ${stripArticle(m[1])} in the room`, 'Add it first');
   const item = subjects[0];
   if (item.locked || isMounted(item)) return cannot(`${item.name} is fixed`, 'Unlock it first');
@@ -220,7 +268,12 @@ const moveHandler: Handler = (model, clause, furniture) => {
     const pts = openingPoints(model, tgt.kind);
     if (!pts.length) return cannot(`No ${tgt.kind} in the room`, 'Move to a wall');
     const near = (p: Vec2) => Math.min(...pts.map((q) => dist(p, q)));
-    pose = away ? searchPose(ctx, item, others, (p) => -near(p) + 0.2 * dist(p, here), { grid: true }) : searchPose(ctx, item, others, (p) => near(p), { grid: true });
+    // Anything taller than a sill would cover the glass; it goes beside the window instead of in front of it.
+    const clearGlass = (p: Pose) => !coversGlass(ctx, item, p);
+    pose = away ? searchPose(ctx, item, others, (p) => -near(p) + 0.2 * dist(p, here), { grid: true, extra: clearGlass })
+      // A piece that belongs on a wall keeps its back to one; a loose piece may stand free.
+      : searchPose(ctx, item, others, (p) => near(p) + 0.02 * dist(p, here), { grid: !WALL_BOUND.has(item.category), extra: clearGlass })
+        ?? searchPose(ctx, item, others, (p) => near(p) + 0.02 * dist(p, here), { grid: true, extra: clearGlass });
     label = `${away ? 'Away from' : 'By'} ${tgt.kind}`;
   } else if (tgt.kind === 'corner') {
     const cs = model.spaces.flatMap((s) => s.polygon);
@@ -229,7 +282,8 @@ const moveHandler: Handler = (model, clause, furniture) => {
     label = 'To corner';
   } else if (tgt.kind === 'centre') {
     const c = centreOf(model);
-    pose = searchPose(ctx, item, others, (p) => dist(p, c), { grid: true, walls: false });
+    const exact = [item.rotation, item.rotation + Math.PI / 2].map((rotation) => ({ x: c.x, y: c.y, rotation })).find((p) => fitsAt(ctx, item, p, others));
+    pose = exact ?? searchPose(ctx, item, others, (p) => dist(p, c), { grid: true, walls: false });
     label = 'To centre';
   } else if (tgt.kind === 'wall') {
     pose = searchPose(ctx, item, others, (p) => dist(p, here), {
@@ -240,14 +294,143 @@ const moveHandler: Handler = (model, clause, furniture) => {
     const refs = findItems(others, tgt.text);
     if (!refs.length) return cannot(`No ${stripArticle(tgt.text)} in the room`, 'Move to a wall');
     const r = refs[0];
-    const want = r.w / 2 + item.w / 2 + 0.25;
     pose = away
       ? searchPose(ctx, item, others, (p) => -dist(p, r) + 0.2 * dist(p, here), { grid: true })
-      : searchPose(ctx, item, others, (p) => Math.abs(dist(p, r) - want) + 0.05 * dist(p, here), { grid: true });
+      : searchPose(ctx, item, others, besideCost(item, r, here), { grid: true });
     label = `${away ? 'Away from' : 'Next to'} ${r.category}`;
   }
   if (!pose) return cannot('No free spot there', 'Try another wall');
-  return { furniture: setPose(furniture, item.id, pose), label: words3(label), notes: [] };
+  return { furniture: setPose(furniture, item.id, pose), label: words3(label), notes: [], focus: [item.id] };
+};
+
+// "move it a bit left", "shift the sofa 30 cm right". Plan directions: left = -x, up/back = -y.
+const NUDGE_RE = /^(?:move|shift|nudge|push|slide|flytta|skjut|siirrä|työnnä)\s+(.+?)\s+(?:(a (?:bit|little|touch)|slightly|lite|en bit|hieman|vähän)\s+)?(?:(\d+(?:[.,]\d+)?)\s*(cm|m)\s+)?(?:to the\s+|åt\s+)?(left|right|up|down|back|forward|north|south|east|west|vänster|höger|upp|ner|vasemmalle|oikealle|ylös|alas)$/;
+const DIRS: Array<[RegExp, Vec2]> = [[/left|west|vänster|vasemm/, { x: -1, y: 0 }], [/right|east|höger|oikea/, { x: 1, y: 0 }], [/up|back|north|upp|ylös/, { x: 0, y: -1 }], [/down|forward|south|ner|alas/, { x: 0, y: 1 }]];
+const nudgeHandler: Handler = (model, clause, furniture, mem) => {
+  const m = NUDGE_RE.exec(clause);
+  if (!m) return null;
+  const subj = resolveSubject(furniture, m[1], mem);
+  if (!subj.length) return cannot(PRONOUN.test(stripArticle(m[1])) ? 'Which piece?' : `No ${stripArticle(m[1])} in the room`, 'Name the piece');
+  const item = subj[0];
+  if (item.locked || isMounted(item)) return cannot(`${item.name} is fixed`, 'Unlock it first');
+  const dir = DIRS.find(([re]) => re.test(m[5]))![1];
+  const want = m[3] ? numOf(m[3]) / (m[4] === 'cm' ? 100 : 1) : m[2] ? 0.3 : 0.5;
+  const ctx = ctxOf(model);
+  const others = furniture.filter((f) => f.id !== item.id);
+  // Go as far as asked; when a wall, a door swing or another piece is in the way, stop at the last free step.
+  for (let s = want; s > 0.019; s -= 0.02) {
+    const p = { x: item.x + dir.x * s, y: item.y + dir.y * s, rotation: item.rotation };
+    if (fitsAt(ctx, item, p, others)) {
+      const short = want - s > 0.03;
+      return { furniture: setPose(furniture, item.id, p), label: words3(`Nudged ${item.category}`), notes: short ? [`Only ${Math.round(s * 100)} cm free`] : [], focus: [item.id], compromises: short ? [`moved ${Math.round(s * 100)} of ${Math.round(want * 100)} cm`] : [] };
+    }
+  }
+  return cannot(`No free space ${m[5]} of the ${item.category}`, 'Try the other side');
+};
+
+// "turn the chair to face the desk", "face the sofa towards the window".
+const FACE_RE = /^(?:turn|rotate|face|point|angle|vänd|vrid|rikta|käännä)\s+(.+?)\s+(?:so it faces|to face|to look at|facing|towards|toward|to|at|mot|emot|kohti|kohden)\s+(.+)$/;
+const faceHandler: Handler = (model, clause, furniture, mem) => {
+  const m = FACE_RE.exec(clause);
+  if (!m) return null;
+  const subj = resolveSubject(furniture, m[1], mem);
+  if (!subj.length) return null;
+  const item = subj[0];
+  if (item.locked || isMounted(item)) return cannot(`${item.name} is fixed`, 'Unlock it first');
+  const tgt = classifyTarget(m[2]);
+  let at: Vec2 | undefined;
+  if (tgt.kind === 'window' || tgt.kind === 'door') {
+    const pts = openingPoints(model, tgt.kind);
+    at = pts.sort((a, b) => dist(a, item) - dist(b, item))[0];
+  } else if (tgt.kind === 'centre') at = centreOf(model);
+  else at = findItems(furniture.filter((f) => f.id !== item.id), tgt.text)[0];
+  if (!at) return tgt.kind === 'item' ? null : cannot(`No ${tgt.kind} to face`, 'Name a piece in the room');
+  const rotation = rotationFacing({ x: at.x - item.x, y: at.y - item.y });
+  const ctx = ctxOf(model);
+  const others = furniture.filter((f) => f.id !== item.id);
+  let pose: Pose | null = { x: item.x, y: item.y, rotation };
+  // Turning changes the footprint; if the turned piece hits something, slide it the least distance that frees it.
+  if (!fitsAt(ctx, item, pose, others)) {
+    const best = gridPoses(model, item, 0.05).map((p) => ({ ...p, rotation: rotationFacing({ x: at!.x - p.x, y: at!.y - p.y }) }))
+      .filter((p) => dist(p, item) < 0.8).sort((a, b) => dist(a, item) - dist(b, item)).find((p) => fitsAt(ctx, item, p, others));
+    pose = best ?? null;
+  }
+  if (!pose) return cannot('No room to turn it', 'Move it first');
+  return { furniture: setPose(furniture, item.id, pose), label: words3(`Faces ${tgt.kind === 'item' ? stripArticle(tgt.text) : tgt.kind}`), notes: [], focus: [item.id] };
+};
+
+// "swap the bed and the wardrobe": two pieces trade places. Each one takes the other's wall and facing, with
+// its back where the other's back was, so a deep bed does not end up sticking out of the wardrobe's wall.
+const EXCHANGE_RE = /^(?:swap|switch|exchange|trade|byt plats på|byt|vaihda)\s+(?:places of\s+|the places of\s+)?(.+?)\s+(?:and|with|och|ja)\s+(.+?)(?:\s+(?:around|round|places|plats|paikkaa))?$/;
+const exchangeHandler: Handler = (model, clause, furniture, mem) => {
+  const m = EXCHANGE_RE.exec(clause);
+  if (!m) return null;
+  // "with an armchair" names something new to buy, not a piece already in the room.
+  if (/^(?:a|an|another|a new|some|en|ett|ny|nytt|uusi)\s/.test(norm(m[2]))) return null;
+  const a = resolveSubject(furniture, m[1], mem)[0];
+  const b = resolveSubject(furniture.filter((f) => f.id !== a?.id), m[2], mem)[0];
+  if (!a || !b) return null; // not two pieces in the room: maybe "swap the sofa with an armchair"
+  if (a.locked || b.locked || isMounted(a) || isMounted(b)) return cannot('One of them is fixed', 'Unlock it first');
+  const ctx = ctxOf(model);
+  const rest = furniture.filter((f) => f.id !== a.id && f.id !== b.id);
+  const into = (x: FurnitureItem, y: FurnitureItem): Pose => {
+    const f = forwardOf(y.rotation);
+    const back = { x: y.x - f.x * (y.d / 2), y: y.y - f.y * (y.d / 2) };
+    return { x: back.x + f.x * (x.d / 2), y: back.y + f.y * (x.d / 2), rotation: y.rotation };
+  };
+  let pa: Pose | null = into(a, b), pb: Pose | null = into(b, a);
+  const compromises: string[] = [];
+  const fine = (x: FurnitureItem, p: Pose, others: FurnitureItem[]) => fitsAt(ctx, x, p, others) && !coversGlass(ctx, x, p);
+  const nearest = (x: FurnitureItem, t: Pose, others: FurnitureItem[]) => searchPose(ctx, x, others, (p) => dist(p, t) + Math.abs(p.rotation - t.rotation) * 0.1, { grid: true, extra: (p) => !coversGlass(ctx, x, p) });
+  if (!fine(a, pa, rest)) { pa = nearest(a, pa, rest); compromises.push(`${a.category} shifted to fit`); }
+  if (!pa) return cannot(`${a.name} does not fit there`, 'Move one first');
+  const restA = [...rest, { ...a, ...pa }];
+  if (!fine(b, pb, restA)) { pb = nearest(b, pb, restA); compromises.push(`${b.category} shifted to fit`); }
+  if (!pb) return cannot(`${b.name} does not fit there`, 'Move one first');
+  return { furniture: setPose(setPose(furniture, a.id, pa), b.id, pb), label: 'Swapped places', notes: compromises, focus: [a.id, b.id], compromises };
+};
+
+// "centre the rug": same as "move the rug to the centre".
+const CENTRE_RE = /^(?:centre|center|centrera|keskitä)\s+(.+?)(?:\s+(?:in the room|i rummet|huoneeseen))?$/;
+const centreHandler: Handler = (model, clause, furniture, mem) => {
+  const m = CENTRE_RE.exec(clause);
+  return m ? moveHandler(model, `move ${m[1]} to the centre`, furniture, mem) : null;
+};
+
+// "line up the shelves along the left wall": every matching piece goes against that wall, side by side,
+// as one run centred on the longest free stretch, skipping door swings and windows they would cover.
+const LINEUP_RE = /^(?:line up|align|arrange|put|place|move|set|ställ|rada upp|flytta|järjestä|laita)\s+(?:all\s+)?(.+?)\s+(?:up\s+)?(?:along|against|on|by|längs|mot|vid|pitkin|seinälle)\s+(.+?\b(?:wall|vägg|väggen|seinä|seinää)\b.*)$/;
+const lineupHandler: Handler = (model, clause, furniture, mem) => {
+  const m = LINEUP_RE.exec(clause);
+  if (!m) return null;
+  const items = resolveSubject(furniture, m[1], mem).filter((f) => !f.locked && !isMounted(f));
+  const plural = /s$|ar$|or$|en$|\b(all|both)\b/.test(stripArticle(norm(m[1])));
+  if (items.length < 2 || !plural) return null; // one piece: the plain move handler does it
+  const tgt = classifyTarget(m[2]);
+  const ctx = ctxOf(model);
+  let list = furniture.filter((f) => !items.some((i) => i.id === f.id));
+  const walls = model.spaces.flatMap((s) => s.polygon.map((_, i) => ({ s, i }))).filter(({ s, i }) => !tgt.compass || wallCompass(wallInwardNormal(s, i)) === tgt.compass);
+  if (!walls.length) return cannot('No such wall', 'Left, right, top or bottom wall');
+  const lenOf = (w: { s: Space; i: number }) => { const [p, q] = wallSegment(w.s, w.i); return dist(p, q); };
+  const { s, i } = walls.sort((x, y) => lenOf(y) - lenOf(x))[0];
+  const [a, b] = wallSegment(s, i);
+  const L = dist(a, b), dir = { x: (b.x - a.x) / L, y: (b.y - a.y) / L };
+  const total = items.reduce((t, f) => t + f.w, 0) + 0.02 * (items.length - 1);
+  const along = (p: Vec2) => (p.x - a.x) * dir.x + (p.y - a.y) * dir.y;
+  const ordered = [...items].sort((x, y) => along(x) - along(y));
+  let cursor = L / 2 - total / 2;
+  const placed: string[] = [], left: string[] = [];
+  for (const f of ordered) {
+    const goal = cursor + f.w / 2;
+    const p = searchPose(ctx, f, list, (q) => Math.abs(along(q) - goal), { wallFilter: (ss, ii) => ss === s && ii === i, extra: (q) => !coversGlass(ctx, f, q) });
+    if (!p) { list = [...list, f]; left.push(f.name); continue; }
+    list = [...list, { ...f, ...p }]; placed.push(f.id);
+    cursor = along(p) + f.w / 2 + 0.02;
+  }
+  if (!placed.length) return cannot('No free run on that wall', 'Try another wall');
+  const order = new Map(furniture.map((f, k) => [f.id, k]));
+  list.sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0));
+  return { furniture: list, label: words3(`Lined up ${placed.length}`), notes: left.length ? [`${left.length} did not fit`] : [], focus: placed, compromises: left.map((n) => `${n} stayed put: no room on that wall`) };
 };
 
 const MOD = { smaller: /smaller|small|mindre|pienempi|pienemm|compact/, bigger: /bigger|larger|big\b|större|isompi|suurempi|wider/, cheaper: /cheaper|cheap|billigare|halvempi|edullisempi|less expensive/ };
@@ -262,14 +445,22 @@ function applyCatalog(f: FurnitureItem, e: CatalogEntry): FurnitureItem {
   };
 }
 
+/**
+ * The next size or price step in the same family. "Bigger" means the main dimension grows and the other does
+ * not shrink; "smaller" the reverse. Among those, the closest step wins, and a variant that changes what the
+ * piece is (a standing desk for a sitting one, a desk pod for one desk) ranks behind a plain size step.
+ */
 function pickVariant(f: FurnitureItem, mod: Mod): CatalogEntry | null {
   const cur = catalogEntry(f.catalogId);
   const siblings = CATALOG.filter((c) => c.category === f.category && c.id !== f.catalogId);
   const a = f.w * f.d, price = cur?.priceSek ?? f.priceSek;
-  const pool = mod === 'smaller' ? siblings.filter((c) => c.w * c.d < a - 0.01).sort((x, y) => y.w * y.d - x.w * x.d)
-    : mod === 'bigger' ? siblings.filter((c) => c.w * c.d > a + 0.01).sort((x, y) => x.w * x.d - y.w * y.d)
-      : siblings.filter((c) => c.priceSek < price).sort((x, y) => y.priceSek - x.priceSek);
-  return pool[0] ?? null;
+  const kind = (c: CatalogEntry) => Math.abs(c.h - f.h) * 4 + (cur && c.material !== cur.material ? 0.05 : 0)
+    + (/pod|for \d|corner|l-shape|accessible|standing|kids/i.test(`${c.id} ${c.name}`) !== /pod|for \d|corner|l-shape|accessible|standing|kids/i.test(`${f.catalogId} ${f.name}`) ? 1 : 0);
+  if (mod === 'cheaper') return siblings.filter((c) => c.priceSek < price).sort((x, y) => (kind(x) - kind(y)) || (y.priceSek - x.priceSek))[0] ?? null;
+  const grows = (c: CatalogEntry) => c.w > f.w + 0.04 && c.d >= f.d - 0.04 && c.w * c.d > a + 0.01;
+  const shrinks = (c: CatalogEntry) => (c.w < f.w - 0.04 && c.d <= f.d + 0.04 && c.w * c.d < a - 0.01) || (c.w <= f.w + 0.01 && c.d < f.d - 0.04 && c.w * c.d < a - 0.01);
+  const pool = siblings.filter(mod === 'bigger' ? grows : shrinks);
+  return pool.sort((x, y) => (kind(x) - kind(y)) || (Math.abs(x.w * x.d - a) - Math.abs(y.w * y.d - a)))[0] ?? null;
 }
 
 const swapHandler: Handler = (model, clause, furniture) => {
@@ -295,10 +486,17 @@ const swapHandler: Handler = (model, clause, furniture) => {
 };
 
 const REMOVE_RE = /^(?:please |can you )?(?:remove|delete|get rid of|take away|take out|clear out|clear|drop|ta bort|släng|radera|poista|ota pois)\s+(.+)$/;
-const removeHandler: Handler = (_m, clause, furniture) => {
+const removeHandler: Handler = (_m, clause, furniture, mem) => {
   const m = REMOVE_RE.exec(clause);
   if (!m) return null;
   let phrase = m[1];
+  const one = stripArticle(norm(phrase));
+  if (PRONOUN.test(one) || ORD_RE.test(one)) {
+    const hit = resolveSubject(furniture, one, mem)[0];
+    if (!hit) return cannot(PRONOUN.test(one) ? 'Which piece?' : `No ${one} in the room`, 'Name a piece in the room');
+    if (hit.locked) return cannot(`${hit.name} is fixed`, 'Unlock it first');
+    return { furniture: furniture.filter((f) => f.id !== hit.id), label: words3(`Removed ${hit.category}`), notes: [] };
+  }
   const all = /^(all|every|alla|kaikki)\b/.test(phrase) || /\b(everything|allt)\b/.test(phrase);
   phrase = phrase.replace(/^(all|every|alla|kaikki)\s+(of\s+)?(the\s+)?/, '');
   if (/^(everything|allt|kaikki)/.test(phrase)) {
@@ -332,21 +530,42 @@ const addHandler: Handler = (model, clause, furniture) => {
   const m = ADD_RE.exec(clause);
   if (!m) return null;
   const qty = m[1] ? (Number(m[1]) || NUM_WORDS[m[1]] || 1) : 1;
-  const phrase = stripArticle(m[2].replace(/\b(to the room|in the room|here|please|till rummet|huoneeseen)\b/g, '').trim());
+  let phrase = stripArticle(m[2].replace(/\b(to the room|in the room|here|please|till rummet|huoneeseen)\b/g, '').trim());
+  // "a lamp by the armchair", "a plant in the corner": the part after the relation says where.
+  const rel = /\s+(?:by|next to|beside|near|close to|at|in|under|in front of|against|on|bredvid|vid|nära|intill|i|under|mot|viereen|lähelle|vieressä)\s+(.+)$/.exec(phrase);
+  const where = rel ? classifyTarget(rel[1]) : null;
+  if (rel) phrase = phrase.slice(0, rel.index).trim();
   const e = findByKeyword(phrase) ?? findByKeyword(phrase.replace(/s$/, '')) ?? (nounOf(phrase) ? findByKeyword(nounOf(phrase)!.kw) : undefined);
   if (!e) return cannot(`No catalogue match for ${phrase}`, 'Name a piece, e.g. a plant');
   const ctx = ctxOf(model);
   let list = furniture;
   const added: FurnitureItem[] = [];
+  const compromises: string[] = [];
+  let ref: FurnitureItem | undefined;
+  if (where?.kind === 'item') {
+    ref = findItems(furniture, where.text)[0];
+    if (!ref) compromises.push(`no ${stripArticle(where.text)} in the room, placed in a free spot`);
+  }
   for (let i = 0; i < Math.min(qty, 10); i++) {
     const it = makeItem(e.id);
-    const p = findFreeSpot(model, it, list);
+    let p: Pose | null = null;
+    if (ref) p = searchPose(ctx, it, list, besideCost(it, ref, ref), { grid: true });
+    else if (where && where.kind !== 'item') {
+      const pts = where.kind === 'window' || where.kind === 'door' ? openingPoints(model, where.kind)
+        : where.kind === 'corner' ? model.spaces.flatMap((s) => s.polygon) : [centreOf(model)];
+      if (pts.length) p = searchPose(ctx, it, list, (q) => Math.min(...pts.map((t) => dist(q, t))), { grid: where.kind !== 'corner', wallFilter: where.compass ? (s, k) => wallCompass(wallInwardNormal(s, k)) === where.compass : undefined });
+    }
+    if (!p) {
+      if (where && !compromises.length) compromises.push(`no free spot ${where.kind === 'item' ? 'by it' : 'there'}, placed elsewhere`);
+      p = findFreeSpot(model, it, list);
+    }
     if (!fitsAt(ctx, it, p, list)) break;
     const placed = { ...it, ...p };
     list = [...list, placed]; added.push(placed);
   }
   if (!added.length) return cannot('No room for it', 'Try a smaller piece');
-  return { furniture: list, label: words3(`Added ${added.length > 1 ? added.length + ' ' : ''}${e.category}`), notes: added.length < qty ? [`Only ${added.length} fit`] : [] };
+  const notes = [...(added.length < qty ? [`Only ${added.length} fit`] : []), ...compromises.slice(0, 1)];
+  return { furniture: list, label: words3(`Added ${added.length > 1 ? added.length + ' ' : ''}${e.category}`), notes, focus: added.map((a) => a.id), compromises };
 };
 
 // ---- Whole-room intents ------------------------------------------------------------------------
@@ -388,19 +607,34 @@ const cozyHandler: Handler = (model, _c, furniture) => {
   const ctx = ctxOf(model);
   let list = furniture.map((f) => (f.locked || f.custom || !WARM[f.category] ? f : { ...f, color: WARM[f.category] }));
   const added: string[] = [];
+  const compromises: string[] = [];
+  // A cosy room gathers around the seat: the rug lies in front of it, the lamp stands at its arm, the plant
+  // softens an empty corner. Without a seat, the bed or the room centre is the anchor.
+  const seat = list.find((f) => ['sofa', 'sofa-bed', 'armchair'].includes(f.category)) ?? list.find((f) => f.category === 'bed');
+  const c = centreOf(model);
   for (const id of ['rug-160', 'floor-lamp', 'plant']) {
     const e = catalogEntry(id)!;
     if (hasCat(list, e.category)) continue;
     const it = makeItem(id);
-    let p = findFreeSpot(model, it, list);
+    let p: Pose | null = null;
     if (e.category === 'rug') {
-      const c = centreOf(model);
-      p = { x: c.x, y: c.y, rotation: 0 };
+      const f = seat ? forwardOf(seat.rotation) : { x: 0, y: 0 };
+      const goal = seat ? { x: seat.x + f.x * (seat.d / 2 + it.d / 2 - 0.15), y: seat.y + f.y * (seat.d / 2 + it.d / 2 - 0.15) } : c;
+      const rotation = seat?.rotation ?? 0;
+      const cands = [goal, { x: (goal.x + c.x) / 2, y: (goal.y + c.y) / 2 }, c].flatMap((q) => [{ ...q, rotation }, { ...q, rotation: rotation + Math.PI / 2 }]);
+      p = cands.find((q) => fitsAt(ctx, it, q, list)) ?? null;
+      if (p && seat && dist(p, goal) > 0.05) compromises.push('rug off-centre from the seat');
+    } else if (e.category === 'lamp' && seat) {
+      p = searchPose(ctx, it, list, besideCost(it, seat, seat), { grid: true });
+    } else {
+      const corners = model.spaces.flatMap((s) => s.polygon);
+      p = searchPose(ctx, it, list, (q) => Math.min(...corners.map((k) => dist(q, k))));
     }
-    if (!fitsAt(ctx, it, p, list)) continue;
+    if (!p) { p = findFreeSpot(model, it, list); compromises.push(`${e.category} placed where it fits`); }
+    if (!fitsAt(ctx, it, p, list)) { compromises.push(`no room for a ${e.category}`); continue; }
     list = [...list, { ...it, ...p, color: WARM[e.category] ?? it.color }]; added.push(e.category);
   }
-  return { furniture: list, label: 'Cozier', notes: added.length ? [`Added ${added.join(', ')}`] : ['Warm palette'] };
+  return { furniture: list, label: 'Cozier', notes: added.length ? [`Added ${added.join(', ')}`] : ['Warm palette'], compromises };
 };
 
 const ESSENTIAL_DECOR = new Set(['plant', 'lamp', 'rug', 'bench', 'coffee-table', 'stool']);
@@ -607,7 +841,7 @@ const colourHandler: Handler = (_m, clause, furniture) => {
 // ---- Dispatch ----------------------------------------------------------------------------------
 
 interface Intent { re: RegExp; run: Handler }
-const VERBS: Handler[] = [moveHandler, swapHandler, removeHandler, rotateHandler];
+const VERBS: Handler[] = [lineupHandler, nudgeHandler, exchangeHandler, centreHandler, faceHandler, moveHandler, swapHandler, removeHandler, rotateHandler];
 const INTENTS: Intent[] = [
   { re: /wheelchair|accessib|step.?free|rollator|rullstol|tillgänglig|pyörätuoli|esteetön/, run: wheelHandler },
   { re: /kid.?safe|child.?safe|baby.?proof|child.?proof|toddler|kid.?friendly|barnsäker|barnvänlig|lapsiturvallinen|lapsiystävällinen/, run: kidHandler },
@@ -655,6 +889,15 @@ export function validateRoomOps(model: SpaceModel, ops: Op[]): Validated {
   const dropped: string[] = [];
   const touched = new Set<string>();
   const finite = (...n: unknown[]) => n.every((v) => v === undefined || (typeof v === 'number' && Number.isFinite(v)));
+  // Ops in one batch describe one end state: when two pieces trade places, the first is checked against where
+  // the second is going, not where it still stands. Pieces the batch removes later do not block anything.
+  const pendingPose = new Map<string, Partial<FurnitureItem>>();
+  const pendingGone = new Set<string>();
+  for (const op of ops) {
+    if (op.type === 'UPDATE_OBJECT' && op.patch && ['x', 'y', 'rotation', 'w', 'd'].some((k) => k in op.patch)) pendingPose.set(op.id, op.patch);
+    if (op.type === 'REMOVE_OBJECT') pendingGone.add(op.id);
+  }
+  const endState = (list: FurnitureItem[]) => list.filter((x) => !pendingGone.has(x.id)).map((x) => (pendingPose.has(x.id) ? { ...x, ...pendingPose.get(x.id) } : x));
 
   const repair = (item: FurnitureItem, others: FurnitureItem[]): FurnitureItem | null => {
     if (fitsAt(ctx, item, item, others)) return item;
@@ -671,7 +914,7 @@ export function validateRoomOps(model: SpaceModel, ops: Op[]): Validated {
       const f = work.find((x) => x.id === op.id);
       if (!f) { dropped.push(`unknown id ${op.id}`); continue; }
       if (f.locked) { dropped.push(`${f.name} is fixed`); continue; }
-      work = work.filter((x) => x.id !== op.id); out.push(op); touched.add(op.id);
+      work = work.filter((x) => x.id !== op.id); out.push(op); touched.add(op.id); pendingGone.delete(op.id);
     } else if (op.type === 'UPDATE_OBJECT') {
       const f = work.find((x) => x.id === op.id);
       if (!f) { dropped.push(`unknown id ${op.id}`); continue; }
@@ -681,7 +924,8 @@ export function validateRoomOps(model: SpaceModel, ops: Op[]): Validated {
       if (geometry && (f.locked || isMounted(f))) { dropped.push(`${f.name} is fixed`); continue; }
       let merged: FurnitureItem = { ...f, ...p, clearance: { ...f.clearance, ...(p.clearance ?? {}) } };
       if (geometry) {
-        const fixed = repair(merged, work.filter((x) => x.id !== f.id));
+        pendingPose.delete(f.id);
+        const fixed = repair(merged, endState(work.filter((x) => x.id !== f.id)));
         if (!fixed) { dropped.push(`${f.name} has no free spot there`); continue; }
         merged = fixed;
       }
@@ -690,7 +934,7 @@ export function validateRoomOps(model: SpaceModel, ops: Op[]): Validated {
     } else if (op.type === 'PLACE_OBJECT') {
       const it = op.item;
       if (!it || work.some((x) => x.id === it.id) || !finite(it.x, it.y, it.rotation, it.w, it.d)) { dropped.push('bad new item'); continue; }
-      const fixed = repair(it, work);
+      const fixed = repair(it, endState(work));
       if (!fixed) { dropped.push(`${it.name} does not fit`); continue; }
       work = [...work, fixed]; out.push({ type: 'PLACE_OBJECT', item: fixed }); touched.add(fixed.id);
     } else {
@@ -789,50 +1033,77 @@ const ROOM_KW_TEST = /\b(?:room|rummet|rum|huoneen|huone)\b/;
  * Several clauses ("add a plant and move the sofa to the window") apply in order.
  * `previous` is the furniture before the last change; pass it so "undo that" can restore it.
  */
-export function refineRoomOffline(model: SpaceModel, text: string, opts: { previous?: FurnitureItem[] } = {}): RoomEdit | null {
+export function refineRoomOffline(model: SpaceModel, text: string, opts: { previous?: FurnitureItem[]; memory?: RefMemory } = {}): RoomEdit | null {
   const t = norm(text).replace(/[?!]+$/, '');
   if (!t) return null;
+  let mem: RefMemory = { last: [...(opts.memory?.last ?? [])] };
   if (UNDO_RE.test(t)) {
-    if (opts.previous) return { ok: true, ops: [{ type: 'SET_FURNITURE', items: opts.previous, label: 'Undo' }], label: 'Undo', by: 'rules', notes: [], undo: true };
-    return { ok: true, ops: [], label: 'Undo', by: 'rules', notes: [], undo: true };
+    if (opts.previous) return { ok: true, ops: [{ type: 'SET_FURNITURE', items: opts.previous, label: 'Undo' }], label: 'Undo', by: 'rules', notes: [], undo: true, memory: mem };
+    return { ok: true, ops: [], label: 'Undo', by: 'rules', notes: [], undo: true, memory: mem };
   }
   const sized = roomSizeEdit(model, t);
-  if (sized) return sized;
+  if (sized) return sized.ok ? { ...sized, memory: mem } : sized;
   const clauses = t.split(SPLIT_RE).map((c) => c.trim()).filter(Boolean);
   let cur = model;
   const allOps: Op[] = [];
   const labels: string[] = [];
   const notes: string[] = [];
-  let understood = 0, failure: RoomEditCannot | null = null, same = 0;
+  const compromises: string[] = [];
+  const failed: FailedClause[] = [];
+  let understood = 0, failure: RoomEditCannot | null = null;
   for (const clause of clauses) {
     let d: Draft | RoomEditCannot | null = null;
-    for (const h of VERBS) { d = h(cur, clause, cur.furniture); if (d) break; }
-    if (!d) d = addIfVerb(cur, clause);
-    if (!d) for (const it of INTENTS) if (it.re.test(clause)) { d = it.run(cur, clause, cur.furniture); break; }
-    if (!d) d = colourHandler(cur, clause, cur.furniture);
+    for (const h of VERBS) { d = h(cur, clause, cur.furniture, mem); if (d) break; }
+    if (!d) d = addIfVerb(cur, clause, mem);
+    if (!d) for (const it of INTENTS) if (it.re.test(clause)) { d = it.run(cur, clause, cur.furniture, mem); break; }
+    if (!d) d = colourHandler(cur, clause, cur.furniture, mem);
     if (!d) continue;
     understood++;
-    if ('cannot' in d) { failure = d; continue; }
+    if ('cannot' in d) { failure = d; failed.push({ clause, reason: d.reason, nearest: d.nearest }); continue; }
     const ops = diffToOps(cur.furniture, d.furniture);
-    if (!ops.length) { same++; notes.push(...d.notes); labels.push(d.label); continue; }
+    if (!ops.length) { notes.push(...d.notes); labels.push(d.label); continue; }
     const v = validateRoomOps(cur, ops);
     notes.push(...d.notes, ...v.dropped.slice(0, 2));
-    if (!v.ops.length) { failure = cannot(v.dropped[0] ?? 'No valid change', nearestTo(clause)); continue; }
+    compromises.push(...(d.compromises ?? []), ...v.dropped);
+    if (!v.ops.length) { failure = cannot(v.dropped[0] ?? 'No valid change', nearestTo(clause)); failed.push({ clause, reason: failure.reason, nearest: failure.nearest }); continue; }
     for (const o of v.ops) cur = applyOp(cur, o);
     allOps.push(...v.ops); labels.push(d.label);
+    const touched = d.focus ?? v.ops.flatMap((o) => (o.type === 'PLACE_OBJECT' ? [o.item.id] : o.type === 'UPDATE_OBJECT' ? [o.id] : []));
+    if (touched.length) mem = { last: [...touched, ...mem.last.filter((id) => !touched.includes(id))].slice(0, 8) };
   }
   if (!understood) return null;
   if (!allOps.length) {
-    if (failure) return failure;
-    return { ok: true, ops: [], label: words3(labels[0] ?? 'No change'), by: 'rules', notes, noChange: true };
+    if (failure) return { ...failure, memory: mem, failed };
+    return { ok: true, ops: [], label: words3(labels[0] ?? 'No change'), by: 'rules', notes, noChange: true, memory: mem, failed: failed.length ? failed : undefined };
   }
-  return { ok: true, ops: allOps, label: labels.length > 1 ? `${labels.length} changes` : words3(labels[0]), by: 'rules', notes };
+  return {
+    ok: true, ops: allOps, label: labels.length > 1 ? `${labels.length} changes` : words3(labels[0]), by: 'rules', notes,
+    memory: mem, report: reportOf(model.furniture, cur.furniture, compromises), failed: failed.length ? failed : undefined,
+  };
 }
 
-function addIfVerb(model: SpaceModel, clause: string): Draft | RoomEditCannot | null {
+/** What changed between two furniture lists, for panels that show it. */
+export function reportOf(before: FurnitureItem[], after: FurnitureItem[], compromises: string[] = []): EditReport {
+  const b = new Map(before.map((f) => [f.id, f])), a = new Map(after.map((f) => [f.id, f]));
+  const moved: EditReport['moved'] = [], rotated: string[] = [];
+  for (const f of after) {
+    const o = b.get(f.id);
+    if (!o) continue;
+    const d = Math.hypot(f.x - o.x, f.y - o.y);
+    if (d > 0.005) moved.push({ id: f.id, name: f.name, distM: +d.toFixed(2) });
+    if (Math.abs(f.rotation - o.rotation) > 1e-3) rotated.push(f.id);
+  }
+  return {
+    moved, rotated, compromises,
+    removed: before.filter((f) => !a.has(f.id)).map((f) => ({ id: f.id, name: f.name })),
+    added: after.filter((f) => !b.has(f.id)).map((f) => ({ id: f.id, name: f.name })),
+  };
+}
+
+function addIfVerb(model: SpaceModel, clause: string, mem?: RefMemory): Draft | RoomEditCannot | null {
   // "add more storage" and similar are whole-room intents, handled later.
   if (INTENTS.some((i) => i.re.test(clause))) return null;
-  return addHandler(model, clause, model.furniture);
+  return addHandler(model, clause, model.furniture, mem);
 }
 
 // ---- Public: AI layer --------------------------------------------------------------------------
@@ -931,7 +1202,7 @@ export async function refineRoomAI(model: SpaceModel, text: string): Promise<Roo
 }
 
 /** Any follow-up sentence: rules first, then the AI layer, and always an answer (a change or a typed "cannot"). */
-export async function refineRoom(model: SpaceModel, text: string, opts: { previous?: FurnitureItem[] } = {}): Promise<RoomEdit> {
+export async function refineRoom(model: SpaceModel, text: string, opts: { previous?: FurnitureItem[]; memory?: RefMemory } = {}): Promise<RoomEdit> {
   const quick = refineRoomOffline(model, text, opts);
   if (quick) return quick;
   const ai = await refineRoomAI(model, text);
