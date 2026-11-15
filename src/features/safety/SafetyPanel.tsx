@@ -145,7 +145,6 @@ export function SafetyPanel() {
   if (!report) return <div className="safety"><span className="safety-spin" role="status" aria-label="Checking" /></div>;
 
   const list = report.findings.filter((f) => f.area === tab);
-  const count = (a: 'fire' | 'access') => report.findings.filter((f) => f.area === a && f.severity !== 'advice').length;
   const ev = report.evacuation;
   const left = play?.on && ev ? ev.agents.filter((a) => a.clearS > play.t).length : 0;
   const unreachable = acc ? acc.destinations.filter((d) => !d.reachable).slice(0, 6) : [];
@@ -170,7 +169,7 @@ export function SafetyPanel() {
       <div className="seg safety-tabs" role="tablist" aria-label="Checks">
         {(['fire', 'access'] as const).map((a) => (
           <button key={a} role="tab" aria-selected={tab === a} className={tab === a ? 'on' : ''} onClick={() => setTab(a)}>
-            {a === 'fire' ? 'Fire' : 'Access'}{count(a) ? ` (${count(a)})` : ''}
+            {a === 'fire' ? 'Fire' : 'Access'}
           </button>
         ))}
       </div>

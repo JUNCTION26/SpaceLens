@@ -68,7 +68,6 @@ export function DrillButton({ onStart, extra }: { onStart?: () => void; extra?: 
       {(result || extra) && (
         <div className="safety-chips drill-chips" aria-live="polite">
           {result && <span className={`safety-chip ${result.pass && result.allOut ? 'ok' : 'bad'}`} title="Time out">{fmtClock(result.totalS)}</span>}
-          {result && <span className="safety-chip" title="People">{result.occupants}</span>}
           {extra}
         </div>
       )}
