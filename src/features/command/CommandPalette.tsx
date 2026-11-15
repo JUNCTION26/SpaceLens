@@ -1,38 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
-import { sampleRoom } from '../../core/sample';
-import type { Layers, Mode } from '../../core/types';
-import { useUi } from '../../ui/uiStore';
-import { CATALOG, makeItem } from '../furniture/catalog';
-import { findFreeSpot } from '../objects/placement';
-
-interface Cmd { id: string; group: string; label: string; hint?: string; keywords?: string; run: () => void }
+import { Icon } from '../../ui/icons';
+import { askAssistant, buildCommands, type Cmd } from './commands';
+import { rank } from './match';
 
 const LS_RECENT = 'spacelens.commands.recent';
-const loadRecent = (): string[] => { try { return JSON.parse(localStorage.getItem(LS_RECENT) || '[]'); } catch { return []; } };
+const loadRecent = (): string[] => { try { const r = JSON.parse(localStorage.getItem(LS_RECENT) || '[]'); return Array.isArray(r) ? r : []; } catch { return []; } };
 const saveRecent = (r: string[]) => { try { localStorage.setItem(LS_RECENT, JSON.stringify(r)); } catch { /* blocked */ } };
-const emit = (name: string, detail?: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }));
-
-/** Subsequence fuzzy score; higher is better, -1 is no match. */
-function score(q: string, text: string): number {
-  if (!q) return 0;
-  const t = text.toLowerCase();
-  const i = t.indexOf(q);
-  if (i >= 0) return 100 - i + (i === 0 || t[i - 1] === ' ' ? 50 : 0);
-  let ti = 0, s = 0, run = 0;
-  for (const ch of q) {
-    const f = t.indexOf(ch, ti);
-    if (f < 0) return -1;
-    run = f === ti ? run + 1 : 0;
-    s += 1 + run * 2;
-    ti = f + 1;
-  }
-  return s;
-}
-
-const MODES: Mode[] = ['home', 'capture', 'design', 'experience', 'deliver'];
-const LAYERS: Array<keyof Layers> = ['dimensions', 'clearance', 'routes', 'provenance', 'heat', 'sightlines'];
-const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+const BULK = new Set(['Add furniture', 'In this room']);
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -41,6 +16,7 @@ export function CommandPalette() {
   const [recent, setRecent] = useState<string[]>(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const returnTo = useRef<HTMLElement | null>(null);
   const furniture = useStore((s) => s.model.furniture);
   const layers = useStore((s) => s.layers);
 
@@ -54,69 +30,32 @@ export function CommandPalette() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('spacelens:command', onEvt); };
   }, []);
 
-  useEffect(() => { if (open) { setQ(''); setIdx(0); setTimeout(() => inputRef.current?.focus(), 0); } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    returnTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setQ(''); setIdx(0); setRecent(loadRecent());
+    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => {
+      clearTimeout(t);
+      const el = returnTo.current;
+      setTimeout(() => { if (el && el.isConnected) el.focus(); else if (document.activeElement === document.body || !document.activeElement) (document.querySelector('main, #root') as HTMLElement | null)?.focus?.(); }, 0);
+    };
+  }, [open]);
 
-  const commands = useMemo<Cmd[]>(() => {
-    const st = useStore.getState;
-    const list: Cmd[] = [];
-    for (const m of MODES) list.push({ id: `mode:${m}`, group: 'Actions', label: `Go to ${cap(m)}`, keywords: 'mode switch', run: () => st().setMode(m) });
-    for (const v of ['2d', '3d', 'split'] as const) list.push({ id: `view:${v}`, group: 'Actions', label: `View ${v.toUpperCase()}`, keywords: 'view switch', run: () => st().setView(v) });
-    list.push(
-      { id: 'undo', group: 'Actions', label: 'Undo', hint: 'Ctrl Z', run: () => st().undo() },
-      { id: 'redo', group: 'Actions', label: 'Redo', hint: 'Ctrl Y', run: () => st().redo() },
-      { id: 'sample', group: 'Actions', label: 'Open sample room', keywords: 'demo load', run: () => { st().dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); st().setMode('design'); } },
-      { id: 'settings', group: 'Actions', label: 'Open settings', keywords: 'gemini key theme', run: () => useUi.getState().setSettingsOpen?.(true) },
-      { id: 'demo', group: 'Actions', label: 'Start guided demo', keywords: 'tour', run: () => emit('spacelens:demo') },
-      { id: 'export', group: 'Actions', label: 'Export plan', keywords: 'deliver pdf print', run: () => { st().setMode('deliver'); emit('spacelens:export'); } },
-      { id: 'reset-view', group: 'Actions', label: 'Reset view', keywords: 'camera zoom fit', run: () => emit('spacelens:reset-view') },
-    );
-    for (const k of LAYERS) list.push({ id: `layer:${k}`, group: 'Layers', label: `${layers[k] ? 'Hide' : 'Show'} ${k}`, keywords: 'toggle layer', run: () => st().toggleLayer(k) });
-    for (const f of furniture) list.push({ id: `sel:${f.id}`, group: 'In this room', label: `Select ${f.name}`, keywords: f.category, run: () => { st().select({ kind: 'furniture', id: f.id }); } });
-    for (const c of CATALOG) list.push({
-      id: `add:${c.id}`, group: 'Add furniture', label: `Add ${c.name}`, hint: `${c.w}x${c.d} m`, keywords: `${c.category} ${c.tags.join(' ')}`,
-      run: () => {
-        const s = st();
-        const item = makeItem(c.id);
-        const spot = findFreeSpot(s.model, item);
-        const placed = { ...item, ...spot };
-        s.dispatch({ type: 'PLACE_OBJECT', item: placed });
-        s.select({ kind: 'furniture', id: placed.id });
-        s.toast(`Added ${c.name}`, 'ok');
-      },
-    });
-    return list;
-  }, [furniture, layers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const commands = useMemo<Cmd[]>(() => (open ? buildCommands() : []), [open, furniture, layers]);
 
   const results = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    let out: Cmd[];
+    const query = q.trim();
     if (!query) {
       const byId = new Map(commands.map((c) => [c.id, c]));
-      const rec = recent.map((id) => byId.get(id)).filter(Boolean).map((c) => ({ ...c!, group: 'Recent' }));
-      out = [...rec, ...commands.filter((c) => c.group === 'Actions')];
-    } else {
-      out = commands
-        .map((c) => ({ c, s: Math.max(score(query, c.label), score(query, c.keywords ?? '') - 20) }))
-        .filter((x) => x.s >= 0)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 40)
-        .map((x) => x.c);
-      if (query.length > 2) {
-        const text = q.trim().replace(/^ask:?\s*/i, '');
-        out.push({
-          id: 'ask', group: 'Ask', label: `Ask: ${text}`, keywords: '',
-          run: () => {
-            useStore.getState().setMode('design');
-            useUi.getState().setTab('design', 'request');
-            setTimeout(() => emit('spacelens:request', text), 50);
-          },
-        });
-      }
+      const rec = recent.map((id) => byId.get(id)).filter((c): c is Cmd => !!c).map((c) => ({ ...c, group: 'Recent' }));
+      return [...rec, ...commands.filter((c) => !BULK.has(c.group))];
     }
-    // Keep group order stable by first appearance.
-    const order: string[] = [];
-    for (const c of out) if (!order.includes(c.group)) order.push(c.group);
-    return order.flatMap((g) => out.filter((c) => c.group === g));
+    const out = rank(commands, query, recent);
+    const text = query.replace(/^ask:?\s*/i, '');
+    out.push({ id: 'ask', group: 'Ask', label: 'Ask', icon: 'sparkles', hint: text.length > 24 ? `${text.slice(0, 24)}...` : text, run: () => askAssistant(text) });
+    return out;
   }, [q, commands, recent]);
 
   useEffect(() => { setIdx(0); }, [q]);
@@ -134,7 +73,7 @@ export function CommandPalette() {
     if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(results.length - 1, i + 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx((i) => Math.max(0, i - 1)); }
     else if (e.key === 'Enter') { e.preventDefault(); const c = results[idx]; if (c) run(c); }
-    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
   };
 
   let lastGroup = '';
@@ -150,7 +89,7 @@ export function CommandPalette() {
         <div id="cmd-list" role="listbox" ref={listRef} style={S.list}>
           {results.length === 0 && <div style={S.empty}>No matches</div>}
           {results.map((c, i) => {
-            const head = c.group !== lastGroup ? c.group : null;
+            const head = !q.trim() && c.group !== lastGroup ? c.group : null;
             lastGroup = c.group;
             return (
               <div key={`${c.group}:${c.id}`}>
@@ -160,6 +99,7 @@ export function CommandPalette() {
                   onMouseMove={() => i !== idx && setIdx(i)} onClick={() => run(c)}
                   style={{ ...S.item, ...(i === idx ? S.active : null) }}
                 >
+                  <Icon name={c.icon} size={15} aria-hidden />
                   <span style={S.label}>{c.label}</span>
                   {c.hint && <kbd style={S.kbd}>{c.hint}</kbd>}
                 </div>
