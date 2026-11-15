@@ -1,0 +1,26 @@
+.shell-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;vertical-align:middle;background:#888}
+.shell-dot.ok{background:#2fb872}.shell-dot.off{background:#c9a227}
+.shell-dotline{display:inline-flex;align-items:center;gap:6px;font-size:12px;opacity:.8}
+.shell-dotline .shell-dot{margin-left:0}
+.settings-group{display:flex;flex-direction:column;gap:10px;padding:12px 0;border-top:1px solid rgba(128,128,128,.25)}
+.settings-group>h3,.settings-adv>summary h3{margin:0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;opacity:.7;display:inline}
+.settings-adv>summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;gap:8px}
+.settings-adv[open]>summary{margin-bottom:10px}
+.settings-adv>*:not(summary){margin-bottom:10px}
+.skip-link{position:fixed;left:8px;top:-60px;z-index:1000;padding:8px 12px;border-radius:8px;background:#3b82f6;color:#fff;text-decoration:none}
+.skip-link:focus{top:8px}
+.scrub-label{cursor:ew-resize;touch-action:none;user-select:none}
+.crash-area .crash-card{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px}
+.empty-state{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px;text-align:center;opacity:.85}
+.coach-pin{position:fixed;z-index:900;display:flex;align-items:center;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:#1f2430;color:#fff;border:1px solid rgba(128,128,128,.4);box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:12px}
+.coach-pin button{border:0;background:transparent;color:inherit;cursor:pointer;padding:3px 8px;border-radius:999px}
+.coach-pin .coach-next{background:#3b82f6;color:#fff}
+.topbar-more{position:relative}
+.topbar-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:160px;display:flex;flex-direction:column;padding:4px;border-radius:10px;background:#1f2430;color:#fff;border:1px solid rgba(128,128,128,.3);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.topbar-menu button{display:flex;align-items:center;gap:8px;text-align:left;border:0;background:transparent;color:inherit;padding:8px 10px;border-radius:6px;cursor:pointer}
+.topbar-menu button:hover:not(:disabled){background:rgba(128,128,128,.25)}
+.topbar-menu button:disabled{opacity:.4}
+.topbar .tools .icon-btn,.topbar .tools .kbd-btn{height:32px}
+.topbar-inline{display:contents}
+@media (max-width:899px){.topbar-inline{display:none}}
+@media (min-width:900px){.topbar-more{display:none}}

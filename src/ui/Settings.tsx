@@ -6,6 +6,8 @@ import { aiProbeResults, aiRoute, aiTaskStats, candidatesFor, estimateCostUsd, g
 import { applyVoicePreference, neuralVoiceWanted } from '../features/agent/neuralVoice';
 import { useUi } from './uiStore';
 import { Icon } from './icons';
+import { apiBase } from '../core/ai/transport';
+import './shell.css';
 
 export function Settings() {
   const open = useUi((s) => s.settingsOpen);
@@ -13,13 +15,22 @@ export function Settings() {
   const settings = useStore((s) => s.settings);
   const setSettings = useStore((s) => s.setSettings);
   const [, tick] = useState(0);
+  const opener = useRef<HTMLElement | null>(null);
+  const sheet = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    sheet.current?.querySelector<HTMLElement>('button, input, select')?.focus();
     const id = setInterval(() => tick((n) => n + 1), 1000);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => { clearInterval(id); window.removeEventListener('keydown', onKey); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('keydown', onKey, true);
+      const o = opener.current;
+      if (o && document.contains(o)) o.focus();
+    };
   }, [open, setOpen]);
 
   if (!open) return null;
@@ -32,33 +43,53 @@ export function Settings() {
   };
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div className="dialog settings-sheet" ref={sheet} role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="dialog-head">
           <h2 id="settings-title">Settings</h2>
-          <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close">
+          <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close settings">
             <Icon name="x" size={16} />
           </button>
         </div>
-        <KeyField />
-        <div className="field">
-          <span>Theme</span>
-          <div className="seg" role="radiogroup" aria-label="Theme">
-            {(['system', 'dark', 'light'] as const).map((t) => (
-              <button key={t} role="radio" aria-checked={settings.theme === t} className={settings.theme === t ? 'on' : ''} onClick={() => setSettings({ theme: t })}>
-                {t[0].toUpperCase() + t.slice(1)}
-              </button>
-            ))}
+        <section className="settings-group" aria-labelledby="sg-look">
+          <h3 id="sg-look">Look</h3>
+          <div className="field">
+            <span>Theme</span>
+            <div className="seg" role="radiogroup" aria-label="Theme">
+              {(['system', 'dark', 'light'] as const).map((t) => (
+                <button key={t} role="radio" aria-checked={settings.theme === t} className={settings.theme === t ? 'on' : ''} onClick={() => setSettings({ theme: t })}>
+                  {t[0].toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        <AiSpeed hasKey={Boolean(settings.geminiKey)} />
-        <VoiceField />
-        <Advanced />
-        <SessionMeter />
-        <div className="divider" />
-        <button className="btn" onClick={reset}>Reset to sample room</button>
+        </section>
+        <section className="settings-group" aria-labelledby="sg-assistant">
+          <h3 id="sg-assistant">Assistant <AiDot /></h3>
+          <VoiceField />
+        </section>
+        <details className="settings-group settings-adv">
+          <summary><h3>Advanced</h3><ServerDot /></summary>
+          <KeyField />
+          <AiSpeed hasKey={Boolean(settings.geminiKey)} />
+          <ModelChoice />
+          <SessionMeter />
+          <button className="btn" onClick={reset}>Sample room</button>
+        </details>
       </div>
     </div>
   );
+}
+
+const serverOn = () => Boolean(apiBase());
+/** Green when the assistant can answer: a personal key or the server. */
+function AiDot() {
+  const hasKey = useStore((s) => Boolean(s.settings.geminiKey));
+  const on = hasKey || serverOn();
+  return <i className={`shell-dot ${on ? 'ok' : 'off'}`} role="img" aria-label={on ? 'Assistant ready' : 'Assistant offline'} title={on ? 'Ready' : 'Offline'} />;
+}
+function ServerDot() {
+  const on = serverOn();
+  return <span className="shell-dotline"><i className={`shell-dot ${on ? 'ok' : 'off'}`} aria-hidden="true" />{on ? 'Online' : 'Offline'}</span>;
 }
 
 const fmtMs = (ms: number | null) => (ms === null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -111,33 +142,33 @@ function KeyField() {
     try { const t = (await navigator.clipboard.readText()).trim(); if (t) setSettings({ geminiKey: t }); } catch { /* clipboard blocked: paste by hand */ }
   };
   const say: Record<KeyState, string> = {
-    idle: 'Saved in this browser only.',
-    checking: 'Checking the key and testing speed…',
-    ok: summary || 'Key works.',
-    quota: 'Key is valid, but its usage limit is reached for now.',
-    invalid: 'This key was not accepted. Check it and paste again.',
-    offline: 'Could not reach Gemini. Check the connection.',
+    idle: serverOn() ? 'Optional' : 'This browser only',
+    checking: 'Checking',
+    ok: summary || 'Works',
+    quota: 'Limit reached',
+    invalid: 'Not accepted',
+    offline: 'Unreachable',
   };
   return (
     <div className="field">
-      <span>Connect Gemini</span>
+      <span>Personal key{serverOn() ? ' (optional)' : ''}</span>
       <div style={{ display: 'flex', gap: 6 }}>
         <input style={{ flex: 1 }} type="password" autoComplete="off" aria-label="Gemini API key" value={key} onChange={(e) => setSettings({ geminiKey: e.target.value.trim() })} placeholder="Paste key" />
         <button className="btn btn-sm" onClick={paste}>Paste</button>
       </div>
-      <small className={state === 'invalid' || state === 'offline' ? '' : 'muted'} role="status">{say[state]}</small>
+      <small className={state === 'invalid' || (state === 'offline' && !serverOn()) ? '' : 'muted'} role="status">{say[state]}</small>
     </div>
   );
 }
 
 const TASK_LABEL: Record<AiTask, string> = { fast: 'Fast decisions', smart: 'Design reasoning', vision: 'Reading images' };
 
-function Advanced() {
+function ModelChoice() {
   const [over, setOver] = useState(getOverrides());
   const change = (t: AiTask, m: string) => { setOverride(t, m); setOver(getOverrides()); };
   return (
     <details className="field">
-      <summary>Choose models</summary>
+      <summary>Models</summary>
       {TASKS.map((t) => (
         <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <span style={{ flex: '0 0 120px' }}>{TASK_LABEL[t]}</span>
@@ -156,7 +187,7 @@ function SessionMeter() {
   const cost = estimateCostUsd();
   return (
     <div className="field">
-      <span>Gemini use this session</span>
+      <span>Usage</span>
       <div className="stats3">
         <div className="stat"><b>{usage.calls}</b><span>calls</span></div>
         <div className="stat"><b>{(usage.inputTokens + usage.outputTokens).toLocaleString()}</b><span>tokens</span></div>
@@ -179,7 +210,7 @@ function AiSpeed({ hasKey }: { hasKey: boolean }) {
   const tasks: AiTask[] = ['fast', 'smart', 'vision'];
   return (
     <div className="field">
-      <span>AI speed</span>
+      <span>Speed</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button className="btn btn-sm" onClick={test} disabled={!hasKey || running}>{running ? 'Testing…' : 'Test speed'}</button>
         {rows.length > 0 && !running && (
@@ -210,20 +241,22 @@ function AiSpeed({ hasKey }: { hasKey: boolean }) {
 function VoiceField() {
   const hasKey = useStore((s) => Boolean(s.settings.geminiKey));
   const [on, setOn] = useState(neuralVoiceWanted());
-  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
   const toggle = async (v: boolean) => {
-    setOn(v); setBusy(true); setNote('Testing the voice…');
+    setOn(v); setBusy(true);
     try { const c = await applyVoicePreference(v); setNote(v ? c.note : ''); } finally { setBusy(false); }
   };
+  const enabled = hasKey || serverOn();
   return (
     <div className="field">
-      <span>Agent voice</span>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" checked={on} disabled={!hasKey || busy} onChange={(e) => void toggle(e.target.checked)} />
-        Use the Gemini voice when it starts fast
-      </label>
-      <small className="muted" role="status">{note || (hasKey ? 'Otherwise the browser voice is used.' : 'Add a key to use this.')}</small>
+      <span>Voice</span>
+      <div className="seg" role="radiogroup" aria-label="Voice">
+        {([['Browser', false], ['Gemini', true]] as const).map(([l, v]) => (
+          <button key={l} role="radio" aria-checked={on === v} className={on === v ? 'on' : ''} disabled={busy || (v && !enabled)} onClick={() => void toggle(v)}>{l}</button>
+        ))}
+      </div>
+      <small className="muted sr-only" role="status">{busy ? 'Testing the voice' : note}</small>
     </div>
   );
 }
