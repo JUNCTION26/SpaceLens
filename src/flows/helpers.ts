@@ -52,5 +52,5 @@ export async function note(label: string, data: unknown) {
   const m = 'node:';
   const fs = (await import(/* @vite-ignore */ m + 'fs')) as { appendFileSync: (path: string, data: string) => void };
   const dir = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env.TEMP ?? '.';
-  fs.appendFileSync(`${dir}/spacelens-shots/flows-log.txt`, `${label}: ${typeof data === 'string' ? data : JSON.stringify(data)}\n`);
+  try { fs.appendFileSync(`${dir}/spacelens-shots/flows-log.txt`, `${label}: ${typeof data === 'string' ? data : JSON.stringify(data)}\n`); } catch { /* the log folder only exists on the dev machine */ }
 }
