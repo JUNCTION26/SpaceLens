@@ -1,6 +1,5 @@
 import { memo, Suspense, useEffect, useMemo } from 'react';
 import { buildParts, type Role } from './build';
-import { buildWallParts } from './wallMesh';
 import * as THREE from 'three';
 import { useGLTF } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -111,7 +110,7 @@ function contactBlob() {
 const noRay = () => null;
 
 function Body({ item, mats, shadow }: { item: FurnitureItem; mats: Mats; shadow: boolean }) {
-  const parts = useMemo(() => buildWallParts(item.category, item.w, item.d, item.h) ?? buildParts(item.category, item.catalogId, item.w, item.d, item.h), [item.category, item.catalogId, item.w, item.d, item.h]);
+  const parts = useMemo(() => buildParts(item.category, item.catalogId, item.w, item.d, item.h), [item.category, item.catalogId, item.w, item.d, item.h]);
   const cast = shadow && item.category !== 'rug';
   return <>{Array.from(parts.entries()).map(([role, g]) => (
     <mesh key={role} geometry={g} material={mats[role]} castShadow={cast && role !== 'glass'} receiveShadow />

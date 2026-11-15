@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Pure geometry for every catalogue category. Each item is built once per (category, id, size),
@@ -10,6 +10,38 @@ export type Role = 'main' | 'dark' | 'soft' | 'white' | 'metal' | 'green' | 'pot
   | 'book0' | 'book1' | 'book2' | 'book3' | 'book4';
 export type Parts = Map<Role, THREE.BufferGeometry>;
 type V3 = [number, number, number];
+
+/**
+ * UVs in metres, so a texture tile covers the same area on every part. On each face the V axis runs
+ * along the longer side of the part, which is the direction wood grain takes. The part's position
+ * is added so repeated parts do not show the same patch of grain.
+ */
+function metreUv(g: THREE.BufferGeometry, s: V3, p: V3) {
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  const q = [0, 0, 0], n = [0, 0, 0];
+  for (let i = 0; i < pos.count; i++) {
+    n[0] = Math.abs(nor.getX(i)); n[1] = Math.abs(nor.getY(i)); n[2] = Math.abs(nor.getZ(i));
+    const ax = n[0] >= n[1] && n[0] >= n[2] ? 0 : n[1] >= n[2] ? 1 : 2;
+    const a = ax === 0 ? 1 : 0, b = ax === 2 ? 1 : 2;
+    const [v, u] = s[a] >= s[b] ? [a, b] : [b, a];
+    q[0] = pos.getX(i); q[1] = pos.getY(i); q[2] = pos.getZ(i);
+    uv.setXY(i, q[u] + p[u] * 0.7, q[v] + p[v] * 0.3);
+  }
+  uv.needsUpdate = true;
+}
+
+export interface SoftOpts {
+  /** Extra crown in the middle, as a share of the thickness. */
+  puff?: number;
+  /** Thickness kept at the rim, as a share (1 = square edge, 0.3 = pillow edge). */
+  rim?: number;
+  /** Dip in the middle of the top, metres. */
+  sag?: number;
+  /** Keep the underside flat (a mattress on its frame). */
+  flat?: boolean;
+  /** Grid segments along x and z. */
+  seg?: [number, number];
+}
 
 class Acc {
   list = new Map<Role, THREE.BufferGeometry[]>();
@@ -23,19 +55,62 @@ class Acc {
   /** Box; r > 0 rounds the edges. */
   box(role: Role, s: V3, p: V3, r = 0, rot?: V3) {
     const rr = Math.min(r, s[0] / 2.01, s[1] / 2.01, s[2] / 2.01);
-    this.add(role, rr > 0.004 ? new RoundedBoxGeometry(s[0], s[1], s[2], 1, rr) : new THREE.BoxGeometry(...s), p, rot);
-  }
-  /** Cylinder or cone frustum standing on y; axis 'x' lays it along x. */
-  cyl(role: Role, rTop: number, rBot: number, h: number, p: V3, seg = 12, axis: 'y' | 'x' | 'z' = 'y', open = false) {
-    this.add(role, new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open), p, axis === 'x' ? [0, 0, Math.PI / 2] : axis === 'z' ? [Math.PI / 2, 0, 0] : undefined);
-  }
-  ell(role: Role, r: V3, p: V3, rot?: V3, seg = 8) {
-    const g = new THREE.SphereGeometry(1, seg, Math.max(3, seg - 3)); g.scale(...r);
+    const g = rr > 0.004 ? new RoundedBoxGeometry(s[0], s[1], s[2], 1, rr) : new THREE.BoxGeometry(...s);
+    metreUv(g, s, p);
     this.add(role, g, p, rot);
   }
-  /** Four tapered legs set in from the corners. */
+  /** Cylinder or cone frustum standing on y; axis 'x' lays it along x. Grain runs along the axis. */
+  cyl(role: Role, rTop: number, rBot: number, h: number, p: V3, seg = 12, axis: 'y' | 'x' | 'z' = 'y', open = false) {
+    const g = new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open), uv = g.attributes.uv;
+    const torso = (seg + 1) * 2, circ = Math.PI * (rTop + rBot), cap = 2 * Math.max(rTop, rBot), off = p[0] + p[2];
+    for (let i = 0; i < uv.count; i++) {
+      if (i < torso) uv.setXY(i, uv.getX(i) * circ + off, uv.getY(i) * h + off * 0.5);
+      else uv.setXY(i, uv.getX(i) * cap, uv.getY(i) * cap);
+    }
+    this.add(role, g, p, axis === 'x' ? [0, 0, Math.PI / 2] : axis === 'z' ? [Math.PI / 2, 0, 0] : undefined);
+  }
+  ell(role: Role, r: V3, p: V3, rot?: V3, seg = 8) {
+    const g = new THREE.SphereGeometry(1, seg, Math.max(3, seg - 3)), uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.PI * (r[0] + r[2]), uv.getY(i) * Math.PI * r[1]);
+    g.scale(...r);
+    this.add(role, g, p, rot);
+  }
+  /**
+   * Upholstered block: a superellipse profile rolls the edges over, the middle crowns and can sag,
+   * and the grid is packed toward the rim so the roll stays smooth. Normals are smooth across it.
+   */
+  soft(role: Role, s: V3, p: V3, o: SoftOpts = {}, rot?: V3) {
+    const [nx, nz] = o.seg ?? [6, 6], puff = o.puff ?? 0.15, rim = o.rim ?? 0.5, sag = o.sag ?? 0, k = 3.2;
+    const box = new THREE.BoxGeometry(1, 1, 1, nx, 1, nz);
+    box.deleteAttribute('normal'); box.deleteAttribute('uv');
+    const g = mergeVertices(box); box.dispose();
+    const pos = g.attributes.position;
+    const ease = (v: number) => Math.sign(v) * 0.5 * Math.pow(Math.abs(2 * v), 0.6);
+    const uvs = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      const x = ease(pos.getX(i)), z = ease(pos.getZ(i)), top = pos.getY(i) > 0;
+      const ex = Math.min(1, Math.abs(2 * x)), ez = Math.min(1, Math.abs(2 * z));
+      const edge = Math.pow(1 - Math.pow(ex, k), 1 / k) * Math.pow(1 - Math.pow(ez, k), 1 / k);
+      const mid = (1 - ex * ex) * (1 - ez * ez);
+      const hh = (0.5 * (rim + (1 - rim) * edge) + 0.5 * puff * mid) / (1 + puff);
+      let y = top ? hh * s[1] : o.flat ? -0.5 * s[1] : -hh * s[1];
+      if (top || !o.flat) y -= sag * mid;
+      pos.setXYZ(i, x * s[0], y, z * s[2]);
+      uvs[i * 2] = x * s[0] + p[0]; uvs[i * 2 + 1] = z * s[2] + p[2];
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    g.computeVertexNormals();
+    this.add(role, g, p, rot);
+  }
+  /** Bar pull on a front whose face is at z: a round bar on two standoffs, horizontal or vertical. */
+  pull(role: Role, x: number, y: number, z: number, len: number, axis: 'x' | 'y' = 'x') {
+    const off = 0.022, e = len / 2 - Math.min(0.015, len * 0.15);
+    this.cyl(role, 0.0055, 0.0055, len, [x, y, z + off], 8, axis);
+    for (const sd of [-1, 1]) this.cyl(role, 0.0042, 0.0042, off, axis === 'x' ? [x + sd * e, y, z + off / 2] : [x, y + sd * e, z + off / 2], 6, 'z');
+  }
+  /** Four legs set in from the corners, tapering toward the floor. */
   legs(role: Role, w: number, d: number, h: number, t: number, inset: number, y0 = 0) {
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.cyl(role, t * 0.35, t * 0.55, h, [sx * (w / 2 - inset - t / 2), y0 + h / 2, sz * (d / 2 - inset - t / 2)], 8);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.cyl(role, t * 0.55, t * 0.32, h, [sx * (w / 2 - inset - t / 2), y0 + h / 2, sz * (d / 2 - inset - t / 2)], 10);
   }
   done(): Parts {
     const out: Parts = new Map();
@@ -47,17 +122,19 @@ class Acc {
 const bookRoles: Role[] = ['book0', 'book1', 'book2', 'book3', 'book4'];
 
 function bed(a: Acc, w: number, d: number, h: number) {
-  const fr = 0.28, mh = 0.2;
-  a.box('main', [w, fr - 0.1, d], [0, 0.1 + (fr - 0.1) / 2, 0], 0.02);
-  a.legs('dark', w, d, 0.1, 0.07, 0.02);
-  a.box('white', [w - 0.04, mh, d - 0.08], [0, fr + mh / 2, 0.02], 0.06);
-  const dl = d * 0.62;
-  a.box('soft', [w - 0.03, 0.05, dl], [0, fr + mh + 0.02, d / 2 - dl / 2 - 0.02], 0.025);
-  a.cyl('soft', 0.035, 0.035, w - 0.05, [0, fr + mh + 0.05, d / 2 - dl - 0.0], 10, 'x');
-  a.box('soft', [w - 0.03, 0.03, 0.12], [0, fr + mh + 0.035, d / 2 - 0.1], 0.015);
+  const fr = 0.28, mh = 0.2, top = fr + mh;
+  a.box('main', [w, fr - 0.1, d], [0, 0.1 + (fr - 0.1) / 2, 0], 0.025);
+  a.legs('dark', w, d, 0.1, 0.07, 0.03);
+  // Mattress: square sides, a softly rolled top edge, a slight dip where it is slept on.
+  a.soft('white', [w - 0.04, mh, d - 0.09], [0, top - mh / 2, 0.025], { rim: 0.82, puff: 0.04, sag: 0.012, flat: true, seg: [6, 9] });
+  // Duvet over the foot two-thirds, following the mattress dip, with the top edge turned down.
+  const dl = d * 0.64, dz = d / 2 - dl / 2 - 0.02;
+  a.soft('soft', [w - 0.01, 0.075, dl], [0, top + 0.026, dz], { rim: 0.45, puff: 0.35, sag: 0.012, seg: [7, 7] });
+  a.soft('soft', [w - 0.03, 0.05, 0.2], [0, top + 0.05, dz - dl / 2 + 0.11], { rim: 0.4, puff: 0.4, seg: [6, 3] });
   a.box('main', [w, h, 0.07], [0, h / 2, -d / 2 + 0.035], 0.03);
-  const pw = Math.min(0.6, w * 0.42);
-  for (const x of w > 1.1 ? [-w / 4, w / 4] : [0]) a.box('white', [pw, 0.13, 0.38], [x, fr + mh + 0.07, -d / 2 + 0.3], 0.06);
+  // Pillows lean on the headboard and thin out toward their edges.
+  const two = w > 1.1, pw = two ? Math.min(0.66, w / 2 - 0.06) : Math.min(0.6, w - 0.2), ph = Math.min(0.15, (h - top) * 0.55);
+  for (const x of two ? [-w / 4, w / 4] : [0]) a.soft('white', [pw, ph, 0.42], [x, top + ph / 2 + 0.015, -d / 2 + 0.3], { rim: 0.22, puff: 0.7, seg: [5, 4] }, [0.3, 0, 0]);
 }
 
 function crib(a: Acc, w: number, d: number, h: number) {
@@ -77,9 +154,9 @@ function sofa(a: Acc, w: number, d: number, h: number) {
   const inner = w - 2 * armW, n = inner > 1.5 ? 3 : inner > 0.9 ? 2 : 1, cw = inner / n;
   a.box('main', [w, 0.2, d], [0, 0.08 + 0.1, 0], 0.03);
   a.legs('dark', w, d, 0.08, 0.06, 0.04);
-  for (let i = 0; i < n; i++) a.box('soft', [cw - 0.015, seatH - 0.28, d - backD - 0.02], [-inner / 2 + cw * (i + 0.5), 0.28 + (seatH - 0.28) / 2, backD / 2], 0.05);
+  for (let i = 0; i < n; i++) a.soft('soft', [cw - 0.015, seatH - 0.28, d - backD - 0.02], [-inner / 2 + cw * (i + 0.5), 0.28 + (seatH - 0.28) / 2, backD / 2], { rim: 0.6, puff: 0.22, sag: 0.008, seg: [5, 5] });
   a.box('main', [inner, h - 0.28, backD], [0, 0.28 + (h - 0.28) / 2, -d / 2 + backD / 2], 0.06);
-  for (let i = 0; i < n; i++) a.box('soft', [cw - 0.03, (h - seatH) * 0.85, 0.15], [-inner / 2 + cw * (i + 0.5), seatH + (h - seatH) * 0.45, -d / 2 + backD + 0.05], 0.06, [-0.18, 0, 0]);
+  for (let i = 0; i < n; i++) a.soft('soft', [cw - 0.03, 0.15, (h - seatH) * 0.85], [-inner / 2 + cw * (i + 0.5), seatH + (h - seatH) * 0.45, -d / 2 + backD + 0.05], { rim: 0.45, puff: 0.35, seg: [5, 5] }, [Math.PI / 2 - 0.18, 0, 0]);
   for (const sx of [-1, 1]) a.box('main', [armW, h * 0.72 - 0.08, d], [sx * (w / 2 - armW / 2), 0.08 + (h * 0.72 - 0.08) / 2, 0], 0.06);
 }
 
@@ -127,8 +204,8 @@ function chair(a: Acc, w: number, d: number, h: number) {
 
 function officeChair(a: Acc, w: number, d: number, h: number) {
   const seatH = 0.46;
-  a.box('soft', [w * 0.8, 0.09, d * 0.76], [0, seatH, 0.04], 0.04);
-  a.box('soft', [w * 0.72, h - seatH - 0.14, 0.07], [0, seatH + 0.08 + (h - seatH - 0.14) / 2 + 0.04, -d * 0.34], 0.04, [-0.1, 0, 0]);
+  a.soft('soft', [w * 0.8, 0.09, d * 0.76], [0, seatH, 0.04], { rim: 0.55, puff: 0.2, seg: [5, 5] });
+  a.soft('soft', [w * 0.72, 0.07, h - seatH - 0.14], [0, seatH + 0.08 + (h - seatH - 0.14) / 2 + 0.04, -d * 0.34], { rim: 0.5, puff: 0.25, seg: [5, 5] }, [Math.PI / 2 - 0.1, 0, 0]);
   a.cyl('metal', 0.03, 0.025, seatH - 0.12, [0, 0.06 + (seatH - 0.12) / 2, 0], 10);
   a.cyl('dark', 0.045, 0.045, 0.1, [0, 0.4, 0], 10);
   for (let i = 0; i < 5; i++) {
@@ -145,9 +222,9 @@ function officeChair(a: Acc, w: number, d: number, h: number) {
 
 function shelf(a: Acc, w: number, d: number, h: number) {
   const t = 0.022, n = Math.max(2, Math.round(h / 0.38)), step = (h - t) / n;
-  for (const sx of [-1, 1]) a.box('main', [t, h, d], [sx * (w / 2 - t / 2), h / 2, 0]);
+  for (const sx of [-1, 1]) a.box('main', [t, h, d], [sx * (w / 2 - t / 2), h / 2, 0], 0.005);
   a.box('dark', [w - 2 * t, h, 0.008], [0, h / 2, -d / 2 + 0.004]);
-  for (let i = 0; i <= n; i++) a.box('main', [w - 2 * t, t, d - 0.01], [0, t / 2 + i * step, 0.004]);
+  for (let i = 0; i <= n; i++) a.box('main', [w - 2 * t, t, d - 0.01], [0, t / 2 + i * step, 0.004], 0.005);
   for (let i = 0; i < n; i++) {
     let x = -w / 2 + t + 0.03;
     const cnt = 4 + (i % 3), startShift = (i % 2) * w * 0.3;
@@ -172,14 +249,14 @@ function cabinetBody(a: Acc, w: number, d: number, bodyY: number, body: number, 
     for (let i = 0; i < drawers; i++) {
       const y = lg + dh * (i + 0.5);
       a.box('soft', [w - 0.025, dh - 0.012, 0.018], [0, y, fz], 0.006);
-      a.box('metal', [Math.min(0.16, w * 0.3), 0.014, 0.018], [0, y + dh * 0.22, fz + 0.022], 0.005);
+      a.pull('metal', 0, y + Math.min(dh * 0.22, 0.05), fz + 0.009, Math.min(0.16, w * 0.3));
     }
   } else {
     for (let i = 0; i < doors; i++) {
       const dw = w / doors, x = -w / 2 + dw * (i + 0.5);
       a.box('soft', [dw - 0.008, body - 0.02, 0.018], [x, lg + body / 2, fz], 0.005);
       const hx = x + (doors === 1 ? dw * 0.38 : (i === 0 ? 1 : -1) * dw * 0.4);
-      a.cyl('metal', 0.007, 0.007, Math.min(0.3, body * 0.25), [hx, lg + body * 0.5, fz + 0.03], 6);
+      a.pull('metal', hx, lg + body * 0.5, fz + 0.009, Math.min(0.3, body * 0.25), 'y');
     }
   }
 }
@@ -289,11 +366,11 @@ function plant(a: Acc, w: number, h: number) {
     const ang = (i / stems) * Math.PI * 2 + 0.5, lean = 0.25 + (i % 3) * 0.1, sh = (top - potH) * (0.7 + (i % 3) * 0.15);
     a.cyl('green', 0.008, 0.012, sh, [Math.sin(ang) * sh * lean * 0.5, potH + sh / 2, Math.cos(ang) * sh * lean * 0.5], 5, 'y');
   }
-  const leaves = 16;
+  const leaves = 22;
   for (let i = 0; i < leaves; i++) {
-    const t = i / leaves, ang = i * 2.4, rad = r * (0.25 + 0.55 * ((i * 5) % leaves) / leaves);
-    const y = potH + (top - potH) * (0.35 + 0.6 * t), len = r * 0.55;
-    a.ell('green', [len, 0.012, len * 0.45], [Math.sin(ang) * rad, y, Math.cos(ang) * rad], [0.0, ang + Math.PI / 2, 0.35], 6);
+    const t = i / leaves, ang = i * 2.4, rad = r * (0.25 + 0.6 * ((i * 5) % leaves) / leaves);
+    const y = potH + (top - potH) * (0.3 + 0.66 * t), len = r * (0.62 - 0.2 * t);
+    a.ell('green', [len, 0.01, len * 0.38], [Math.sin(ang) * rad, y, Math.cos(ang) * rad], [0.0, ang + Math.PI / 2, 0.15 + 0.45 * (1 - t)], 7);
   }
 }
 
@@ -327,7 +404,7 @@ function counter(a: Acc, w: number, d: number, h: number, id = '') {
   for (let i = 0; i < doors; i++) {
     const dw = w / doors, x = -w / 2 + dw * (i + 0.5);
     a.box('soft', [dw - 0.01, body - 0.03, 0.016], [x, pl + body / 2, d / 2 - 0.078], 0.005);
-    a.cyl('metal', 0.006, 0.006, 0.14, [x + dw * 0.35, pl + body * 0.78, d / 2 - 0.05], 6);
+    a.pull('metal', x, pl + body - 0.05, d / 2 - 0.07, Math.min(0.2, dw * 0.45));
   }
   a.box('dark', [w + 0.02, top, d], [0, h - top / 2, 0], 0.012);
   if (/sink/.test(id)) {
@@ -434,7 +511,7 @@ function wardrobe(a: Acc, id: string, w: number, d: number, h: number) {
     const x = -w / 2 + dw * (i + 0.5);
     a.box('soft', [dw - 0.008, body - 0.02, 0.018], [x, pl + body / 2, fz - 0.009], 0.005);
     const hx = n === 1 ? dw * 0.38 : (i % 2 === 0 ? 1 : -1) * dw * 0.4;
-    a.cyl('metal', 0.007, 0.007, Math.min(0.3, body * 0.18), [x + hx, pl + body * 0.5, fz + 0.02], 6);
+    a.pull('metal', x + hx, pl + body * 0.5, fz, Math.min(0.3, body * 0.18), 'y');
   }
 }
 
@@ -444,10 +521,11 @@ function sofaCorner(a: Acc, w: number, d: number, h: number) {
   a.box('main', [cw, 0.2, d - rowD], [w / 2 - cw / 2, 0.18, d / 2 - (d - rowD) / 2], 0.03);
   for (const [x, z] of [[-w / 2 + 0.06, -d / 2 + 0.06], [w / 2 - 0.06, -d / 2 + 0.06], [w / 2 - 0.06, d / 2 - 0.06], [w / 2 - cw + 0.06, d / 2 - 0.06]] as const) a.cyl('dark', 0.025, 0.03, 0.08, [x, 0.04, z], 8);
   const inner = w - cw - armW, n = inner > 1.3 ? 2 : 1, iw = inner / n;
-  for (let i = 0; i < n; i++) a.box('soft', [iw - 0.015, seatH - 0.28, rowD - backD - sd], [-w / 2 + armW + iw * (i + 0.5), 0.28 + (seatH - 0.28) / 2, -d / 2 + backD + (rowD - backD) / 2], 0.05);
-  a.box('soft', [cw - 0.015, seatH - 0.28, d - backD - sd], [w / 2 - cw / 2, 0.28 + (seatH - 0.28) / 2, -d / 2 + backD + (d - backD) / 2], 0.05);
+  const seat = { rim: 0.6, puff: 0.2, sag: 0.008, seg: [5, 5] as [number, number] };
+  for (let i = 0; i < n; i++) a.soft('soft', [iw - 0.015, seatH - 0.28, rowD - backD - sd], [-w / 2 + armW + iw * (i + 0.5), 0.28 + (seatH - 0.28) / 2, -d / 2 + backD + (rowD - backD) / 2], seat);
+  a.soft('soft', [cw - 0.015, seatH - 0.28, d - backD - sd], [w / 2 - cw / 2, 0.28 + (seatH - 0.28) / 2, -d / 2 + backD + (d - backD) / 2], seat);
   a.box('main', [w, h - 0.28, backD], [0, 0.28 + (h - 0.28) / 2, -d / 2 + backD / 2], 0.06);
-  for (const x of [-w / 2 + armW + iw / 2, w / 2 - cw / 2]) a.box('soft', [iw * 0.9, (h - seatH) * 0.85, 0.15], [x, seatH + (h - seatH) * 0.45, -d / 2 + backD + 0.05], 0.06, [-0.18, 0, 0]);
+  for (const x of [-w / 2 + armW + iw / 2, w / 2 - cw / 2]) a.soft('soft', [iw * 0.9, 0.15, (h - seatH) * 0.85], [x, seatH + (h - seatH) * 0.45, -d / 2 + backD + 0.05], { rim: 0.45, puff: 0.35, seg: [5, 5] }, [Math.PI / 2 - 0.18, 0, 0]);
   a.box('main', [armW, h * 0.72 - 0.08, rowD], [-w / 2 + armW / 2, 0.08 + (h * 0.72 - 0.08) / 2, -d / 2 + rowD / 2], 0.06);
 }
 
