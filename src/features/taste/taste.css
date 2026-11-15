@@ -1,0 +1,12 @@
+.taste { display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-sm); }
+.taste-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.taste-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-strong); cursor: pointer; }
+.taste-toggle input { accent-color: var(--accent); }
+.taste-reset { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 2px 4px; }
+.taste-reset:disabled { opacity: 0.4; cursor: default; }
+.taste-row { display: grid; grid-template-columns: 16px 76px 1fr; align-items: center; gap: 8px; color: var(--muted); }
+.taste-name { color: var(--text); text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.taste-bar { height: 6px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; display: block; }
+.taste-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.taste-dots { display: inline-flex; gap: 4px; }
+.taste-dots i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); display: block; }
