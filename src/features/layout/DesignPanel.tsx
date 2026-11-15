@@ -1,13 +1,12 @@
 import { shortRelax } from './relax';
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { caseFor, whyText } from './caseFor';
-import { Chips, CheckRing, CompareView, PlanThumb, ringAround } from './LayoutCard';
+import { CompareView, PlanThumb, ringAround } from './LayoutCard';
 import { speak } from '../agent/speech';
 import { useSketch } from '../agent/sketchStore';
 import { mark } from '../agent/actions';
 import { useStore } from '../../core/store';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
-import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
 import { designRoom } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
@@ -53,13 +52,6 @@ export function DesignPanel() {
     const g = model.furniture.find((x) => x.id === f.id);
     return !!g && Math.abs(g.x - f.x) < 1e-3 && Math.abs(g.y - f.y) < 1e-3;
   }))?.id;
-  const recheck = useMemo(() => {
-    const m = new Map<string, number>();
-    if (!stale) return m;
-    for (const c of candidates) m.set(c.id, validateLayout(model, c.furniture, req).filter((r) => r.result === 'fail').length);
-    return m;
-  }, [stale, candidates, model, req]);
-
   const regenerate = async (override?: typeof req) => {
     const r = override ?? req;
     if (!r) return;
@@ -154,8 +146,6 @@ export function DesignPanel() {
       <div className="layout-cards">
         {candidates.map((c, i) => {
           const k = cases.get(c.id)!;
-          const nowFail = recheck.get(c.id) ?? 0;
-          const rep = reports[c.id];
           const degraded = Boolean((c as { degraded?: unknown }).degraded) || k.leftOut.length > 0;
           const on = c.id === activeId;
           return (
@@ -167,10 +157,7 @@ export function DesignPanel() {
               <div className="layout-card-body">
                 <div className="layout-card-head">
                   <strong title={c.name}>{k.title}</strong>
-                  {nowFail > 0 && <span className="chip chip-bad">{nowFail} fail</span>}
-                  <CheckRing passed={k.passed} total={k.total} degraded={degraded} />
                 </div>
-                <Chips c={k} degraded={degraded} />
                 <div className="layout-foot">
                   <span>{priceLabel(c.metrics.costSek)}</span>
                   {compare && (
@@ -179,16 +166,18 @@ export function DesignPanel() {
                     </button>
                   )}
                   {on && <button className="btn btn-sm btn-ghost icon-btn" aria-label="Why" title="Why" onClick={(e) => { e.stopPropagation(); why(c); }}><Icon name="info" size={14} /></button>}
-                  {appliedId === c.id
-                    ? <button className="btn btn-sm" disabled aria-label="Applied"><Icon name="check" size={14} /></button>
-                    : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); base.current = null; useStore.getState().applyCandidate(c.id); }}>Apply</button>}
                 </div>
-                {rep && on && <DecisionsPanel report={rep} />}
               </div>
             </div>
           );
         })}
       </div>
+      {activeId && reports[activeId] && (
+        <details className="layout-taste">
+          <summary>More</summary>
+          <DecisionsPanel report={reports[activeId]} />
+        </details>
+      )}
       <TasteDisclosure />
     </div>
   );

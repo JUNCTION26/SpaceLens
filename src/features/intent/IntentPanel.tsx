@@ -31,7 +31,6 @@ export function IntentPanel() {
   const [chip, setChip] = useState('');
   const [retry, setRetry] = useState<{ label: string; reason: string; run: () => void } | null>(null);
   const [cannot, setCannot] = useState<{ nearest: string; label: string } | null>(null);
-  const [offline, setOffline] = useState(false);
   const compileRef = useRef<(t?: string, fresh?: boolean) => Promise<void>>(async () => {});
   const runRef = useRef<AbortController | null>(null);
   const briefRef = useRef('');
@@ -81,7 +80,7 @@ export function IntentPanel() {
       if (st.model.furniture.length) st.dispatch({ type: 'SET_FURNITURE', items: [], label: 'Started over' });
       st.setCandidates([]); st.setRequirements(null);
       useReports.getState().setStages([], false);
-      setReq(null); setTriedGen(false); setCannot(null); setRetry(null); setOffline(false); setChip('Cleared'); setText('');
+      setReq(null); setTriedGen(false); setCannot(null); setRetry(null); setChip('Cleared'); setText('');
       return true;
     }
     const r = req ?? st.requirements;
@@ -118,7 +117,7 @@ export function IntentPanel() {
     const st = useStore.getState();
     const rs = useReports.getState();
     const wasOffline = !aiReady();
-    setRetry(null); setChip(''); setOffline(false);
+    setRetry(null); setChip('');
     st.setBusy('Designing');
     rs.setStages([], true);
     try {
@@ -135,7 +134,7 @@ export function IntentPanel() {
       const now = useStore.getState();
       // One sentence furnishes the room: the best final layout is applied as one undo step; the others wait on Layouts.
       const best = isFinalResult(res) ? pickAuto(res.candidates, res.reports, another ? now.model.furniture : undefined) : null;
-      if (best) { now.applyCandidate(best.id); setOffline(wasOffline); }
+      if (best) { now.applyCandidate(best.id); }
       else {
         const pending = res.candidates.length > 0;
         setRetry({ label: 'Retry', reason: failReason({ offline: wasOffline, infeasible: !pending && !!res.infeasibility }), run: () => void generate(r) });
@@ -190,18 +189,16 @@ export function IntentPanel() {
       {!text && !req && !chip && !cannot && !retry && !compiling && (
         <div className="intent-chips">{EXAMPLES.map((x) => <button key={x} className="chip" onClick={() => { setText(x); void compile(x, true); }}>{x}</button>)}</div>
       )}
-      {(chip || cannot || retry || offline) && (
+      {(cannot || retry) && (
         <div className="intent-chips" role="status">
-          {chip && <span className="chip chip-ok" title={chip}>{two(chip)}</span>}
           {retry && <button className="chip" onClick={() => { const r = retry; setRetry(null); r.run(); }}>{retry.label}</button>}
           {retry && <span className="chip chip-muted">{retry.reason}</span>}
-          {offline && !retry && <span className="chip chip-muted">Offline</span>}
           {cannot && <button className="chip" title={`${cannot.label}: ${cannot.nearest}`} onClick={() => { const n = cannot.nearest; setCannot(null); setText(n); void compile(n); }}>{two(cannot.nearest)}</button>}
         </div>
       )}
       {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
-      {req && (
+      {req && !running && (
         <div className="intent-summary">
           <button className="btn btn-ghost btn-sm" aria-expanded={adjust} onClick={() => setAdjust((a) => !a)}>{adjust ? 'Done' : 'Adjust'}</button>
         </div>

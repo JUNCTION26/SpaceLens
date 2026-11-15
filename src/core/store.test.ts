@@ -23,8 +23,8 @@ describe('store', () => {
     expect(s().past).toHaveLength(2);
     expect(s().changes).toHaveLength(2);
     s().undo(); expect(s().model.name).toBe('A'); expect(s().model.version).toBe(v0 + 3);
-    s().undo(); expect(s().model.name).toBe('Sample room');
-    s().undo(); expect(s().model.name).toBe('Sample room');
+    s().undo(); expect(s().model.name).toBe('My room');
+    s().undo(); expect(s().model.name).toBe('My room');
     s().redo(); expect(s().model.name).toBe('A');
     s().dispatch({ type: 'RENAME', name: 'C' } as Op);
     expect(s().future).toHaveLength(0);
