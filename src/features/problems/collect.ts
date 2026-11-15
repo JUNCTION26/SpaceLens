@@ -99,6 +99,39 @@ function designVerdicts(model: SpaceModel, furniture: FurnitureItem[], req: Requ
   return out;
 }
 
+/** Referee checks room by room on that room's items; the budget is judged once on the whole plan. */
+function roomChecks(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null): ValidationResult[] {
+  const out: ValidationResult[] = [];
+  const seen = new Set<string>();
+  const add = (r: ValidationResult) => { if (!seen.has(r.id)) { seen.add(r.id); out.push(r); } };
+  if (model.spaces.length <= 1) { validateLayout(model, furniture, req).forEach(add); return out; }
+  const groups = assignToSpaces(model, furniture);
+  for (const s of model.spaces) {
+    const items = groups.get(s.id); if (!items) continue;
+    validateLayout(model, items, req, { spaceId: s.id }).filter((r) => r.rule !== 'Budget').forEach(add);
+  }
+  validateLayout(model, furniture, req).filter((r) => r.rule === 'Budget').forEach(add);
+  return out;
+}
+
+/** Safety findings: building-level ones (exits, escape distance) once on the whole plan, the rest per room with that room's items. */
+const BUILDING_KINDS = new Set<SafetyFinding['kind']>(['no-exit', 'trapped', 'travel', 'single-direction', 'two-exits', 'wc-route', 'wc-turn', 'wc-reach', 'wc-door', 'dead-end', 'wc-dead-end']);
+function roomFindings(model: SpaceModel, furniture: FurnitureItem[]): SafetyFinding[] {
+  const out: SafetyFinding[] = [];
+  const seen = new Set<string>();
+  const add = (f: SafetyFinding) => { if (!seen.has(f.id)) { seen.add(f.id); out.push(f); } };
+  const run = (items: FurnitureItem[]) => { try { return quickFindings(model, items); } catch { return []; } };
+  if (model.spaces.length <= 1) { run(furniture).forEach(add); return out; }
+  run(furniture).filter((f) => BUILDING_KINDS.has(f.kind)).forEach(add);
+  const groups = assignToSpaces(model, furniture);
+  for (const s of model.spaces) {
+    const items = groups.get(s.id); if (!items?.length) continue;
+    const mine = new Set(items.map((f) => f.id));
+    run(items).filter((f) => !BUILDING_KINDS.has(f.kind) && (f.itemIds.length ? f.itemIds.some((id) => mine.has(id)) : pointInPolygon(f.at, s.polygon))).forEach(add);
+  }
+  return out;
+}
+
 /** Merges referee checks, design rule verdicts and safety findings into one list, worst first. Fixes are added later. */
 export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null, opts: CollectOptions = {}): CollectResult {
   const byId = new Map(furniture.map((f) => [f.id, f]));
@@ -112,7 +145,7 @@ export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], r
     return fallback ?? null;
   };
 
-  const checks = opts.checks === false ? [] : validateLayout(model, furniture, req);
+  const checks = opts.checks === false ? [] : roomChecks(model, furniture, req);
   for (const r of checks) {
     if (r.result !== 'fail') continue;
     const itemIds = r.subjectIds.filter((id) => byId.has(id));
@@ -139,8 +172,7 @@ export function collectProblems(model: SpaceModel, furniture: FurnitureItem[], r
   }
 
   if (opts.safety) {
-    let findings: SafetyFinding[] = [];
-    try { findings = quickFindings(model, furniture); } catch { findings = []; }
+    const findings = roomFindings(model, furniture);
     for (const f of findings) {
       const itemIds = f.itemIds.filter((id) => byId.has(id));
       const text = f.message && f.message.length <= 140 ? f.message : f.title;
