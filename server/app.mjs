@@ -10,6 +10,7 @@ import { createRouter } from './router.mjs';
 import { createGeminiClient } from './gemini.mjs';
 import { createModelsHandler, generate, generateStream, healthz } from './handlers.mjs';
 import { createLogger } from './log.mjs';
+import { createVoteHandlers, createVoteStore } from './votes.mjs';
 
 const REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -24,11 +25,15 @@ export function createApp(config, deps = {}) {
   const limiter = createRateLimiter({ burst: config.rateLimit.burst, perMinute: config.rateLimit.perMinute, now });
   const budget = createDailyBudget({ limit: config.rateLimit.dailyBudget, now });
   const isAllowedOrigin = originMatcher(config.allowedOrigins);
+  const votes = createVoteHandlers(deps.voteStore ?? createVoteStore({ now }));
   const match = createRouter([
     { method: 'GET', path: '/healthz', handler: healthz },
     { method: 'GET', path: '/v1/models', handler: createModelsHandler({ config, gemini, now }) },
     { method: 'POST', path: '/v1/generate', handler: generate, limited: true },
     { method: 'POST', path: '/v1/generate/stream', handler: generateStream, limited: true },
+    { method: 'POST', path: '/v1/votes', handler: votes.create, limited: true },
+    { method: 'GET', path: '/v1/votes/:id', handler: votes.read, limited: true },
+    { method: 'POST', path: '/v1/votes/:id/vote', handler: votes.vote, limited: true },
   ]);
 
   async function handle(req, res) {
@@ -70,7 +75,7 @@ export function createApp(config, deps = {}) {
         return res.end();
       }
 
-      const { route, allow } = match(req.method, path);
+      const { route, allow, params } = match(req.method, path);
       if (!route) {
         if (allow) throw new HttpError(405, 'method_not_allowed', 'This method is not allowed here.', { Allow: allow.join(', ') });
         throw new HttpError(404, 'not_found', 'There is nothing at this address.');
@@ -83,7 +88,7 @@ export function createApp(config, deps = {}) {
         if (!take.ok) throw new HttpError(429, 'rate_limited', 'Too many requests. Wait a moment and try again.', { 'Retry-After': String(take.retryAfterS) });
       }
 
-      await route.handler({ req, res, config, gemini, budget, meta, signal: ctrl.signal });
+      await route.handler({ req, res, config, gemini, budget, meta, params, signal: ctrl.signal });
     } catch (e) {
       if (e instanceof HttpError) {
         meta.error = e.code;

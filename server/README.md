@@ -19,6 +19,9 @@ The browser picks the route by itself: a personal key set in Settings (or `VITE_
 | GET | `/v1/models` | Allowed models the key can call, in order of preference (cached) |
 | POST | `/v1/generate` | One Gemini `generateContent` call, JSON in and out |
 | POST | `/v1/generate/stream` | Server-sent events, passed through from `streamGenerateContent` chunk by chunk |
+| POST | `/v1/votes` | Create a poll from 2 to 4 layouts (name, price, small SVG thumbnail or plan data); returns the poll with its id |
+| GET | `/v1/votes/:id` | The poll with vote counts |
+| POST | `/v1/votes/:id/vote` | `{ "choice": 0, "token": "<browser token>" }`, one vote per token |
 
 Request body for both generate routes (anything else is refused with a 400 naming the field):
 
@@ -114,3 +117,7 @@ npm run test:server
 ```
 
 `node:test` suites in `server/test/` run the full server on a random local port with a stubbed upstream (no network): validation, CORS and preflight, rate limit and daily allowance, body cap, model allowlist, streaming pass-through, error mapping, client disconnect, timeouts, and that no key or request content appears in any response or log line. CI runs them in the `server` job.
+
+## Layout polls
+
+Polls live in memory only: at most 300 at a time (the oldest leave first), each for 48 hours and up to 2000 voters. They are lost whenever the free server sleeps or restarts, so a shared link can stop working after a quiet spell. A database is the next step; the store in `votes.mjs` is the only code that would change. Thumbnails are checked on the way in (plain SVG only, no scripts, links or images) and requests share the same origin allowlist, rate limit and error envelope as the AI routes.
