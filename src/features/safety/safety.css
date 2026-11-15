@@ -38,3 +38,5 @@
 @keyframes safety-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .safety-spin { animation: none; } }
 .safety-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.safety-country { margin: 6px 0; }
+.safety-country select { height: 32px; }

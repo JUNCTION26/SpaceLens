@@ -69,6 +69,8 @@ export function SafetyPanel() {
     update({ ...saved, config: next });
   };
 
+  const onCountry = (id: PackId, pack: Parameters<typeof applyPack>[0]) => { setCountry(id); update({ ...saved, config: { ...applyPack(pack) } }); };
+
   const show = (f: SafetyFinding) => {
     if (shown === f.id) { setShown(null); setAnalysis({ routes: [], highlights: [] }); return; }
     setShown(f.id);
@@ -128,6 +130,8 @@ export function SafetyPanel() {
       <p className="safety-sub muted">
         {report.exits.length} {report.exits.length === 1 ? 'exit' : 'exits'}
       </p>
+
+      <div className="safety-country"><RuleSelector mode="select" country={country} onChange={onCountry} /></div>
 
       <div className="seg safety-tabs" role="tablist" aria-label="Checks">
         {(['fire', 'access'] as const).map((a) => (
@@ -193,7 +197,7 @@ export function SafetyPanel() {
 
       <details className="safety-block">
         <summary>Assumptions</summary>
-        <RuleSelector country={country} onChange={(id, pack) => { setCountry(id); update({ ...saved, config: { ...applyPack(pack) } }); }} />
+        <RuleSelector mode="list" country={country} onChange={onCountry} />
         {GROUPS.map(([g, name]) => (
           <fieldset key={g} className="safety-defaults">
             <legend>{name}</legend>
