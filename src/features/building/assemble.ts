@@ -45,6 +45,11 @@ export function wallAt(space: Space, p: Vec2, width = 0): { wallIndex: number; o
   return best ? { wallIndex: best.wallIndex, offsetM: best.offsetM } : null;
 }
 
+function wallLength(space: Space, i: number): number {
+  const a = space.polygon[i], b = space.polygon[(i + 1) % space.polygon.length];
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
 function onShell(shell: Vec2[], a: Vec2, b: Vec2): boolean {
   const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   for (let i = 0; i < shell.length; i++) if (onSegment(m, shell[i], shell[(i + 1) % shell.length])) return true;
@@ -94,7 +99,7 @@ export function toSpaceModel(plan: BuildingPlan, base?: SpaceModel, opts: Assemb
     openings.push({
       id, kind, spaceId, wallIndex: w.wallIndex, offsetM: w.offsetM, widthM,
       heightM: isWin ? 1.3 : kind === 'opening' ? 2.1 : 2.05, sillM: isWin ? 0.9 : 0,
-      swing, hinge: 'start', sourceKind: 'generated', status: 'estimated',
+      swing, hinge: w.offsetM <= wallLength(s, w.wallIndex) / 2 ? 'start' : 'end', sourceKind: 'generated', status: 'estimated',
     });
   };
   for (const d of plan.doors) {
@@ -109,7 +114,7 @@ export function toSpaceModel(plan: BuildingPlan, base?: SpaceModel, opts: Assemb
   });
   return {
     id: base?.id ?? plan.id,
-    name: base?.name && base.name !== 'Sample room' ? base.name : plan.name,
+    name: base?.name && base.name !== 'Sample room' && base.name !== 'My room' ? base.name : plan.name,
     version: base?.version ?? 1,
     units: 'm',
     ceilingM: opts.ceilingM ?? base?.ceilingM ?? 2.6,

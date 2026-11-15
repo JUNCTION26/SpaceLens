@@ -90,7 +90,7 @@ export function apartmentProgramme(rooms = 2): RoomProgramme {
     for (let i = 2; i < n; i++) specs.push(R.bedroom(i, 10));
   }
   specs.push({ ...R.bath(5), adjacentTo: ['bed-master'] }, R.storage(2.5));
-  return finish(`Apartment, ${n} room${n > 1 ? 's' : ''}`, 'home', specs, 1.1);
+  return finish(`Apartment, ${n} room${n > 1 ? 's' : ''}`, 'home', specs, 1.2);
 }
 
 /** Office floor for `people` staff: desk neighbourhoods of up to eight, meeting rooms, phone booths, kitchen, reception. */
@@ -221,7 +221,7 @@ export function validateProgramme(raw: Partial<RoomProgramme>, fallbackName = 'C
     specs.push({
       id: typeof r.id === 'string' && r.id ? slug(r.id) : undefined,
       name: r.name.slice(0, 40), purpose: String(r.purpose || 'room').toLowerCase().slice(0, 20),
-      minAreaM2: min, preferredAreaM2: pref, minWidthM: clamp(Number(r.minWidthM) || 2.4, 0.9, Math.sqrt(pref)),
+      minAreaM2: min, preferredAreaM2: pref, minWidthM: clamp(Math.max(Number(r.minWidthM) || 2.4, /bed|sleep/.test(String(r.purpose).toLowerCase()) ? 2.1 : 0), 0.9, Math.max(Math.sqrt(pref), /bed|sleep/.test(String(r.purpose).toLowerCase()) ? 2.1 : 0)),
       needsWindow: Boolean(r.needsWindow), needsExteriorDoor: Boolean(r.needsExteriorDoor),
       adjacentTo: Array.isArray(r.adjacentTo) ? r.adjacentTo.map((a) => slug(String(a))) : [],
       privacy: (['public', 'private', 'service'] as const).includes(r.privacy as Privacy) ? r.privacy as Privacy : 'private',
@@ -231,7 +231,7 @@ export function validateProgramme(raw: Partial<RoomProgramme>, fallbackName = 'C
   }
   if (!specs.length) return null;
   const kind = (['home', 'office', 'cafe', 'clinic', 'custom'] as const).includes(raw.kind as RoomProgramme['kind']) ? raw.kind as RoomProgramme['kind'] : 'custom';
-  const p = finish(String(raw.name || fallbackName).slice(0, 60), kind, specs, clamp(Number(raw.corridorWidthM) || 1.2, 0.9, 2.4),
+  const p = finish(String(raw.name || fallbackName).slice(0, 60), kind, specs, clamp(Number(raw.corridorWidthM) || 1.2, 1.2, 2.4),
     Array.isArray(raw.notes) ? raw.notes.filter((n) => typeof n === 'string').slice(0, 6) : []);
   return { ...p, by: 'gemini' };
 }

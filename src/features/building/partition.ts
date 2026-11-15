@@ -67,12 +67,33 @@ export interface PlanDoor {
   kind: 'door' | 'opening';
   /** Room the leaf swings into. */
   swingInto: string;
+  /** Hinge on the end of the wall nearer the corner, so the open leaf lies against that wall. */
+  hinge?: 'start' | 'end';
+}
+
+/** What an architect would check on the drawing, in numbers other code can show. */
+export interface PlanMetrics {
+  /** One word for the zoning idea of this option. */
+  idea: string;
+  /** Hall area / floor area, 0..1. */
+  corridorShare: number;
+  /** Rooms that need daylight and have an external window of at least 10% of their floor area. */
+  daylightOk: number;
+  daylightNeeded: number;
+  /** Door leaves that swing into each other or frames closer than 10 cm. */
+  doorClashes: number;
+  /** Habitable rooms with a long:short side of at most 2:1. */
+  aspectOk: number;
+  habitable: number;
+  minBedroomWidthM: number | null;
+  /** What had to give: plain sentences, empty when nothing was compromised. */
+  compromises: string[];
 }
 
 export interface PlanWindow { roomId: string; a: Vec2; b: Vec2 }
 
 export interface Criterion {
-  id: 'reach' | 'proportion' | 'area' | 'daylight' | 'adjacency' | 'circulation' | 'privacy' | 'walls' | 'wet';
+  id: 'reach' | 'proportion' | 'area' | 'daylight' | 'adjacency' | 'circulation' | 'privacy' | 'walls' | 'wet' | 'zoning';
   name: string;
   /** 0..1 */
   score: number;
@@ -105,6 +126,7 @@ export interface BuildingPlan {
   interiorWallM: number;
   /** Problems a builder should know about (empty when every check passes). */
   issues: string[];
+  metrics: PlanMetrics;
 }
 
 // ---------- rng ----------
@@ -324,6 +346,21 @@ function share(rooms: ProgrammeRoom[], capacity: number): number[] {
   return pref.map((p) => p * k);
 }
 
+const SERVICE_WET = new Set(['bathroom', 'wc', 'utility', 'shower', 'laundry']);
+const isServiceWet = (r: ProgrammeRoom) => SERVICE_WET.has(r.purpose);
+
+/** Order a band's rooms so wet service rooms (bath, WC, utility) sit side by side, at the first one's place. */
+function clusterWet(ctx: Ctx, list: number[]): number[] {
+  const wet = list.filter((i) => isServiceWet(ctx.rooms[i]));
+  if (wet.length < 2) return list;
+  const first = list.findIndex((i) => isServiceWet(ctx.rooms[i]));
+  const rest = list.filter((i) => !isServiceWet(ctx.rooms[i]));
+  // the bathroom next to a bedroom it serves stays first in the cluster
+  wet.sort((a, b) => Number(ctx.rooms[b].purpose === 'bathroom') - Number(ctx.rooms[a].purpose === 'bathroom'));
+  rest.splice(Math.min(first, rest.length), 0, ...wet);
+  return rest;
+}
+
 const MIN_BAND = 2.8;
 const MIN_GAP = 2.2;
 
@@ -426,7 +463,7 @@ function decode(ctx: Ctx, fam: Family, defs: RegionDef[], g: Genome): Layout {
       const D = v1 - v0;
       if (D < 1e-6) continue;
       const ri = defs.findIndex((d) => d.block === bi && d.kind === side);
-      const list = ri >= 0 ? regions[ri] : [];
+      const list = clusterWet(ctx, ri >= 0 ? regions[ri] : []);
       // slots on this side, snapped to ends and merged
       const ss = slots[bi].filter((s) => s.side === side).map((s) => ({ ...s })).sort((p, q) => p.u0 - q.u0);
       const lo = e0, hi = b.L - e1;
@@ -562,6 +599,7 @@ interface Eval {
   internalWallM: number;
   circulationM2: number;
   circulationShare: number;
+  metrics: Omit<PlanMetrics, 'idea'>;
 }
 
 function overlapOnLine(e: Seg, s: Seg): number {
@@ -616,6 +654,7 @@ function sharedBetween(a: Rect[], b: Rect[]): Seg[] {
   return segs.length ? mergeSegs(segs) : [];
 }
 
+const WINDOW_H = 1.3;
 const OPEN_PLAN = new Set(['living', 'kitchen', 'dining', 'cafe', 'counter']);
 
 function evaluate(ctx: Ctx, lay: Layout): Eval {
@@ -663,20 +702,71 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   // doors
   const doors: PlanDoor[] = [];
   const doorW = (r: PlanRoom) => (['wc', 'storage', 'phone'].includes(r.purpose) ? Math.min(0.8, ctx.doorW) : ctx.doorW);
+  const JAMB = 0.1;
+  /** The floor square a door leaf sweeps in the room it opens into. */
+  const leafBox = (at: Vec2, horizontal: boolean, w: number, into: number): Rect | null => {
+    const h = w / 2;
+    const opts: Rect[] = horizontal
+      ? [{ x0: at.x - h, x1: at.x + h, y0: at.y, y1: at.y + w }, { x0: at.x - h, x1: at.x + h, y0: at.y - w, y1: at.y }]
+      : [{ x0: at.x, x1: at.x + w, y0: at.y - h, y1: at.y + h }, { x0: at.x - w, x1: at.x, y0: at.y - h, y1: at.y + h }];
+    return opts.find((o) => { const cx = (o.x0 + o.x1) / 2, cy = (o.y0 + o.y1) / 2; return rooms[into].rects.some((q) => cx > q.x0 && cx < q.x1 && cy > q.y0 && cy < q.y1); }) ?? null;
+  };
+  const boxesTouch = (a: Rect, b: Rect) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 1e-6 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 1e-6;
+  const clashes = (at: Vec2, horizontal: boolean, w: number, into: number, a: number, b: number) => {
+    const box = leafBox(at, horizontal, w, into);
+    return doors.some((d) => {
+      // frames on one wall line closer than a jamb
+      if (d.horizontal === horizontal && Math.abs((horizontal ? d.at.y - at.y : d.at.x - at.x)) < 1e-3
+        && Math.abs((horizontal ? d.at.x - at.x : d.at.y - at.y)) < (d.widthM + w) / 2 + JAMB) return true;
+      const di = idx.get(d.swingInto)!;
+      const other = leafBox(d.at, d.horizontal, d.widthM, di);
+      // a leaf must not sweep across another door's frame or leaf in the same room
+      if (box && other && (di === into || di === a || di === b) && boxesTouch(box, other)) return true;
+      return false;
+    });
+  };
+  /** Number of clashing door pairs in the final layout. */
+  const countClashes = () => {
+    let n = 0;
+    for (let x = 0; x < doors.length; x++) for (let y = x + 1; y < doors.length; y++) {
+      const p = doors[x], q = doors[y];
+      if (p.horizontal === q.horizontal && Math.abs(p.horizontal ? p.at.y - q.at.y : p.at.x - q.at.x) < 1e-3
+        && Math.abs(p.horizontal ? p.at.x - q.at.x : p.at.y - q.at.y) < (p.widthM + q.widthM) / 2 + JAMB - 1e-6) { n++; continue; }
+      const bp = leafBox(p.at, p.horizontal, p.widthM, idx.get(p.swingInto)!), bq = leafBox(q.at, q.horizontal, q.widthM, idx.get(q.swingInto)!);
+      if (bp && bq && p.swingInto === q.swingInto && boxesTouch(bp, bq)) n++;
+    }
+    return n;
+  };
   const placeDoor = (i: number, j: number, w: number, kind: PlanDoor['kind'], swingInto: number) => {
     const segs = [...shared[i][j]].sort((p, q) => segLen(q) - segLen(p));
     const s = segs[0];
     if (!s || segLen(s) < w + 0.2) return false;
     const L = segLen(s);
-    // near a corner of the room the door serves, closest to the entrance
+    // near a corner of the room, a jamb away from it, with the leaf folding against that wall;
+    // when that clashes with another door, slide along the wall to the nearest free spot
     const along = (t: number) => (s.horizontal ? { x: s.a.x + t, y: s.a.y } : { x: s.a.x, y: s.a.y + t });
-    const inset = L >= w + 0.5 ? 0.15 + w / 2 : L / 2;
-    const c1 = along(inset), c2 = along(L - inset);
+    const lo = L >= w + 0.5 ? JAMB + 0.05 + w / 2 : L / 2, hi = L - lo;
     const e = ctx.entrance;
-    const at = Math.hypot(c1.x - e.x, c1.y - e.y) <= Math.hypot(c2.x - e.x, c2.y - e.y) ? c1 : c2;
-    doors.push({ id: `door-${doors.length + 1}`, a: rooms[i].id, b: rooms[j].id, at: { x: r2(at.x), y: r2(at.y) }, horizontal: s.horizontal, widthM: w, kind, swingInto: rooms[swingInto].id });
+    const cand: Vec2[] = [along(lo), along(hi)];
+    for (let t = lo + 0.25; t < hi - 0.01; t += 0.25) cand.push(along(t));
+    const first = cand.slice(0, 2).sort((p, q) => Math.hypot(p.x - e.x, p.y - e.y) - Math.hypot(q.x - e.x, q.y - e.y));
+    const ordered = [...first, ...cand.slice(2)];
+    const at = ordered.find((c) => !clashes(c, s.horizontal, w, swingInto, i, j)) ?? ordered[0];
+    const cornerDist = (c: Vec2) => { const t = s.horizontal ? c.x - s.a.x : c.y - s.a.y; return t; };
+    doors.push({ id: `door-${doors.length + 1}`, a: rooms[i].id, b: rooms[j].id, at: { x: r2(at.x), y: r2(at.y) }, horizontal: s.horizontal, widthM: w, kind, swingInto: rooms[swingInto].id, hinge: cornerDist(at) <= L / 2 ? 'start' : 'end' });
     return true;
   };
+  // entrance
+  const roomAt = (p: Vec2) => rooms.findIndex((r) => outerEdges(r.rects).some((e) => overlapOnLine(e, e.horizontal ? { a: { x: p.x - 0.01, y: p.y }, b: { x: p.x + 0.01, y: p.y }, horizontal: true } : { a: { x: p.x, y: p.y - 0.01 }, b: { x: p.x, y: p.y + 0.01 }, horizontal: false }) > 0));
+  const ent = roomAt(ctx.entrance);
+  const facadeHorizontal = (p: Vec2) => ctx.facades.find((s) => overlapOnLine(s, s.horizontal ? { a: { x: p.x - 0.01, y: p.y }, b: { x: p.x + 0.01, y: p.y }, horizontal: true } : { a: { x: p.x, y: p.y - 0.01 }, b: { x: p.x, y: p.y + 0.01 }, horizontal: false }) > 0)?.horizontal ?? true;
+  if (ent >= 0) doors.push({ id: 'entrance', a: rooms[ent].id, b: 'outside', at: ctx.entrance, horizontal: facadeHorizontal(ctx.entrance), widthM: ctx.entranceW, kind: 'door', swingInto: rooms[ent].id });
+  ctx.extraEntrances.forEach((p, k) => {
+    const ri = roomAt(p);
+    if (ri >= 0) doors.push({ id: `exit-${k + 1}`, a: rooms[ri].id, b: 'outside', at: p, horizontal: facadeHorizontal(p), widthM: ctx.entranceW, kind: 'door', swingInto: rooms[ri].id });
+  });
+  if (ent !== 0) issues.push('The entrance does not open into the hall');
+
   const connected = new Set<number>([0]);
   const viaPublic = (k: number) => rooms[k].isHall || rooms[k].privacy === 'public';
   const linked = new Set<string>();
@@ -703,17 +793,6 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
     if (!pa?.adjacentTo.includes(b.programmeId!) && !pb?.adjacentTo.includes(a.programmeId!)) continue;
     if (placeDoor(i, j, 1.2, 'opening', j)) linked.add(key(i, j));
   }
-  // entrance
-  const roomAt = (p: Vec2) => rooms.findIndex((r) => outerEdges(r.rects).some((e) => overlapOnLine(e, e.horizontal ? { a: { x: p.x - 0.01, y: p.y }, b: { x: p.x + 0.01, y: p.y }, horizontal: true } : { a: { x: p.x, y: p.y - 0.01 }, b: { x: p.x, y: p.y + 0.01 }, horizontal: false }) > 0));
-  const ent = roomAt(ctx.entrance);
-  const facadeHorizontal = (p: Vec2) => ctx.facades.find((s) => overlapOnLine(s, s.horizontal ? { a: { x: p.x - 0.01, y: p.y }, b: { x: p.x + 0.01, y: p.y }, horizontal: true } : { a: { x: p.x, y: p.y - 0.01 }, b: { x: p.x, y: p.y + 0.01 }, horizontal: false }) > 0)?.horizontal ?? true;
-  if (ent >= 0) doors.push({ id: 'entrance', a: rooms[ent].id, b: 'outside', at: ctx.entrance, horizontal: facadeHorizontal(ctx.entrance), widthM: ctx.entranceW, kind: 'door', swingInto: rooms[ent].id });
-  ctx.extraEntrances.forEach((p, k) => {
-    const ri = roomAt(p);
-    if (ri >= 0) doors.push({ id: `exit-${k + 1}`, a: rooms[ri].id, b: 'outside', at: p, horizontal: facadeHorizontal(p), widthM: ctx.entranceW, kind: 'door', swingInto: rooms[ri].id });
-  });
-  if (ent !== 0) issues.push('The entrance does not open into the hall');
-
   // reachability without passing through private rooms
   const adj: number[][] = rooms.map(() => []);
   for (const d of doors) { if (d.b === 'outside') continue; const i = idx.get(d.a)!, j = idx.get(d.b)!; adj[i].push(j); adj[j].push(i); }
@@ -749,14 +828,15 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   let propOk = 0;
   for (const r of progRooms) {
     const sliver = r.rects.some((q) => rShort(q) < 0.9);
-    const ok = r.aspect <= 2.22 && r.widthM >= r.minWidthM - 0.02 && !sliver;
+    const maxAspect = r.needsWindow && r.privacy !== 'service' ? 2.05 : 2.22;
+    const ok = r.aspect <= maxAspect && r.widthM >= r.minWidthM - 0.02 && !sliver;
     if (ok) propOk++;
     else if (r.widthM < r.minWidthM - 0.02) issues.push(`${r.name} is ${r.widthM.toFixed(2)} m wide (needs ${r.minWidthM.toFixed(1)} m)`);
     else if (sliver) issues.push(`${r.name} has a narrow leg`);
     else issues.push(`${r.name} is long and thin (1:${r.aspect.toFixed(1)})`);
   }
   const propScore = progRooms.length ? propOk / ctx.rooms.length : 1;
-  C.push({ id: 'proportion', name: 'Proportions', score: propScore, weight: 2.5, value: propOk, unit: 'rooms', detail: `${propOk} of ${ctx.rooms.length} rooms between 1:1 and 1:2.2 and at least their minimum width` });
+  C.push({ id: 'proportion', name: 'Proportions', score: propScore, weight: 2.5, value: propOk, unit: 'rooms', detail: `${propOk} of ${ctx.rooms.length} rooms within 1:2 (1:2.2 for service rooms) and at least their minimum width` });
 
   let fitSum = 0, devSum = 0;
   for (const r of progRooms) {
@@ -801,19 +881,40 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   C.push({ id: 'walls', name: 'Wall length', score: clamp(ideal / Math.max(1, internalWallM), 0, 1), weight: 0.75, value: Math.round(internalWallM * 10) / 10, unit: 'm', detail: `${internalWallM.toFixed(1)} m of internal walls` });
 
   const wet = progRooms.filter((r) => isWet(r));
-  let wetOk = 0;
+  let wetOk = 0, wetBack = 0;
   for (const r of wet) {
     const i = idx.get(r.id)!;
-    const near = wet.some((o) => {
-      if (o === r) return false;
+    let best = 0;
+    for (const o of wet) {
+      if (o === r) continue;
       const j = idx.get(o.id)!;
-      if (sharedLen(i, j) > 0.5) return true;
+      if (sharedLen(i, j) >= 0.9) { best = 1; break; }
       const a = rCentre(mainRectOf(r)), b = rCentre(mainRectOf(o));
-      return Math.hypot(a.x - b.x, a.y - b.y) <= 4.5;
-    });
-    if (near) wetOk++;
+      if (Math.hypot(a.x - b.x, a.y - b.y) <= 4.5) best = Math.max(best, 0.4);
+    }
+    // a bathroom may also back onto the bedroom it serves, or the kitchen
+    if (best < 1 && ['bathroom', 'wc'].includes(r.purpose) && progRooms.some((o) => (o.purpose === 'kitchen' || o.id === 'room-bed-master') && sharedLen(i, idx.get(o.id)!) >= 0.9)) best = Math.max(best, 0.8);
+    wetOk += best; if (best === 1) wetBack++;
   }
-  C.push({ id: 'wet', name: 'Wet rooms', score: wet.length > 1 ? wetOk / wet.length : 1, weight: 0.75, value: wetOk, unit: 'rooms', detail: wet.length > 1 ? `${wetOk} of ${wet.length} wet rooms next to or near another wet room` : 'One wet room' });
+  C.push({ id: 'wet', name: 'Wet rooms', score: wet.length > 1 ? wetOk / wet.length : 1, weight: 2, value: wetBack, unit: 'rooms', detail: wet.length > 1 ? `${wetBack} of ${wet.length} wet rooms share a wall with another wet room (plumbing back to back)` : 'One wet room' });
+
+  // zoning: public rooms near the entrance, bedrooms grouped away from them, rooms without windows in the core
+  {
+    const cen = (r: PlanRoom) => rCentre(mainRectOf(r));
+    const beds = progRooms.filter((r) => r.purpose === 'bedroom' || r.purpose === 'workspace');
+    const pub = progRooms.filter((r) => ['living', 'kitchen', 'dining', 'reception'].includes(r.purpose));
+    const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+    const bb = mean(beds.flatMap((a, x) => beds.slice(x + 1).map((b) => Math.hypot(cen(a).x - cen(b).x, cen(a).y - cen(b).y))));
+    const bp = mean(beds.flatMap((a) => pub.map((b) => Math.hypot(cen(a).x - cen(b).x, cen(a).y - cen(b).y))));
+    const grouped = beds.length > 2 && ctx.home && bp > 0 ? clamp(1.25 - bb / bp, 0, 1) : 1;
+    const e = ctx.entrance;
+    const nearE = (r: PlanRoom) => Math.min(...r.rects.map((q) => Math.hypot((q.x0 + q.x1) / 2 - e.x, (q.y0 + q.y1) / 2 - e.y)));
+    const front = pub.length && beds.length ? mean(pub.map((p) => mean(beds.map((b) => (nearE(p) <= nearE(b) + 1 ? 1 : 0))))) : 1;
+    const inner = progRooms.filter((r) => !r.needsWindow);
+    const core = inner.length ? inner.filter((r) => r.facadeM < 0.3).length / inner.length : 1;
+    const zs = (grouped * 2 + front * 2 + core) / 5;
+    C.push({ id: 'zoning', name: 'Zoning', score: zs, weight: 1.75, value: Math.round(zs * 100), unit: '%', detail: `Public rooms ${Math.round(front * 100)}% nearer the entrance than bedrooms, bedrooms ${Math.round(grouped * 100)}% grouped, ${Math.round(core * 100)}% of windowless rooms in the core` });
+  }
 
   if (missing > 0) issues.push(`${missing} room${missing > 1 ? 's' : ''} did not fit`);
   const wsum = C.reduce((s, c) => s + c.weight, 0);
@@ -825,7 +926,9 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
   score -= progRooms.filter((r) => r.widthM < r.minWidthM - 0.02).length * 3;
   score -= (progRooms.length - reached) * 6;
   score -= progRooms.filter((r) => r.areaM2 < r.minAreaM2 * 0.97).length * 3;
-  score -= progRooms.filter((r) => r.aspect > 2.22).length * 1.5;
+  // a bedroom narrower than 2.1 m cannot take a bed and a walkway: near-hard
+  score -= progRooms.filter((r) => r.purpose === 'bedroom' && r.widthM < 2.1 - 0.02).length * 12;
+  score -= progRooms.filter((r) => r.aspect > (r.needsWindow && r.privacy !== 'service' ? 2.05 : 2.22)).length * 1.5;
   score -= missing * 10;
 
   // windows
@@ -836,13 +939,17 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
       continue;
     }
     if (!r.needsWindow) continue;
+    // planning assumption: glazed area of at least 10% of the floor area, window height 1.3 m
+    const need = (r.areaM2 * 0.1) / WINDOW_H;
     const segs: Seg[] = [];
     for (const e of outerEdges(r.rects)) for (const s of ctx.windowSegs) { const o = overlapSegs(e, s); if (o && segLen(o) >= 1.0) segs.push(o); }
+    const total = segs.reduce((t, s) => t + segLen(s), 0);
+    // aim a little above the minimum so rounding never lands under it
+    const want = Math.max(need * 1.12, r.purpose === 'living' ? 1.8 : 0.9);
     for (const s of segs) {
-      // keep the entrance clear
       const L = segLen(s);
       const bays = Math.max(1, Math.floor(L / 3.2));
-      const ww = clamp(Math.min(L / bays - 0.6, r.purpose === 'living' ? 2.4 : 1.6), 0.6, 2.4);
+      const ww = clamp((want * L / Math.max(total, 1e-6)) / bays, 0.6, Math.min(r.purpose === 'living' ? 2.6 : 2.0, Math.max(0.6, L / bays - 0.5)));
       for (let k = 0; k < bays; k++) {
         const mid = (k + 0.5) * L / bays;
         const p0 = mid - ww / 2, p1 = mid + ww / 2;
@@ -853,7 +960,24 @@ function evaluate(ctx: Ctx, lay: Layout): Eval {
       }
     }
   }
-  return { score, criteria: C, rooms, doors, windows, issues, internalWallM, circulationM2: circ, circulationShare: share };
+  // metrics an architect would read off the drawing
+  const winArea = (id: string) => windows.filter((w) => w.roomId === id).reduce((t, w) => t + Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y) * WINDOW_H, 0);
+  const compromises: string[] = [];
+  const daylightOk = needs.filter((r) => (ctx.fixedWindows.length ? r.daylightM >= 1 : winArea(r.id) >= r.areaM2 * 0.1 - 1e-6)).length;
+  for (const r of needs) if (r.daylightM >= 1 && !ctx.fixedWindows.length && winArea(r.id) < r.areaM2 * 0.1 - 1e-6) compromises.push(`${r.name}: facade too short for a window of 10% of its floor area`);
+  const habitable = progRooms.filter((r) => r.needsWindow && r.privacy !== 'service');
+  const aspectOk = habitable.filter((r) => r.aspect <= 2.05).length;
+  if (aspectOk < habitable.length) compromises.push(`${habitable.length - aspectOk} habitable room${habitable.length - aspectOk > 1 ? 's are' : ' is'} longer than 1:2`);
+  const bedRooms = progRooms.filter((r) => r.purpose === 'bedroom');
+  const minBed = bedRooms.length ? Math.min(...bedRooms.map((r) => r.widthM)) : null;
+  if (minBed != null && minBed < 2.1) compromises.push(`A bedroom is only ${minBed.toFixed(2)} m wide (target 2.1 m)`);
+  if (share > 0.15) compromises.push(`Corridors take ${(share * 100).toFixed(0)}% of the floor (target under 15%)`);
+  const doorClashes = countClashes();
+  if (doorClashes) compromises.push(`${doorClashes} door clash${doorClashes > 1 ? 'es' : ''}`);
+  for (const r of needs) if (r.daylightM < 1) compromises.push(`${r.name} has no external wall`);
+  const metrics = { corridorShare: Math.round(share * 1000) / 1000, daylightOk, daylightNeeded: needs.length, doorClashes, aspectOk, habitable: habitable.length, minBedroomWidthM: minBed == null ? null : Math.round(minBed * 100) / 100, compromises };
+  score -= doorClashes * 4;
+  return { score, criteria: C, rooms, doors, windows, issues, internalWallM, circulationM2: circ, circulationShare: share, metrics };
 }
 const mainRectOf = (r: PlanRoom) => r.rects.reduce((m, q) => (rArea(q) > rArea(m) ? q : m), r.rects[0]);
 
@@ -874,6 +998,10 @@ function initialGenome(ctx: Ctx, fam: Family, defs: RegionDef[], rnd: () => numb
     if (regions.some((r) => r.includes(i))) continue;
     let best = -1, bc = -Infinity;
     cap.forEach((c, ri) => { if (c - (rnd() * 0.15 * c) > bc && (defs[ri].kind === 'A' || defs[ri].kind === 'B')) { bc = c; best = ri; } });
+    if (isServiceWet(ctx.rooms[i])) {
+      const mate = regions.findIndex((r) => r.some((k) => isServiceWet(ctx.rooms[k])));
+      if (mate >= 0 && (defs[mate].kind === 'A' || defs[mate].kind === 'B')) best = mate;
+    }
     if (best < 0) best = 0;
     regions[best].push(i);
     cap[best] -= ctx.rooms[i].preferredAreaM2;
@@ -881,7 +1009,7 @@ function initialGenome(ctx: Ctx, fam: Family, defs: RegionDef[], rnd: () => numb
   return { regions, cf };
 }
 
-function mutate(g: Genome, rnd: () => number): Genome {
+function mutate(g: Genome, rnd: () => number, rooms: ProgrammeRoom[]): Genome {
   const regions = g.regions.map((r) => [...r]);
   const cf = [...g.cf];
   const nonEmpty = regions.map((r, i) => (r.length ? i : -1)).filter((i) => i >= 0);
@@ -890,7 +1018,11 @@ function mutate(g: Genome, rnd: () => number): Genome {
   if (m < 0.32 && nonEmpty.length) {
     const from = pick(nonEmpty), k = Math.floor(rnd() * regions[from].length);
     const [room] = regions[from].splice(k, 1);
-    const to = Math.floor(rnd() * regions.length);
+    let to = Math.floor(rnd() * regions.length);
+    if (isServiceWet(rooms[room]) && rnd() < 0.6) {
+      const homes = regions.map((r, ri) => (r.some((q) => isServiceWet(rooms[q])) ? ri : -1)).filter((ri) => ri >= 0);
+      if (homes.length) to = homes[Math.floor(rnd() * homes.length)];
+    }
     regions[to].splice(Math.floor(rnd() * (regions[to].length + 1)), 0, room);
   } else if (m < 0.62 && nonEmpty.length) {
     const a = pick(nonEmpty), b = pick(nonEmpty);
@@ -920,7 +1052,7 @@ function optimise(ctx: Ctx, fam: Family, famIndex: number, seed: number, iters: 
   let T = 6;
   const cool = Math.pow(0.05 / T, 1 / Math.max(1, iters));
   for (let it = 0; it < iters; it++) {
-    const g2 = mutate(g, rnd);
+    const g2 = mutate(g, rnd, ctx.rooms);
     const l2 = decode(ctx, fam, defs, g2);
     const e2 = evaluate(ctx, l2);
     if (e2.score >= ev.score || rnd() < Math.exp((e2.score - ev.score) / T)) {
@@ -942,6 +1074,30 @@ function describe(ctx: Ctx, run: Run): { name: string; summary: string } {
   const c = (id: Criterion['id']) => run.ev.criteria.find((x) => x.id === id)!;
   const summary = `${c('circulation').value}% circulation, ${run.ev.internalWallM.toFixed(1)} m internal walls, ${c('daylight').value}/${ctx.rooms.filter((r) => r.needsWindow).length} daylit`;
   return { name: name.charAt(0).toUpperCase() + name.slice(1), summary };
+}
+
+/**
+ * One word for the zoning idea of an option, unique among the options returned: how the hall
+ * runs and where the public rooms sit relative to the entrance and the light.
+ */
+function ideaWord(ctx: Ctx, run: Run, taken: Set<string>): string {
+  const b0 = run.fam.blocks[0];
+  const single = run.lay.c[0] < 0.05 || run.lay.c[0] > b0.W - ctx.wc - 0.05;
+  const rooms = run.ev.rooms.filter((r) => !r.isHall);
+  const wide = rooms.some((r) => r.rects.length === 1 && rLong(r.rects[0]) >= b0.W - 0.01 && b0.W > 4 && r.privacy === 'public');
+  const e = ctx.entrance;
+  const front = (r: PlanRoom) => Math.min(...r.rects.map((q) => Math.hypot((q.x0 + q.x1) / 2 - e.x, (q.y0 + q.y1) / 2 - e.y)));
+  const pub = rooms.filter((r) => ['living', 'kitchen', 'dining', 'reception'].includes(r.purpose));
+  const bed = rooms.filter((r) => ['bedroom', 'workspace'].includes(r.purpose));
+  const split = pub.length && bed.length && Math.max(...pub.map(front)) < Math.min(...bed.map(front));
+  const prefs = run.fam.blocks.length > 1 ? ['Wing'] : [];
+  if (wide) prefs.push('Pavilion');
+  if (split) prefs.push('Zoned');
+  prefs.push(single ? 'Flank' : 'Spine');
+  prefs.push('Axis', 'Cluster', 'Ribbon', 'Hearth', 'Garden', 'Court');
+  const w = prefs.find((x) => !taken.has(x)) ?? `Plan${taken.size + 1}`;
+  taken.add(w);
+  return w;
 }
 
 /**
@@ -991,14 +1147,17 @@ export function planBuilding(shell: Vec2[], entrances: ShellEntrance[], windows:
   for (const r of runs) { if (chosen.length >= count) break; const s = sig(r); if (seenSig.has(s)) continue; seenSig.add(s); chosen.push(r); }
   chosen.sort((a, b) => b.ev.score - a.ev.score);
   const exteriorWallM = opts.exteriorWallM ?? 0.3, interiorWallM = opts.interiorWallM ?? 0.1;
+  const taken = new Set<string>();
   return chosen.map((r, k) => {
     const d = describe(ctx, r);
+    const idea = ideaWord(ctx, r, taken);
     return {
       id: `plan-${seed}-${k + 1}`, name: d.name, summary: d.summary, family: r.fam.key, seed: r.seed, shell: poly,
       rooms: r.ev.rooms, doors: r.ev.doors, windows: r.ev.windows, criteria: r.ev.criteria, score: Math.round(r.ev.score * 10) / 10,
       internalWallM: Math.round(r.ev.internalWallM * 10) / 10, circulationM2: Math.round(r.ev.circulationM2 * 10) / 10,
       circulationShare: r.ev.circulationShare, totalAreaM2: Math.round(ctx.area * 10) / 10, corridorWidthM: ctx.wc,
       exteriorWallM, interiorWallM, issues: [...new Set(r.ev.issues)],
+      metrics: { idea, ...r.ev.metrics },
     };
   });
 }
