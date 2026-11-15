@@ -17,18 +17,20 @@ import { Icon } from '../../ui/icons';
 import './scene3d.css';
 import { XRRig } from '../xr/XRRig';
 import { enterXR, useXRSupport, type XRMode } from '../xr/xrSupport';
-import { approach, clampTarget, floorUnderReticle, orientationLook, slideMove, wishVelocity } from './walkMath';
+import { approach, clampTarget, orientationLook } from './walkMath';
+import { attachWalkInput, clampPitch, type WalkInput as WalkKeys } from '../sim/walkInput';
+import { stepWalker } from '../sim/walker';
+import { furnitureObstacles, segmentObstacles } from '../sim/collide';
+import { Minimap } from '../sim/Minimap';
 
 type CamMode = 'orbit' | 'walk';
 type ViewKind = 'corner' | 'top' | 'front';
 const EYES = [
-  { id: 'standing', label: 'Standing', h: 1.65 },
+  { id: 'standing', label: 'Standing', h: 1.6 },
   { id: 'seated', label: 'Seated', h: 1.2 },
   { id: 'child', label: 'Child', h: 1.0 },
   { id: 'wheelchair', label: 'Wheelchair', h: 1.2 },
 ];
-/** C / Q step down, Space / E step back up through these. */
-const EYE_STEPS = ['standing', 'seated', 'child'];
 
 interface CamReq { toP?: THREE.Vector3; toT?: THREE.Vector3; view?: ViewKind; focus?: THREE.Vector3; box?: { cx: number; cy: number; w: number; d: number }; n: number }
 
@@ -110,6 +112,10 @@ const SEL_COLOR = new THREE.Color('#9fd0ff'), PLAIN = new THREE.Color('#ffffff')
 const REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** Automated browsers get a still camera so scripted checks see stable poses. */
 const SCRIPTED = typeof navigator !== 'undefined' && !!(navigator as Navigator & { webdriver?: boolean }).webdriver;
+/** True while walking: pieces settle at once instead of dropping or gliding. */
+const WALKING = { on: false };
+/** Vertical field of view: wide at eye level so a small room does not feel like a tunnel. */
+const FOV = { orbit: 50, walk: 70 } as const;
 type Quality = 'high' | 'low';
 /** Start at full quality unless the screen is low density on a small CPU; frame drops lower it later. */
 const START_QUALITY: Quality = typeof window !== 'undefined' && (window.devicePixelRatio || 1) < 1.25 && (navigator.hardwareConcurrency || 8) <= 4 ? 'low' : 'high';
@@ -376,6 +382,7 @@ function Settle({ it, delay, leaving, instant, gesture, children }: { it: Furnit
     const g = outer.current, k = st.current;
     if (!g || k.done) return;
     const now = clock.elapsedTime;
+    if (WALKING.on && !leaving) { k.y = 0; k.vy = 0; k.dx = 0; k.dz = 0; k.dr = 0; k.born = Math.min(k.born < 0 ? now : k.born, now); }
     if (k.born < 0) k.born = now + delay / 1000;
     const h = Math.min(dt, 1 / 30);
     let busy = false;
@@ -663,8 +670,8 @@ interface Shot { t: number; dur: number; fromP: THREE.Vector3; fromT: THREE.Vect
 
 type Controls = THREE.EventDispatcher<{ change: object; start: object; end: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean };
 
-function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
-  mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; req: CamReq | null;
+function CameraRig({ mode, eye, room, walk, input, req, gesture, onRoom, onTourEnd }: {
+  mode: CamMode; eye: number; room: ReturnType<typeof useRoom>; walk: MutableRefObject<Walk>; input: MutableRefObject<WalkKeys | null>; req: CamReq | null;
   gesture: MutableRefObject<Gesture>; onRoom: (spaceId: string | null) => void; onTourEnd: () => void;
 }) {
   const { camera, invalidate } = useThree();
@@ -680,6 +687,7 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
 
   const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height));
   const framed = useRef<{ key: string; aspect: number; mode: CamMode } | null>(null);
+  const orbitPose = useRef<{ p: THREE.Vector3; t: THREE.Vector3; key: string } | null>(null);
   // Where the last glide ended, for controls that mount after the first framing.
   const lastT = useRef<THREE.Vector3 | null>(null);
   const flyTo = (toP: THREE.Vector3, toT: THREE.Vector3, seconds?: number, sweep = 0) => {
@@ -689,7 +697,10 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
       const damp = c.enableDamping; c.enableDamping = false; controls.update(); c.enableDamping = damp;
     }
     lastT.current = toT.clone();
-    const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
+    // start from where the camera actually looks (the walker does not move the orbit target)
+    const fromT = controls
+      ? camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(Math.max(1, camera.position.distanceTo(controls.target))))
+      : new THREE.Vector3(room.cx, 0, room.cy);
     // a damped dolly: longer moves take a little longer, and nothing ever cuts unless motion is reduced
     const dur = REDUCED ? 0.001 : seconds ?? Math.min(1.6, Math.max(0.8, 0.7 + camera.position.distanceTo(toP) * 0.05));
     anim.current = { t: 0, dur, fromP: camera.position.clone(), fromT, toP: toP.clone(), toT: toT.clone(), sweep };
@@ -730,7 +741,11 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
     if (sameRoom && (mode === 'walk' || gesture.current.touched || Math.abs(Math.log(f.aspect / aspect)) < 0.2)) return;
     framed.current = { key: room.key, aspect, mode };
     let toP: THREE.Vector3, toT: THREE.Vector3;
-    if (mode !== 'walk') ({ p: toP, t: toT } = homeView(room, camera, 'corner'));
+    // entering the walk remembers the orbit view; leaving it glides back there
+    if (mode === 'walk' && f?.mode === 'orbit') orbitPose.current = { p: camera.position.clone(), t: controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy), key: room.key };
+    const back = orbitPose.current;
+    if (mode !== 'walk' && f?.mode === 'walk' && back && back.key === room.key) { toP = back.p.clone(); toT = back.t.clone(); }
+    else if (mode !== 'walk') ({ p: toP, t: toT } = homeView(room, camera, 'corner'));
     else {
       const w = walk.current;
       // first walk in this building (or standing outside it): start at the entrance, looking in
@@ -813,6 +828,10 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
 
   // Inside some room, clear of every wall piece (door and opening gaps are open) and of furniture.
   const solidItems = useMemo(() => items.filter((it) => !isRug(it)).map((it) => itemCorners(it)), [items]);
+  const world = useMemo(() => ({
+    obstacles: [...segmentObstacles(room.solids), ...furnitureObstacles(items)],
+    canStand: (p: Vec2) => !room.model.spaces.length || onFloor(room.model, p, room.bridges),
+  }), [room, items]);
   const blocked = (p: Vec2) => {
     if (!room.model.spaces.length) return false;
     if (!onFloor(room.model, p, room.bridges) || !clearOfWalls(p, 0.2, room.solids)) return true;
@@ -821,6 +840,15 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
 
   useFrame((_, dt) => {
     if (controls) controls.enabled = mode !== 'walk' && !gesture.current.onPiece;
+    WALKING.on = mode === 'walk';
+    const pc = camera as THREE.PerspectiveCamera;
+    const wantFov = mode === 'walk' ? FOV.walk : FOV.orbit;
+    if (pc.isPerspectiveCamera && Math.abs(pc.fov - wantFov) > 0.01) {
+      pc.fov = REDUCED || Math.abs(pc.fov - wantFov) < 0.05 ? wantFov : pc.fov + (wantFov - pc.fov) * Math.min(1, dt * 4);
+      pc.near = 0.05;
+      pc.updateProjectionMatrix();
+      invalidate();
+    }
     const a = anim.current;
     if (a) {
       a.t = Math.min(1, a.t + dt / a.dur);
@@ -860,14 +888,13 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
       return;
     }
     const w = walk.current;
-    let f = -w.joy.y, s = w.joy.x;
-    const k = w.keys;
-    if (k.has('w') || k.has('arrowup')) f += 1;
-    if (k.has('s') || k.has('arrowdown')) f -= 1;
-    if (k.has('d') || k.has('arrowright')) s += 1;
-    if (k.has('a') || k.has('arrowleft')) s -= 1;
     // capped so a stalled frame never jumps through a wall; generous enough for slow devices
     const step = Math.min(dt, 0.1);
+    const ax = input.current?.read(step) ?? { forward: 0, strafe: 0, sprint: false, dYaw: 0, dPitch: 0 };
+    const f = ax.forward, s = ax.strafe;
+    w.yaw += ax.dYaw;
+    w.pitch = clampPitch(w.pitch + ax.dPitch);
+    const turning = ax.dYaw !== 0 || ax.dPitch !== 0;
     if (f || s) {
       w.goal = null; w.path = null;
       if (w.tour) { w.tour = false; onTourEnd(); }
@@ -891,21 +918,17 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
         if (blocked(next)) w.goal = null; else w.pos = next;
       }
     }
-    // keys and joystick: ease toward the wanted speed (Shift runs), slide along walls on contact
-    const want = wishVelocity(f, s, w.yaw, k.has('shift') ? 3.2 : 1.4);
-    const vel = w.vel ?? { x: 0, y: 0 };
-    vel.x = approach(vel.x, want.x, f || s ? 9 : 12, step);
-    vel.y = approach(vel.y, want.y, f || s ? 9 : 12, step);
-    if (Math.hypot(vel.x, vel.y) < 0.01 && !f && !s) { vel.x = 0; vel.y = 0; }
-    w.vel = vel;
-    if (vel.x || vel.y) {
-      const next = slideMove(w.pos, { x: vel.x * step, y: vel.y * step }, blocked);
-      if (next === w.pos) { vel.x = 0; vel.y = 0; }
-      w.pos = next;
+    // keys, thumb pad and gamepad: smooth acceleration, fixed sub-steps, sliding along walls and furniture
+    let walker = { pos: w.pos, vel: w.vel ?? { x: 0, y: 0 }, yaw: w.yaw, pitch: w.pitch, phase: 0, blockedAt: null as Vec2 | null };
+    if (!w.path && !w.goal) {
+      for (let left = step; left > 1e-6; left -= 0.05) walker = stepWalker(walker, { forward: f, strafe: s, sprint: ax.sprint }, Math.min(0.05, left), { seated: false, bob: false }, world);
+      w.pos = walker.pos;
     }
+    const vel = walker.vel;
+    w.vel = vel;
     const eyeY = w.eyeY ?? eye;
     w.eyeY = Math.abs(eye - eyeY) < 0.002 ? eye : approach(eyeY, eye, 8, step);
-    const moving = !!(vel.x || vel.y || w.path || w.goal) || w.eyeY !== eye;
+    const moving = !!(vel.x || vel.y || w.path || w.goal) || turning || w.eyeY !== eye;
     gesture.current.walking = moving;
     if (moving) performance.regress();
     camera.position.set(w.pos.x, w.eyeY, w.pos.y);
@@ -1021,27 +1044,6 @@ function SelectionRim({ items }: { items: FurnitureItem[] }) {
   return <pointLight position={it ? [it.x - 0.4, it.h + 0.7, it.y - 0.4] : [0, -10, 0]} color="#cfe6ff" intensity={it ? 2.2 : 0} distance={2.6} decay={2} />;
 }
 
-/* ---------- Joystick ---------- */
-
-function Joystick({ walk }: { walk: MutableRefObject<Walk> }) {
-  const [knob, setKnob] = useState({ x: 0, y: 0 });
-  const base = useRef<HTMLDivElement>(null);
-  const move = (e: React.PointerEvent) => {
-    const r = base.current!.getBoundingClientRect();
-    let x = (e.clientX - r.left - r.width / 2) / (r.width / 2), y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
-    const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
-    walk.current.joy = { x, y }; setKnob({ x, y });
-  };
-  const end = () => { walk.current.joy = { x: 0, y: 0 }; setKnob({ x: 0, y: 0 }); };
-  return (
-    <div ref={base} className="scene3d-joy" aria-label="Move" onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); move(e); e.stopPropagation(); }}
-      onPointerMove={(e) => { if (e.buttons || e.pointerType === 'touch') move(e); }} onPointerUp={end} onPointerCancel={end}>
-      <div className="scene3d-knob" style={{ transform: `translate(${knob.x * 28}px, ${knob.y * 28}px)` }} />
-    </div>
-  );
-}
-
-/* ---------- Main ---------- */
 
 /** Backdrop colour for the 3D view that sits quietly next to the rest of the UI in either theme. */
 function useBackdrop() {
@@ -1059,7 +1061,6 @@ function useBackdrop() {
 }
 
 const COARSE = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-const CAN_LOCK = !COARSE && typeof Element !== 'undefined' && 'requestPointerLock' in Element.prototype;
 const isField = (t: EventTarget | null) => t instanceof HTMLElement && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable);
 
 /** Mouse and key reference, opened from the "?" button. */
@@ -1072,6 +1073,19 @@ function HelpCard({ mode }: { mode: CamMode }) {
       <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     </div>
   );
+}
+
+/** Plan chip in the corner of the eye view: where the visitor stands and which way they face. */
+function WalkMinimap({ model, walk }: { model: ReturnType<typeof useRoom>['model']; walk: MutableRefObject<Walk> }) {
+  const [at, setAt] = useState(() => ({ pos: walk.current.pos, yaw: walk.current.yaw }));
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const w = walk.current;
+      setAt((o) => (o.pos.x === w.pos.x && o.pos.y === w.pos.y && o.yaw === w.yaw ? o : { pos: { ...w.pos }, yaw: w.yaw }));
+    }, 100);
+    return () => clearInterval(t);
+  }, [walk]);
+  return <Minimap model={model} pos={at.pos} yaw={at.yaw} />;
 }
 
 export function SceneView() {
@@ -1091,8 +1105,6 @@ export function SceneView() {
   const [quality, setQuality] = useState<Quality>(START_QUALITY);
   const light = daylight(hour);
   const [menu, setMenu] = useState<'view' | 'help' | null>(null);
-  const [locked, setLocked] = useState(false);
-  const [lockFailed, setLockFailed] = useState(false);
   const [fs, setFs] = useState(false);
   const [idle, setIdle] = useState(false);
   const [tilt, setTilt] = useState(false);
@@ -1110,6 +1122,7 @@ export function SceneView() {
   const eye = EYES.find((e) => e.id === eyeId)!.h;
   const walk = useRef<Walk>({ pos: { x: room.cx, y: room.cy }, yaw: 0, pitch: 0, joy: { x: 0, y: 0 }, keys: new Set() });
   const wrap = useRef<HTMLDivElement>(null);
+  const walkKeys = useRef<WalkKeys | null>(null);
   const [req, setReq] = useState<CamReq | null>(null);
   const reqN = useRef(0);
   const ask = (r: Omit<CamReq, 'n'>) => setReq({ ...r, n: ++reqN.current });
@@ -1160,6 +1173,7 @@ export function SceneView() {
 
   // Auto tour: walk every room along the door graph; optionally record it as a WebM video.
   const [touring, setTouring] = useState(false);
+  const touringRef = useRef(touring); touringRef.current = touring;
   const [recording, setRecording] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const canRecord = typeof MediaRecorder !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
@@ -1243,33 +1257,19 @@ export function SceneView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (full) wake(); else { clearTimeout(idleT.current); setIdle(false); } }, [full]);
 
-  /* ----- Walk: pointer lock for mouse look ----- */
-  const lock = () => {
+
+  /* ----- Walk: keys, drag to look, touch halves, gamepad ----- */
+  // Keys work the moment the walk opens: the view takes focus and a text field never keeps it.
+  useEffect(() => {
     const el = wrap.current;
-    if (!el || !CAN_LOCK) return;
-    try {
-      const r = el.requestPointerLock() as unknown as Promise<void> | undefined;
-      r?.catch?.(() => setLockFailed(true));
-    } catch { setLockFailed(true); }
-  };
-  useEffect(() => {
-    const change = () => setLocked(!!wrap.current && document.pointerLockElement === wrap.current);
-    const err = () => setLockFailed(true);
-    document.addEventListener('pointerlockchange', change);
-    document.addEventListener('pointerlockerror', err);
-    return () => { document.removeEventListener('pointerlockchange', change); document.removeEventListener('pointerlockerror', err); };
-  }, []);
-  useEffect(() => { if (mode !== 'walk' && document.pointerLockElement) document.exitPointerLock(); }, [mode]);
-  useEffect(() => {
-    if (!locked) return;
-    const move = (e: MouseEvent) => {
-      const w = walk.current;
-      w.yaw -= e.movementX * 0.0022;
-      w.pitch = Math.max(-1.2, Math.min(1.2, w.pitch - e.movementY * 0.0022));
-    };
-    document.addEventListener('mousemove', move);
-    return () => document.removeEventListener('mousemove', move);
-  }, [locked]);
+    if (mode !== 'walk' || !el) return;
+    const a = document.activeElement;
+    if (a instanceof HTMLElement && a !== el && isField(a)) a.blur();
+    el.focus({ preventScroll: true });
+    const h = attachWalkInput(el, { enabled: () => !touringRef.current, onExit: () => setMode('orbit') });
+    walkKeys.current = h;
+    return () => { h.dispose(); walkKeys.current = null; };
+  }, [mode]);
 
   /* ----- Walk: look around by turning the phone ----- */
   const startTilt = async () => {
@@ -1308,6 +1308,7 @@ export function SceneView() {
     w.__spacelensWalk = {
       get pos() { return devRef.current.walk.current.pos; },
       get path() { return devRef.current.walk.current.path; },
+      get look() { const k = devRef.current.walk.current; return { yaw: k.yaw, pitch: k.pitch }; },
       walk: () => devRef.current.setMode('walk'),
       to: (x: number, y: number) => devRef.current.walkTo({ x, y }),
       tour: (record = false) => devRef.current.startTour(record),
@@ -1360,72 +1361,13 @@ export function SceneView() {
     return () => window.removeEventListener('spacelens:walk', h);
   }, []);
 
-  // Walk keys are caught first (capture phase) so arrows and letters do not also edit the plan.
-  const lockRef = useRef(lock); lockRef.current = lock;
-  useEffect(() => {
-    if (mode !== 'walk') return;
-    const MOVE = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
-    const stepEye = (dir: number) => setEyeId((cur) => {
-      const i = Math.max(0, EYE_STEPS.indexOf(cur === 'wheelchair' ? 'seated' : cur));
-      return EYE_STEPS[Math.max(0, Math.min(EYE_STEPS.length - 1, i + dir))];
-    });
-    const down = (e: KeyboardEvent) => {
-      if (isField(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      const keys = walk.current.keys;
-      if (e.shiftKey) keys.add('shift'); else keys.delete('shift');
-      const k = e.key.toLowerCase();
-      if (MOVE.includes(k)) keys.add(k);
-      else if (k === 'c' || k === 'q') { if (!e.repeat) stepEye(1); }
-      else if (k === ' ' || k === 'e') { if (!e.repeat) stepEye(-1); }
-      else if (k === 'enter' && !(e.target instanceof HTMLButtonElement)) lockRef.current();
-      else return;
-      e.preventDefault(); e.stopPropagation();
-    };
-    const up = (e: KeyboardEvent) => {
-      const keys = walk.current.keys;
-      keys.delete(e.key.toLowerCase());
-      if (!e.shiftKey) keys.delete('shift');
-    };
-    const blur = () => walk.current.keys.clear();
-    window.addEventListener('keydown', down, true); window.addEventListener('keyup', up, true); window.addEventListener('blur', blur);
-    return () => { window.removeEventListener('keydown', down, true); window.removeEventListener('keyup', up, true); window.removeEventListener('blur', blur); blur(); };
-  }, [mode]);
 
-  // Drag to look while the mouse is not captured (and on touch screens).
-  const drag = useRef<{ x: number; y: number; id: number } | null>(null);
-  const downAt = useRef<{ x: number; y: number } | null>(null);
-  const onDown = (e: React.PointerEvent) => {
-    downAt.current = { x: e.clientX, y: e.clientY };
+  const onDown = () => {
     // The orbit controls cancel the default pointer action, so a search box elsewhere would keep the
     // keyboard; take focus so F, Home and WASD reach the 3D view right after a click in it.
     if (wrap.current && document.activeElement !== wrap.current) wrap.current.focus({ preventScroll: true });
     if (menu) setMenu(null);
-    if (mode === 'walk' && !locked) drag.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
   };
-  const onMove = (e: React.PointerEvent) => {
-    wake();
-    const d = drag.current; if (!d || d.id !== e.pointerId) return;
-    const w = walk.current;
-    w.yaw -= (e.clientX - d.x) * 0.005;
-    w.pitch = Math.max(-1.2, Math.min(1.2, w.pitch - (e.clientY - d.y) * 0.004));
-    d.x = e.clientX; d.y = e.clientY;
-  };
-  const onUp = () => { drag.current = null; };
-  // In walk mode a click captures the mouse; once captured, a click walks to the spot under the reticle.
-  const onClick = (e: React.MouseEvent) => {
-    if (mode !== 'walk' || touring) return;
-    if ((e.target as HTMLElement).closest?.('.scene3d-ui, .scene3d-joy')) return;
-    const d = downAt.current;
-    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
-    if (locked) {
-      const w = walk.current;
-      const p = floorUnderReticle(w.pos, w.eyeY ?? eye, w.yaw, w.pitch);
-      if (p) walkTo(p);
-      return;
-    }
-    if (CAN_LOCK && !lockFailed) lock();
-  };
-  const tapToMove = mode === 'walk' && !locked && (!CAN_LOCK || lockFailed);
 
   // The figure, the walk and VR all start at the entrance, looking in.
   const figAt = room.spawn.pos;
@@ -1435,28 +1377,24 @@ export function SceneView() {
 
   const live = mode === 'walk' || !!(passage && passage.poses.length > 1);
   const devExtra = useRef<Record<string, unknown>>({});
-  devExtra.current = { locked, lockFailed, fs, pseudoFs, eye, menu };
-  const hint = touring || recording ? null
-    : COARSE ? 'Tap to move, drag to look'
-      : locked ? 'Esc to release the mouse'
-        : tapToMove ? 'Click to move, drag to look'
-          : 'Click to look around, WASD to move';
+  devExtra.current = { fs, pseudoFs, eye, menu };
 
   return (
     <div className={`scene3d${full ? ' is-fs' : ''}${pseudoFs ? ' is-pseudo' : ''}${idle ? ' is-idle' : ''}`} ref={wrap} tabIndex={-1} style={{ background: backdrop }}
-      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClick={onClick}>
+      onPointerDown={onDown} onPointerMove={wake}>
       <Canvas shadows dpr={quality === 'high' ? [1, 2] : [1, 1.25]} performance={{ min: 0.6, debounce: 250 }} frameloop={live ? 'always' : 'demand'} camera={{ position: [room.cx + 6, 7, room.cy + 7], fov: 50, near: 0.05, far: 200 }}
         gl={{ antialias: true }} onCreated={({ gl }) => { glRef.current = gl; gl.xr.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 0.95; gl.outputColorSpace = THREE.SRGBColorSpace; }}>
         {xrMode !== 'immersive-ar' && <color attach="background" args={[backdrop]} />}
         <fog attach="fog" args={[backdrop, room.size * 2.6, room.size * 8]} />
-        <hemisphereLight args={[light.night > 0.5 ? '#5a6a8a' : '#f4f1ea', '#5b5348', 0.18 * (1 - 0.5 * light.night)]} />
+        <hemisphereLight args={[light.night > 0.5 ? '#5a6a8a' : '#f4f1ea', '#5b5348', (mode === 'walk' ? 0.55 : 0.18) * (1 - 0.5 * light.night)]} />
+        {mode === 'walk' && <ambientLight color="#fff6ea" intensity={0.3} />}
         <Sun hour={hour} room={room} quality={quality} />
         <Environment files={BASE + 'assets/env/lebombo_1k.hdr'} environmentIntensity={0.85 * (1 - 0.8 * light.night) * (0.75 + 0.25 * light.day)} />
         <LampGlow items={shown} hour={hour} />
         <SelectionRim items={shown} />
         <PerformanceMonitor onDecline={() => setQuality('low')} flipflops={2} />
 
-        <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? (p) => { if (tapToMove) walkTo(p); } : undefined} onFocus={mode === 'walk' ? undefined : focusPoint} hover={multi ? hoverRoom : undefined} />
+        <Plates spaces={model.spaces} y={0} onWalkTo={mode === 'walk' ? () => {} : undefined} onFocus={mode === 'walk' ? undefined : focusPoint} hover={multi ? hoverRoom : undefined} />
         <BuildingShell room={room} selectedWall={selection?.kind === 'wall' ? selection.id : null} cutaway={cutaway && mode !== 'walk'} gesture={gesture} onFocus={mode === 'walk' ? undefined : focusPoint} pickable={mode !== 'walk'} />
         {multi && mode !== 'walk' && <LabelLayout spaces={model.spaces} box={labelBox} hover={hoverRoom} />}
         {mode === 'walk' && <Plates spaces={model.spaces} y={model.ceilingM} ceiling />}
@@ -1475,7 +1413,7 @@ export function SceneView() {
         <AdaptiveDpr />
         <MotionBudget gesture={gesture} mode={mode} deps={[model, shown, hour, showBefore, activeCandidateId, mode, figure, quality]} />
         <XRRig spawn={figAt} spawnYaw={room.spawn.yaw} />
-        <CameraRig mode={mode} eye={eye} room={room} walk={walk} req={req} gesture={gesture} onRoom={setRoomId} onTourEnd={endTour} />
+        <CameraRig mode={mode} eye={eye} room={room} walk={walk} input={walkKeys} req={req} gesture={gesture} onRoom={setRoomId} onTourEnd={endTour} />
         <DevHandle mode={mode} extra={devExtra} />
       </Canvas>
 
@@ -1490,21 +1428,23 @@ export function SceneView() {
       {mode !== 'walk' && selection?.kind === 'furniture' && <div className="scene3d-hint muted">Drag to move, Q/E to rotate</div>}
       <div className="scene3d-ui" onPointerDown={(e) => e.stopPropagation()}>
         <div className="scene3d-modes" role="toolbar" aria-label="3D view">
-          <button className={`scene3d-ib${mode === 'walk' ? ' on' : ''}`} onClick={() => setMode(mode === 'walk' ? 'orbit' : 'walk')} aria-pressed={mode === 'walk'} aria-label="Walk" title={mode === 'walk' ? 'Back to orbit' : 'Walk through'}>
+          <button className={`scene3d-ib${mode === 'walk' ? ' on' : ''}`} onClick={() => setMode(mode === 'walk' ? 'orbit' : 'walk')} aria-pressed={mode === 'walk'} aria-label="Walk" title={mode === 'walk' ? 'Back to orbit (Esc)' : 'Eye view'}>
             <Icon name="walk" />
           </button>
           {touring && <button className="scene3d-ib on" onClick={stopTour} aria-label="Stop tour" title="Stop tour"><Icon name="pause" /></button>}
           <button className={`scene3d-ib${full ? ' on' : ''}`} onClick={toggleFs} aria-pressed={full} aria-label="Full screen" title={full ? 'Leave full screen (Esc)' : 'Full screen (Shift+F)'}>
             <Icon name={full ? 'x' : 'maximize'} />
           </button>
-          <button className={`scene3d-ib${menu === 'help' ? ' on' : ''}`} onClick={() => setMenu(menu === 'help' ? null : 'help')} aria-expanded={menu === 'help'} aria-label="Controls" title="Controls">
-            <span className="scene3d-q" aria-hidden="true">?</span>
-          </button>
+          {mode !== 'walk' && (
+            <button className={`scene3d-ib${menu === 'help' ? ' on' : ''}`} onClick={() => setMenu(menu === 'help' ? null : 'help')} aria-expanded={menu === 'help'} aria-label="Controls" title="Controls">
+              <span className="scene3d-q" aria-hidden="true">?</span>
+            </button>
+          )}
           <button className={`scene3d-tb${menu === 'view' ? ' on' : ''}`} onClick={() => setMenu(menu === 'view' ? null : 'view')} aria-expanded={menu === 'view'}>
             View<Icon name="chevronDown" />
           </button>
         </div>
-        {menu === 'help' && <HelpCard mode={mode} />}
+        {menu === 'help' && mode !== 'walk' && <HelpCard mode={mode} />}
         {menu === 'view' && (
           <div className="scene3d-opts">
             <div className="scene3d-chips" role="group" aria-label="Camera">
@@ -1542,16 +1482,8 @@ export function SceneView() {
           </div>
         )}
       </div>
-      {mode === 'walk' && (
-        <>
-          {!touring && !locked && <Joystick walk={walk} />}
-          {locked && <div className="scene3d-reticle" aria-hidden="true" />}
-          <div className="scene3d-hint muted">
-            {multi && roomName && <div className="scene3d-here" aria-live="polite"><span className="sr-only">You are in </span>{roomName}</div>}
-            {recording ? <span className="scene3d-rec">Recording</span> : touring ? 'Touring' : <div key={hint} className="scene3d-fade">{hint}</div>}
-          </div>
-        </>
-      )}
+      {mode === 'walk' && <WalkMinimap model={model} walk={walk} />}
+      {mode === 'walk' && <div className="sr-only" aria-live="polite">{recording ? 'Recording' : multi && roomName ? roomName : ''}</div>}
     </div>
   );
 }
