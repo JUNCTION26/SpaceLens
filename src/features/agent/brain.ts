@@ -8,11 +8,12 @@ import { uid } from '../../core/geometry';
 import { getState } from '../../core/store';
 import type { StoreListing } from '../../core/types';
 import { CATALOG } from '../furniture/catalog';
-import { ACTION_TYPES, cleanReply, cleanSay, cleanSketch, execute, sketchMarks, type Action, type AgentReply, type Ctx } from './actions';
+import { ACTION_TYPES, applyRoomOps, cleanReply, extraSketch, looksLikeEdit, wantsNewRoom, cleanSay, cleanSketch, execute, sketchMarks, type Action, type AgentReply, type Ctx } from './actions';
 import { useAgent } from './agentStore';
 import { describeMark, refersToSketch } from './deixis';
 import { loadMod, loadedMod } from './mods';
-import { answerFromModel } from './answer';
+import { answerWithHighlight } from './answer';
+import { refineRoom, refineRoomOffline } from '../intent/refine';
 import { offlineReply } from './offline';
 import { latestMark, useSketch } from './sketchStore';
 import { speak, stopSpeaking, takeSentences } from './speech';
@@ -161,6 +162,19 @@ export interface TurnOptions {
   offline?: boolean;
 }
 
+/** A spoken follow-up that adjusts the room: applied at once, one undo step, a short confirmation. */
+async function tryEdit(words: string, model: ReturnType<typeof getState>['model'], offline: boolean): Promise<{ say: string } | null> {
+  try {
+    const previous = getState().past.at(-1)?.furniture;
+    const r = offline ? refineRoomOffline(model, words, { previous }) : await refineRoom(model, words, { previous });
+    if (!r || !r.ok || r.noChange) return null;
+    if (r.undo && !r.ops.length) getState().undo();
+    else if (r.ops.length) applyRoomOps(r.ops, r.label);
+    else return null;
+    return { say: r.label };
+  } catch { return null; }
+}
+
 export async function runTurn(text: string, opts: TurnOptions = {}): Promise<void> {
   const words = text.trim();
   if (!words) return;
@@ -173,6 +187,7 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
   agent.push({ id: uid('t'), who: 'you', text: words, at: Date.now() });
   agent.set({ thinking: true, caption: '', status: '', error: null });
   useSketch.getState().supersede(turnId);
+  { const an = getState().analysis; if (an.highlights.length || an.routes.length) getState().setAnalysis({ highlights: [], routes: [] }); }
   await loadMod('reports');
 
   const st = getState();
@@ -193,10 +208,23 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
     return stream.finish(r);
   };
 
-  const instant = answerFromModel(words, st);
+  const instant = answerWithHighlight(words, st);
+  const edit = !instant && st.model.furniture.length > 0 && !wantsNewRoom(words) && looksLikeEdit(words)
+    ? await tryEdit(words, st.model, !!opts.offline) : null;
+  if (ac.signal.aborted) return;
   if (instant) {
-    reply = stream.finish({ say: instant, sketch: [], actions: [] });
+    const h = instant.highlight;
+    if (h) {
+      const ids = [...(h.spaceIds ?? []), ...(h.openingIds ?? [])];
+      const routes = h.route && h.route.length > 1
+        ? [{ id: 'answer', profile: 'adult' as const, points: h.route, ok: true, lengthM: null, narrowestM: null, label: '' }] : [];
+      getState().setAnalysis({ highlights: ids.length ? [{ ids, color: 'var(--accent, #3b82f6)', label: '' }] : [], routes });
+    }
+    reply = stream.finish({ say: instant.text, sketch: [], actions: [] });
     meta = `Instant · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
+  } else if (edit) {
+    reply = stream.finish({ say: edit.say, sketch: [], actions: [] });
+    meta = `Edit · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
   } else if (aiReady() && !opts.offline) {
     try {
       const sid = st.activeCandidateId ?? st.candidates[0]?.id;
@@ -227,6 +255,8 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
   useAgent.getState().push({ id: agentTurnId, who: 'agent', text: reply.say, at: Date.now(), meta });
   useAgent.getState().set({ timing: meta, caption: reply.say, thinking: reply.actions.length > 0 });
 
+  const extra = extraSketch(reply.actions, ctx);
+  if (extra.length) useSketch.getState().addMany(extra);
   const done: string[] = [];
   let products: StoreListing[] | undefined;
   let spokenExtra = '';

@@ -3,12 +3,14 @@
 import {
   add, centroid, dist, fmtSek, itemCorners, mul, norm, pointInPolygon, rotate, sub, uid, wallInwardNormal, wallSegment,
 } from '../../core/geometry';
+import { applyOp } from '../../core/ops';
 import { getState } from '../../core/store';
-import type { FurnitureItem, Infeasibility, LayoutCandidate, ObjectSpec, SketchMark, SpaceModel, StoreListing, Vec2 } from '../../core/types';
+import type { FurnitureItem, Infeasibility, Op, LayoutCandidate, ObjectSpec, SketchMark, SpaceModel, StoreListing, Vec2 } from '../../core/types';
 import { catalogEntry, findByKeyword, makeItem, makeOwnItem } from '../furniture/catalog';
 import { clampInside, findFreeSpot, resolveOverlap, rotationFacing, snapToWall, wallCompass } from '../objects/placement';
 import { validateLayout } from '../referee/validate';
 import { colorHex, parseSpoken } from '../voice/parse';
+import { sketchForAll, type SketchWorld } from '../voice/sketchFor';
 import { markGeometry } from './deixis';
 import { loadMod, loadedMod, type PipelineReport } from './mods';
 import { latestMark, useSketch, type AgentMark } from './sketchStore';
@@ -719,4 +721,43 @@ export async function execute(a: Action, ctx: Ctx): Promise<ExecResult> {
 
 export function circlePts(c: Vec2, r: number, n = 28): Vec2[] {
   return Array.from({ length: n + 1 }, (_, i) => ({ x: c.x + Math.cos((i / n) * Math.PI * 2) * r, y: c.y + Math.sin((i / n) * Math.PI * 2) * r }));
+}
+
+// ---------- follow-up edits ----------
+
+/** A sentence that starts a whole new design rather than adjusting the room that exists. */
+export function wantsNewRoom(text: string): boolean {
+  const t = text.toLowerCase().replace(/\s+/g, ' ').trim().replace(/^(please |can you |could you |i want |i need |i would like |i'd like )/, '');
+  return /^((a|an|my|the)\s+)?(\w+\s+)?(room|office|bedroom|kitchen|cafe|studio|nursery|shop|store|living room)\s+(for|with)\b/.test(t)
+    || /^(design|furnish|plan|build me|make me|create me|give me)\b/.test(t)
+    || /^(a|an)\s+(\w+\s+){0,3}(room|office|bedroom|kitchen|cafe|studio)\b/.test(t);
+}
+
+/** Sentences that adjust what is already in the room. */
+export function looksLikeEdit(text: string): boolean {
+  const t = text.toLowerCase().replace(/\s+/g, ' ').trim().replace(/^(please |can you |could you )/, '');
+  if (wantsNewRoom(t) || /^(add|lägg till|lisää)(?![\p{L}])/u.test(t) || /^(put|place) (a|an|some)(?![\p{L}])/u.test(t)) return false;
+  return /^(move|put|place|shift|swap|replace|rotate|turn|flip|push|pull|slide|remove|delete|add|make (it|the|them)|undo|revert|go back|more|less|bigger|smaller|cozier|cosier|center|centre|face|ångra|flytta|ta bort|lägg|vrid|siirrä|poista|lisää|käännä)\b/.test(t)
+    || /\b(cozier|cosier|more (space|open)|roomier|minimal)\b/.test(t);
+}
+
+/** Apply a room edit's ops as one undo step. */
+export function applyRoomOps(ops: Op[], label: string): void {
+  const st = getState();
+  if (!ops.length) return;
+  let model = st.model;
+  for (const op of ops) model = applyOp(model, op);
+  st.dispatch({ type: 'SET_FURNITURE', items: model.furniture, label });
+}
+
+/** Marks for actions whose execution draws nothing itself. */
+export function extraSketch(actions: Action[], ctx: Ctx): AgentMark[] {
+  const todo = actions.filter((a) => a.type === 'compare');
+  if (!todo.length) return [];
+  const model = getState().model;
+  const world: SketchWorld = {
+    item: (ref) => resolveItem(ref, ctx, model),
+    place: (spec) => resolvePlace(spec, ctx, model)?.p,
+  };
+  return sketchForAll(todo, world, { turnId: ctx.turnId }).map((m) => ({ ...m, turnId: ctx.turnId }));
 }

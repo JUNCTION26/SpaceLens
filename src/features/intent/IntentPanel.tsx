@@ -7,6 +7,8 @@ import { CATALOG } from '../furniture/catalog';
 import { designRoom, type Stage } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
 import { useUi } from '../../ui/uiStore';
+import { refineRoom } from './refine';
+import { applyRoomOps, wantsNewRoom } from '../agent/actions';
 import { compileWithMeta, diffRequirements, refineIntent, type CompileMeta } from './refine';
 import { Icon } from '../../ui/icons';
 import { showLayouts } from '../layout/progress';
@@ -34,6 +36,8 @@ export function IntentPanel() {
   const [follow, setFollow] = useState('');
   const [refining, setRefining] = useState(false);
   const [adjust, setAdjust] = useState(false);
+  const [chip, setChip] = useState('');
+  const [cannot, setCannot] = useState<{ nearest: string; label: string } | null>(null);
   const [thread, setThread] = useState<Array<{ ask: string; reply: string; diff: string[]; meta: CompileMeta }>>([]);
   const compileRef = useRef<(t?: string) => Promise<void>>(async () => {});
   const runRef = useRef<AbortController | null>(null);
@@ -58,9 +62,28 @@ export function IntentPanel() {
 
   const patch = (p: Partial<Requirements>) => setReq((r) => (r ? { ...r, ...p } : r));
 
+  /** A follow-up on a room that has furniture: change it in place, one undo step. Returns true when handled. */
+  async function followUp(q: string): Promise<boolean> {
+    const st = useStore.getState();
+    if (!st.model.furniture.length || wantsNewRoom(q)) return false;
+    setCompiling(true);
+    try {
+      const r = await refineRoom(st.model, q, { previous: st.past.at(-1)?.furniture });
+      if (!r.ok) { setCannot({ nearest: r.nearest, label: r.reason }); setChip(''); return true; }
+      setCannot(null);
+      if (r.undo && !r.ops.length) useStore.getState().undo();
+      else if (r.ops.length) applyRoomOps(r.ops, r.label);
+      else return false;
+      setChip(r.label); setText('');
+      return true;
+    } catch { return false; }
+    finally { setCompiling(false); }
+  }
+
   async function compile(input?: string) {
     const q = input ?? text;
     if (!q.trim()) return;
+    if (await followUp(q)) return;
     setCompiling(true);
     briefRef.current = q;
     try {
@@ -174,6 +197,12 @@ export function IntentPanel() {
           </button>
         </div>
       </div>
+      {(chip || cannot) && (
+        <div className="intent-chips" role="status">
+          {chip && <span className="chip chip-ok">{chip}</span>}
+          {cannot && <button className="chip" title={cannot.label} onClick={() => { const n = cannot.nearest; setCannot(null); setText(n); void compile(n); }}>{cannot.nearest}</button>}
+        </div>
+      )}
       {stages.length > 0 && <StageList stages={stages} running={running} onStop={() => runRef.current?.abort()} />}
 
       {req && (
