@@ -318,8 +318,6 @@ export function IntentPanel() {
   );
 }
 
-const STATUS_ICON: Record<Stage['status'], string> = { running: '', done: 'check', skipped: 'minus', failed: 'alert' };
-
 /** While the design runs: a thin progress bar and a stop button. Results simply appear. */
 function StageList({ stages, running, onStop }: { stages: Stage[]; running: boolean; onStop: () => void }) {
   if (!running) return null;
@@ -331,13 +329,6 @@ function StageList({ stages, running, onStop }: { stages: Stage[]; running: bool
       <button className="icon-btn" onClick={onStop} aria-label="Stop" title="Stop"><Icon name="x" size={14} /></button>
     </div>
   );
-}
-
-const fmtMs = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
-
-/** Only shown when the model failed and rules took over; the detail sits in the tooltip. */
-function CompilerBadge({ meta }: { meta: CompileMeta }) {
-  return <div className={`intent-badge ${meta.error ? 'intent-badge-warn' : ''}`} title={meta.error ?? undefined}>{meta.by === 'gemini' ? 'Gemini' : 'Offline'}</div>;
 }
 
 type Rec = { lang: string; interimResults: boolean; onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void; onend: () => void; onerror: () => void; start: () => void; stop: () => void };
