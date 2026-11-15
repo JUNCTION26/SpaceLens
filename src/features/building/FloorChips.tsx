@@ -113,7 +113,6 @@ export function FloorChips({ briefs = {} }: { briefs?: Record<string, string> })
 
   const totalArea = useMemo(() => model.spaces.reduce((t, s) => t + polyArea(s.polygon), 0), [model.spaces]);
   const bill = useMemo(() => (finished ? buildingBill(model) : null), [finished, model]);
-  const doneRooms = Object.values(status).filter((s) => s === 'done').length;
 
   if (!model.spaces.length) return null;
   const selId = selection?.kind === 'space' ? selection.id : null;
@@ -154,13 +153,10 @@ export function FloorChips({ briefs = {} }: { briefs?: Record<string, string> })
       </div>
       <div className="fl-chips" role="group" aria-label="Building numbers" aria-live="polite">
         <span className="chip">{totalArea.toFixed(0)} m²</span>
-        <span className="chip">{model.spaces.length} <span className="sr-only">rooms</span><Icon name="layout" size={12} /></span>
         <span className="chip" title="People">{safety ? safety.people : '–'} <span className="sr-only">people</span><Icon name="walk" size={12} /></span>
         <span className={`chip${longWarn ? ' chip-warn' : ''}`} title="Longest escape">{safety?.longest != null ? `${safety.longest.toFixed(0)} m` : '–'} <span className="sr-only">longest escape</span>{longWarn && <Icon name="alert" size={12} />}</span>
         {bill && !running && <>
-          <span className="chip">{bill.items} <span className="sr-only">items</span><Icon name="sofa" size={12} /></span>
           <span className="chip">{fmtSek(bill.totalSek)}</span>
-          <span className={`chip${doneRooms < model.spaces.length ? ' chip-warn' : ' chip-ok'}`}>{doneRooms}/{model.spaces.length} <span className="sr-only">rooms done</span><Icon name="check" size={12} /></span>
         </>}
       </div>
     </section>
