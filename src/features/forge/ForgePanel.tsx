@@ -156,7 +156,7 @@ export function ForgePanel() {
           <div className="forge-actions">
             <button type="button" className="btn btn-primary" onClick={() => place(spec)}><Icon name="plus" /> Place</button>
             {!!spec.motions?.length && (
-              <button type="button" className="btn" aria-pressed={open} onClick={() => setOpen((o) => !o)}>{open ? 'Close' : spec.motions[0].label || 'Open'}</button>
+              <button type="button" className="btn" aria-pressed={open} onClick={() => setOpen((o) => !o)}>Open</button>
             )}
           </div>
           <form className="forge-ask" onSubmit={(e) => { e.preventDefault(); void run('change', change); }}>
@@ -168,19 +168,6 @@ export function ForgePanel() {
 
       {items.length > 0 && (
         <>
-          <ul className="forge-strip" aria-label="Recent">
-            {items.slice(0, 6).map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button" className={`forge-chip${spec?.id === s.id ? ' on' : ''}`} onClick={() => { setSpec(s); setOpen(false); }}
-                  title={s.name} aria-label={s.name}
-                >
-                  <span className="forge-swatch" style={{ background: dominantColor(s) }} aria-hidden="true" />
-                  <span className="forge-chip-name">{s.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
           <details className="forge-more">
             <summary>More</summary>
             <ul>
