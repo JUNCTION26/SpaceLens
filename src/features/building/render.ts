@@ -73,7 +73,7 @@ export function planSvg(plan: BuildingPlan, o: SvgOpts = {}): string {
       const bw = vertical ? th2 : tw, bh = vertical ? tw : th2;
       const box = { x0: cx - bw / 2, y0: cy - fs, x1: cx + bw / 2, y1: cy - fs + bh };
       if (vertical) { box.y0 = cy - bh / 2; box.y1 = cy + bh / 2; box.x0 = cx - fs; box.x1 = cx - fs + bw; }
-      if (hit(box) || bw > w * 1.15 + (vertical ? 0.4 : 0) && !vertical || (vertical ? bh > hh * 1.1 : bh > hh * 1.1)) continue;
+      if (hit(box)) continue;
       placed.push(box);
       const tf = vertical ? ` transform="rotate(-90 ${cx} ${cy})"` : '';
       out.push(`<text x="${cx}" y="${cy}" font-size="${fs}" text-anchor="middle" fill="#222"${tf}>${esc(r.name)}<tspan x="${cx}" dy="${fs * 1.2}" fill="#666" font-size="${fs * 0.85}">${sub}</tspan></text>`);
