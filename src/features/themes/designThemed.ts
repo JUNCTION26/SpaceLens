@@ -347,7 +347,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
             const c = conceptFor(items);
             if (attempt >= 2) c.relations = c.relations.filter((r) => !(blamed.has(r.subject) && ['in-corner', 'near-window', 'against-wall'].includes(r.kind)));
             const again = await solveProgram(model, items, c, { variants: 1, seed: model.version * 31 + 101 + round * 7 + attempt, signal: opts.signal, req, timeBudgetMs: 700 });
-            if (again.candidates.length && failsOf(again) < base) moved = again;
+            if (again.candidates.length && failsOf(again) < base && again.candidates.every((c) => items.every((f) => c.furniture.some((g) => g.id === f.id)))) moved = again;
           }
           if (moved) { solved = moved; cleared.push('moved'); movedEssential = true; continue; }
           if (!drop) break;
@@ -496,7 +496,7 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
   for (const p of plans) {
     try {
       const v = verdict(p, await run(p));
-      if (!best || (v.res.candidates.length > 0 && (!best.res.candidates.length || v.contract.missing.length < best.contract.missing.length))) best = { ...v, plan: p };
+      if (!best || (v.res.candidates.length > 0 && (!best.res.candidates.length || v.contract.missing.length < best.contract.missing.length || (v.contract.missing.length === best.contract.missing.length && v.contract.pieces > best.contract.pieces)))) best = { ...v, plan: p };
       if (v.contract.complete && v.res.candidates.length) break;
     } catch (e) { if ((e as Error).name === 'AbortError' || opts.signal?.aborted) throw e; lastErr = e; }
   }
