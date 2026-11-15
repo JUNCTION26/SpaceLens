@@ -67,7 +67,7 @@ export function IntentPanel() {
       if (r.items.length) void generate(r);
     } catch (e) {
       console.error(e);
-      notify('That brief could not be read just now. Nothing was changed.', { tone: 'warn', actions: [
+      notify('Brief not read', { tone: 'warn', actions: [
         { label: 'Try again', primary: true, run: () => void compileRef.current(q) },
         ...(useStore.getState().settings.geminiKey ? [] : [{ label: 'Add a Gemini key', run: () => useUi.getState().setSettingsOpen(true) }]),
       ] });
@@ -87,7 +87,7 @@ export function IntentPanel() {
       if (diff.length) { setReq(next); if (next.items.length) void generate(next); }
     } catch (e) {
       console.error(e);
-      notify('That change could not be applied. The brief is as it was.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void refine(ask) }] });
+      notify('Change not applied', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void refine(ask) }] });
     }
     finally { setRefining(false); }
   }
@@ -124,7 +124,7 @@ export function IntentPanel() {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         console.error(e);
-        notify('Layouts could not be made this time. Your room is unchanged.', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
+        notify('Layouts failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
       }
     } finally {
       if (runRef.current === ctrl) {
