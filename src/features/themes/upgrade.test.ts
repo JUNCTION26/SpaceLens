@@ -11,7 +11,7 @@ vi.mock('../../core/ai', async (orig) => {
     ai: vi.fn(async () => ({
       data: {
         title: 'Cat haven', purpose: 'cat room', forWhom: 'Gerard the cat', names: ['Gerard'], palette: ['#eedd99', '#aa5533', '#ffffff'], mood: 'cosy', realProducts: false,
-        objects: [{ source: 'custom', name: 'Cat tree tower', prompt: 'Cat tree tower, 50 x 50 x 120 cm', sizeCm: [50, 50, 120], mount: 'floor' }],
+        objects: ['Cat tree tower', 'Sisal scratcher', 'Cave bed', 'Hammock', 'Tunnel', 'Climbing wall', 'Feather stand'].map((name) => ({ source: 'custom', name, prompt: `${name}, 50 x 50 x 60 cm, cosy`, sizeCm: [50, 50, 60], catalogId: 'plant', mount: 'floor' })),
       },
       model: 'gemini-lite', ms: 5, inputTokens: 0, outputTokens: 0, cached: false,
     })),
@@ -37,7 +37,7 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('upgrade cutoff', () => {
   it('closes at 20 s: the late model piece is dropped, the kit room is returned complete', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
     let done = false, result: Awaited<ReturnType<typeof designThemedRoom>> | undefined;
     const t0 = Date.now();
     void designThemedRoom(model, 'a room for my cat named Gerard').then((r) => { result = r; done = true; });
