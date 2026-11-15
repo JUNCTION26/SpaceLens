@@ -1,0 +1,6 @@
+.shoplist .find-spin { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: shoplist-spin .8s linear infinite; vertical-align: -1px; }
+@keyframes shoplist-spin { to { transform: rotate(360deg); } }
+.shoplist .find-ok { color: var(--ok, #2e9e5b); }
+.shoplist .find-no { opacity: .6; }
+.shoplist-foot button + button, .shoplist-foot button { margin-left: 6px; }
+@media (prefers-reduced-motion: reduce) { .shoplist .find-spin { animation: none; } }

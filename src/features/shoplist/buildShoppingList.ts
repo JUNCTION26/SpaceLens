@@ -5,6 +5,8 @@ export interface BuyLine {
   /** Centimetres, rounded. */
   wCm: number; dCm: number; hCm: number;
   qty: number;
+  /** Ids of the furniture items this line stands for. */
+  ids: string[];
   /** Price per unit, or null when unknown. */
   unitPrice: number | null;
   currency: string | null;
@@ -42,9 +44,9 @@ export function buildShoppingList(model: Pick<SpaceModel, 'furniture'>): Shoppin
     const url = it.listing?.url;
     const key = [it.name, wCm, dCm, hCm, p?.price ?? '', p?.currency ?? '', url ?? ''].join('|');
     const hit = map.get(key);
-    if (hit) { hit.qty += 1; continue; }
+    if (hit) { hit.qty += 1; hit.ids.push(it.id); continue; }
     map.set(key, {
-      name: it.name, wCm, dCm, hCm, qty: 1,
+      name: it.name, wCm, dCm, hCm, qty: 1, ids: [it.id],
       unitPrice: p ? p.price : null, currency: p ? p.currency : null,
       link: url || searchUrl(it.name, wCm, dCm, hCm), listed: !!url,
     });
