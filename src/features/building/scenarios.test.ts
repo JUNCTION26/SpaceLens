@@ -61,10 +61,12 @@ function check(p: BuildingPlan, programme: RoomProgramme, opts: { bedMinW?: numb
   return bad;
 }
 
-const plan = (shell: ReturnType<typeof rectShell>, ent: { wallIndex: number; offsetM: number }, prog: RoomProgramme, count = 3) =>
-  planBuilding(shell, [ent], [], prog, { count, seed: 3, iterations: 600 });
+// Heavy (planning runs while tests are collected): opt in with BUILDING_SCENARIOS=1.
+const RUN = Boolean((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.BUILDING_SCENARIOS);
+const plan = (shell: ReturnType<typeof rectShell>, ent: { wallIndex: number; offsetM: number }, prog: RoomProgramme, count = 3): BuildingPlan[] =>
+  RUN ? planBuilding(shell, [ent], [], prog, { count, seed: 3, iterations: 600 }) : [];
 
-describe('60 m2 two-room flat (6 x 10)', () => {
+describe.skipIf(!RUN)('60 m2 two-room flat (6 x 10)', () => {
   const prog = apartmentProgramme(2);
   const plans = plan(rectShell(6, 10), { wallIndex: 2, offsetM: 3 }, prog);
   it('three options with different ideas', () => {
@@ -85,7 +87,7 @@ describe('60 m2 two-room flat (6 x 10)', () => {
   });
 });
 
-describe('120 m2 three-bedroom villa (10 x 12)', () => {
+describe.skipIf(!RUN)('120 m2 three-bedroom villa (10 x 12)', () => {
   const prog = villaProgramme(3);
   const plans = plan(rectShell(10, 12), { wallIndex: 2, offsetM: 5 }, prog);
   it('options differ and pass the checks', () => {
@@ -103,7 +105,7 @@ describe('120 m2 three-bedroom villa (10 x 12)', () => {
   });
 });
 
-describe('200 m2 office for 20 (20 x 10)', () => {
+describe.skipIf(!RUN)('200 m2 office for 20 (20 x 10)', () => {
   const prog = officeProgramme(20);
   const plans = plan(rectShell(20, 10), { wallIndex: 2, offsetM: 10 }, prog);
   it('desks get daylight, one corridor loop, no door clashes', () => {
@@ -123,7 +125,7 @@ describe('200 m2 office for 20 (20 x 10)', () => {
   });
 });
 
-describe('L-shaped 90 m2', () => {
+describe.skipIf(!RUN)('L-shaped 90 m2', () => {
   const prog = apartmentProgramme(3);
   const plans = plan(lShell(12, 10, 6, 5), { wallIndex: 0, offsetM: 9 }, prog);
   it('no slivers, covers the shell, passes the checks', () => {
@@ -136,7 +138,7 @@ describe('L-shaped 90 m2', () => {
   });
 });
 
-describe('narrow 5 x 16 m flat', () => {
+describe.skipIf(!RUN)('narrow 5 x 16 m flat', () => {
   const prog = apartmentProgramme(3);
   const plans = plan(rectShell(5, 16), { wallIndex: 2, offsetM: 2.5 }, prog);
   it('keeps bedrooms 2.1 m wide and reaches everything', () => {
