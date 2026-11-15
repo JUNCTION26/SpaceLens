@@ -1136,10 +1136,10 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker
 }) {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
-  const ring = sel || focus;
+  const ring = focus && !sel;
   return (
     <g transform={`translate(${f.x} ${f.y}) rotate(${deg})`}
-      className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}${blocker ? ' is-blocker' : ''}`}>
+      className={`plan2d-item${sel ? ' is-sel' : ''}${drag ? ` is-drag is-drag-${drag}` : ''}${focus ? ' is-focus' : ''}${preview ? ' is-preview' : ''}${f.locked ? ' is-locked' : ''}${f.category === 'rug' ? ' is-rug' : ''}${blocker ? ' is-blocker' : ''}`}>
       <g className="plan2d-pop">
       {ring && <rect x={-w / 2 - 5 * px} y={-d / 2 - 5 * px} width={w + 10 * px} height={d + 10 * px} rx={4 * px} className="plan2d-ring" strokeWidth={2 * px} pointerEvents="none" />}
       {layers.clearance && c && (
@@ -1147,7 +1147,7 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker
           className="plan2d-clear" strokeWidth={px} strokeDasharray={`${4 * px} ${3 * px}`} />
       )}
       <rect data-hit={`f:${f.id}`} x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(0.02, w / 12)}
-        className="plan2d-item-body" strokeWidth={(sel || drag ? 1.5 : 1) * px} />
+        className="plan2d-item-body" strokeWidth={(sel || drag ? 1.5 : 1) * px} strokeDasharray={f.category === 'rug' ? `${6 * px} ${4 * px}` : undefined} />
       <g className="plan2d-sym" strokeWidth={px} pointerEvents="none"><FurnSymbol cat={f.category} w={w} d={d} /></g>
       {hl && <rect x={-w / 2 - 4 * px} y={-d / 2 - 4 * px} width={w + 8 * px} height={d + 8 * px} fill="none" stroke={hl.color} strokeWidth={1.5 * px} pointerEvents="none" />}
       {(sel || hover) && (
@@ -1203,7 +1203,7 @@ function FurnSymbol({ cat, w, d }: { cat: string; w: number; d: number }) {
     const fold = y0 + 0.08 + ph + 0.14;
     return <>
       {R(x0 + 0.08, y0 + 0.08, pw, ph, 'p1', 0.03)}
-      {two && R(0.04, y0 + 0.08, pw, ph, 'p2', 0.03)}
+      {two && R(x0 + w / 2 + 0.04, y0 + 0.08, pw, ph, 'p2', 0.03)}
       {L(x0, fold, x1, fold, 'f')}
       {L(x0, fold, x0 + Math.min(0.35, w * 0.3), fold + 0.25, 'c')}
       {cat === 'bunk-bed' && L(x0, y0, x1, y1, 'x')}
@@ -1221,27 +1221,31 @@ function FurnSymbol({ cat, w, d }: { cat: string; w: number; d: number }) {
   }
   if (cat === 'coffee-table') return <>{R(x0 + 0.05, y0 + 0.05, w - 0.1, d - 0.1, 'i', 0.02)}</>;
   if (cat === 'table' || cat === 'cafe-table') {
-    // Chairs tucked under both long sides.
-    const cw = 0.4, ch = Math.min(0.18, d * 0.22), n = Math.max(1, Math.floor((w - 0.1) / 0.6)), gap = w / n;
-    return <>{Array.from({ length: n }, (_, i) => {
-      const cx = x0 + gap * (i + 0.5);
-      return <g key={i}>{R(cx - cw / 2, y0 + 0.04, cw, ch, 't', 0.03)}{R(cx - cw / 2, y1 - 0.04 - ch, cw, ch, 'u', 0.03)}</g>;
-    })}</>;
+    if (cat === 'cafe-table' || (Math.abs(w - d) < 0.05 && w < 1.3)) return <><circle r={m / 2} /><circle r={m / 2 - 0.05} /></>;
+    return <>{R(x0 + 0.05, y0 + 0.05, w - 0.1, d - 0.1, 'i', 0.02)}</>;
   }
   if (/desk|counter/.test(cat)) {
     const dw = Math.min(0.45, w * 0.35);
     return <>{L(x0 + 0.04, y0 + 0.06, x1 - 0.04, y0 + 0.06, 'e')}{R(x1 - dw - 0.04, y0 + 0.1, dw, d - 0.2, 'p')}{R(-0.22, y1 - 0.12, 0.44, 0.08, 'c', 0.02)}</>;
   }
   if (cat === 'stool') return <circle r={m * 0.3} />;
-  if (/chair/.test(cat)) return <>{R(x0 + w * 0.12, y0 + d * 0.06, w * 0.76, d * 0.18, 'b', 0.02)}</>;
+  if (/chair/.test(cat)) {
+    // Seat with a back on the -d/2 edge; the item faces +d/2, as the 3D chair does.
+    const bk = Math.min(0.07, d * 0.16);
+    return <>{R(x0 + 0.03, y0 + 0.02, w - 0.06, bk, 'b', 0.02)}{R(x0 + 0.05, y0 + bk + 0.04, w - 0.1, d - bk - 0.09, 's', 0.04)}</>;
+  }
   if (/shelf|storage|cabinet|wardrobe|dresser|tv-unit|filing|nightstand/.test(cat)) {
     const n = Math.max(1, Math.round(w / 0.4));
     const lines = Array.from({ length: n - 1 }, (_, i) => L(x0 + (w / n) * (i + 1), y0, x0 + (w / n) * (i + 1), y1, i));
-    if (cat === 'wardrobe') return <>{L(x0 + 0.05, 0, x1 - 0.05, 0, 'r')}{lines}</>;
+    if (cat === 'wardrobe') return <>{L(x0, y1 - 0.03, x1, y1 - 0.03, 'f')}{L(x0, y0, x1, y1, 'x1')}{L(x1, y0, x0, y1, 'x2')}{lines}</>;
     return <>{L(x0, y1 - 0.03, x1, y1 - 0.03, 'f')}{lines}</>;
   }
   if (cat === 'rug') return <>{R(x0 + 0.06, y0 + 0.06, w - 0.12, d - 0.12, 'i')}</>;
-  if (cat === 'plant' || cat === 'lamp') return <><circle r={m * 0.32} />{L(-m * 0.3, 0, m * 0.3, 0, 'h')}{L(0, -m * 0.3, 0, m * 0.3, 'v')}</>;
+  if (cat === 'plant') {
+    const r = m * 0.34;
+    return <><circle r={r} />{[0, 72, 144, 216, 288].map((a) => <ellipse key={a} cx={0} cy={-r * 0.55} rx={r * 0.22} ry={r * 0.5} transform={`rotate(${a})`} />)}</>;
+  }
+  if (cat === 'lamp') return <><circle r={m * 0.32} />{L(-m * 0.3, 0, m * 0.3, 0, 'h')}{L(0, -m * 0.3, 0, m * 0.3, 'v')}</>;
   return <>{L(x0 + 0.04, y1 - 0.04, x1 - 0.04, y1 - 0.04, 'f')}</>;
 }
 
