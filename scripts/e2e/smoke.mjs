@@ -156,7 +156,9 @@ function ctxFor(name, timeoutMs) {
 
 // Finds the first visible element: CSS selector, text=exact label, text~partial label.
 const findFn = function (target) {
-  const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
+  // Visible means rendered: it has a layout box and is not hidden by display or visibility. Being scrolled out of a
+  // scrolling panel (or off the window) does not matter; click() scrolls the element into view first.
+  const vis = (el) => { const cs = getComputedStyle(el); return el.getClientRects().length > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   if (target.startsWith('text=') || target.startsWith('text~')) {
     const exact = target.startsWith('text=');
     const want = target.slice(5).trim().toLowerCase();
@@ -304,6 +306,14 @@ for (const [name, query, minRooms] of [
 flow('safety', async (c) => {
   await c.open(`${SAMPLE}&nav=safety&view=2d`);
   await c.until(`!!document.querySelector('select[aria-label="Country"]')`, 40000, 'the country dropdown');
+  await c.until(`!!document.querySelector('.drill-go')`, 20000, 'the Drill button');
+  await c.click('.drill-go');
+  await c.until(`!!document.querySelector('.drill-chips .safety-chip')`, 20000, 'the drill result chips');
+  c.ok(/fire/i.test(await c.eval(`document.querySelector('.safety-tabs [role=tab][aria-selected=true]')?.innerText ?? ''`)), 'the Fire tab is selected first');
+  await c.click('.safety-tabs [role=tab]:nth-child(2)');
+  await c.until(`/access/i.test(document.querySelector('.safety-tabs [role=tab][aria-selected=true]')?.innerText ?? '')`, 5000, 'the Access tab');
+  await c.click('.safety-tabs [role=tab]:nth-child(1)');
+  await c.until(`!!document.querySelector('select[aria-label="Country"]')`, 5000, 'the country dropdown again');
   const snap = () => c.eval(`(document.querySelector('.panel-col')?.innerText ?? '') + '|' + [...document.querySelectorAll('.panel-col input[type=number]')].map((i) => i.value + '/' + i.placeholder).join(',')`);
   const before = await snap();
   const opts = await c.eval(`[...document.querySelector('select[aria-label="Country"]').options].map((o) => o.value)`);
@@ -321,28 +331,33 @@ flow('movein', async (c) => {
   await c.open(`${SAMPLE}&nav=movein&view=2d`);
   await c.until(`document.querySelectorAll('.movein-main').length > 0`, 40000, 'items listed in Move in');
   c.note = `${await c.count('.movein-main')} items`;
+  c.ok(await c.has('.movein-bar button[aria-label="Play"]'), 'Play comes first in Move in');
+  await c.click('text=4x');
+  await c.click('.movein-bar button[aria-label="Play"]');
+  await c.until(`!!document.querySelector('.movein-row.now, .movein-row.landed')`, 20000, 'the move-in to start carrying items');
 });
 
 flow('export', async (c) => {
   await c.open(`${SAMPLE}&nav=export&view=2d`);
-  await c.until(`/Download PDF/i.test(document.querySelector('.export')?.innerText ?? '')`, 40000, 'the Export panel');
-  await c.click('.export-more');
-  await c.until(`/Download IFC/.test(document.body.innerText) && /Download DXF/.test(document.body.innerText)`, 10000, 'IFC and DXF buttons');
-  await c.until(`/Shopping list/i.test(document.querySelector('.export')?.innerText ?? '')`, 10000, 'the shopping list');
+  await c.until(`!!document.querySelector('.export-block[aria-label="Files"] .export-file[title="IFC"]')`, 40000, 'the Files grid with IFC');
+  c.ok(await c.has('.export-block[aria-label="Files"] .export-file[title="DXF"]'), 'the Files grid has DXF');
+  c.ok(await c.has('.export-block[aria-label="List"]'), 'the Export panel has the list section');
   await c.eval(`window.__smoke.blobs.length = 0`);
-  await c.click('text=Download IFC');
+  await c.click('.export-file[title="IFC"]');
   await c.until(`window.__smoke.blobs.some((b) => b.size > 200)`, 15000, 'the IFC download');
   c.ok((await c.eval(`window.__smoke.downloads.some((n) => /\\.ifc$/i.test(n))`)), 'the download is named .ifc');
 });
 
-flow('palette', async (c) => {
+flow('search', async (c) => {
   await c.open(`${SAMPLE}&view=2d`);
   await c.until(`!!document.querySelector('.app')`, 20000, 'the workspace');
   await sleep(800);
+  c.ok(await c.has('.search-field input[aria-label="Search commands"]'), 'the top bar has the search field');
   await page.key('k', { modifiers: 2 });
-  await c.until(`!!document.querySelector('[role=dialog][aria-label="Command palette"]')`, 8000, 'the palette to open on Ctrl+K');
-  await typeInto(c, 'input[aria-label="Search commands"]', 'ifc');
-  await c.until(`[...document.querySelectorAll('[role=option]')].some((o) => /export/i.test(o.innerText) && /ifc/i.test(o.innerText))`, 8000, 'the IFC export in the results');
+  await c.until(`document.activeElement?.matches('.search-field input') && !!document.querySelector('#cmd-list')`, 8000, 'Ctrl+K to focus the search field and show results in the panel');
+  c.ok(!(await c.has('[role=dialog][aria-label="Command palette"]')), 'search is not a modal');
+  await typeInto(c, '.search-field input', 'ifc');
+  await c.until(`[...document.querySelectorAll('#cmd-list [role=option]')].some((o) => /export/i.test(o.innerText) && /ifc/i.test(o.innerText))`, 8000, 'the IFC export in the results');
 });
 
 flow('assistant', async (c) => {
@@ -381,12 +396,12 @@ flow('phone', async (c) => {
     await sleep(1200);
     const a = await c.itemRect('.plan2d-item .plan2d-item-body');
     if (a) await page.mouse(a.x, a.y);
-    if (!(await c.until(`!!document.querySelector('.inspector-sheet')`, 4000).catch(() => false)) && await c.dev()) {
+    if (!(await c.until(`!!document.querySelector('.inspector-section')`, 4000).catch(() => false)) && await c.dev()) {
       await c.eval(`(()=>{ try { const s = window.__spacelens.useStore.getState(); const f = s.model.furniture?.[0] ?? s.model.spaces?.[0]?.furniture?.[0]; if (f) s.select({ kind: 'furniture', id: f.id }); } catch {} })()`);
     }
-    await c.until(`!!document.querySelector('.inspector-sheet')`, 8000, 'the inspector sheet');
+    await c.until(`!!document.querySelector('.inspector-section')`, 8000, 'the inspector section');
     await sleep(800);
-    await check('inspector sheet');
+    await check('inspector section');
   } finally {
     await page.send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
     await page.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {});
@@ -397,9 +412,61 @@ flow('show', async (c) => {
   await c.open('show=1');
   await c.until(`!!document.querySelector('[role=progressbar][aria-label="Film"]')`, 30000, 'the show to start');
   await sleep(1500);
+  c.ok(!(await c.has('.status-msg, .demo-caption, .search-results, .settings-panel')), 'nothing else is on screen while the film plays');
   await page.key('Escape');
   await c.until(`!document.querySelector('[role=progressbar][aria-label="Film"]')`, 10000, 'Esc to stop the show');
 }, 120000);
+
+flow('show-from-settings', async (c) => {
+  await c.open(`${SAMPLE}&open=settings`);
+  await c.until(`!!document.querySelector('.settings-panel')`, 20000, 'Settings as a panel');
+  await c.click('text=More');
+  await c.click('text=Demo');
+  await c.until(`!!document.querySelector('[role=progressbar][aria-label="Film"]')`, 30000, 'the film to start from Settings');
+  await sleep(1500);
+  c.ok(!(await c.has('.settings-panel')), 'Settings is closed while the film plays');
+  c.ok(!(await c.has('.demo-caption')), 'no floating caption while the film plays');
+  await page.key('Escape');
+  await c.until(`!document.querySelector('[role=progressbar][aria-label="Film"]')`, 10000, 'Esc to stop the film');
+}, 120000);
+
+flow('show-from-search', async (c) => {
+  await c.open(`${SAMPLE}&view=2d`);
+  await c.until(`!!document.querySelector('.search-field input')`, 20000, 'the search field');
+  await typeInto(c, '.search-field input', 'demo');
+  await c.until(`[...document.querySelectorAll('#cmd-list [role=option]')].some((o) => /demo/i.test(o.innerText))`, 8000, 'the demo command in the results');
+  await c.click('text~Guided demo');
+  await c.until(`!!document.querySelector('[role=progressbar][aria-label="Film"]')`, 30000, 'the film to start from search');
+  await sleep(1500);
+  c.ok(!(await c.has('.search-results')), 'the search results are closed while the film plays');
+  await page.key('Escape');
+  await c.until(`!document.querySelector('[role=progressbar][aria-label="Film"]')`, 10000, 'Esc to stop the film');
+}, 120000);
+
+flow('room-size', async (c) => {
+  await c.open(`${SAMPLE}&nav=capture&view=2d`);
+  const W = 'input[aria-label="Width in metres"]';
+  await c.until(`!!document.querySelector('${W}')`, 20000, 'the W field in Measure');
+  c.ok((await c.has('input[aria-label="Depth in metres"]')) && (await c.has('input[aria-label="Height in metres"]')), 'the size row has W, D and H');
+  const width = () => c.eval(`(()=>{ const s = window.__spacelens?.useStore?.getState(); const p = s?.model?.spaces?.[0]?.polygon; if (!p) return null; const xs = p.map((v) => v.x); return Math.max(...xs) - Math.min(...xs); })()`);
+  const before = await c.eval(`document.querySelector('${W}').value`);
+  const w0 = await width();
+  await typeInto(c, W, '5');
+  await page.key('Enter');
+  await c.until(`document.querySelector('${W}').value === '5.00'`, 8000, 'the W field to show 5.00 after Enter');
+  c.ok(before !== '5.00', `the width changed (was ${before})`);
+  const w1 = await width();
+  if (w1 !== null) c.ok(Math.abs(w1 - 5) < 0.02, `the room is 5 m wide (was ${w0 === null ? '?' : w0.toFixed(2)}, now ${w1.toFixed(2)})`);
+  c.note = `${before} to 5.00`;
+});
+
+flow('status-line', async (c) => {
+  await c.open(`${SAMPLE}&view=2d`);
+  await c.until(`!!document.querySelector('.status-line')`, 20000, 'the status line');
+  await c.click('[aria-label="Share"]');
+  await c.until(`!!document.querySelector('.status-line .status-msg')`, 15000, 'a message on the status line');
+  c.ok(!(await c.has('.toast, .toasts')), 'no floating toasts');
+});
 
 flow('theme', async (c) => {
   await c.open(`${SAMPLE}&theme=dark&open=settings`);
