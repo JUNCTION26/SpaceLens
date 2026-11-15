@@ -25,6 +25,8 @@ import { Minimap } from '../sim/Minimap';
 
 type CamMode = 'orbit' | 'walk';
 type ViewKind = 'corner' | 'top' | 'front';
+/** Walking speed factor set from the Walk panel (1 is normal). */
+let walkSpeedMul = 1;
 const EYES = [
   { id: 'standing', label: 'Standing', h: 1.6 },
   { id: 'seated', label: 'Seated', h: 1.2 },
@@ -921,7 +923,7 @@ function CameraRig({ mode, eye, room, walk, input, req, gesture, onRoom, onTourE
     // keys, thumb pad and gamepad: smooth acceleration, fixed sub-steps, sliding along walls and furniture
     let walker = { pos: w.pos, vel: w.vel ?? { x: 0, y: 0 }, yaw: w.yaw, pitch: w.pitch, phase: 0, blockedAt: null as Vec2 | null };
     if (!w.path && !w.goal) {
-      for (let left = step; left > 1e-6; left -= 0.05) walker = stepWalker(walker, { forward: f, strafe: s, sprint: ax.sprint }, Math.min(0.05, left), { seated: false, bob: false }, world);
+      for (let left = step; left > 1e-6; left -= 0.05) walker = stepWalker(walker, { forward: f, strafe: s, sprint: ax.sprint }, Math.min(0.05, left) * walkSpeedMul, { seated: false, bob: false }, world);
       w.pos = walker.pos;
     }
     const vel = walker.vel;
@@ -1298,9 +1300,14 @@ export function SceneView() {
   const devRef = useRef({ walk, walkTo, startTour, setMode });
   devRef.current = { walk, walkTo, startTour, setMode };
   useEffect(() => {
-    const h = () => devRef.current.startTour(false);
+    const h = (e: Event) => devRef.current.startTour(Boolean((e as CustomEvent<{ record?: boolean }>).detail?.record));
+    // The Walk panel's speed slider and seated switch talk to the view through these two events.
+    const sp = (e: Event) => { const v = Number((e as CustomEvent<number>).detail); if (Number.isFinite(v) && v > 0) walkSpeedMul = Math.min(3, Math.max(0.3, v)); };
+    const se = (e: Event) => setEyeId((e as CustomEvent<boolean>).detail ? 'seated' : 'standing');
     window.addEventListener('spacelens:auto-tour', h);
-    return () => window.removeEventListener('spacelens:auto-tour', h);
+    window.addEventListener('spacelens:walk-speed', sp);
+    window.addEventListener('spacelens:walk-seated', se);
+    return () => { window.removeEventListener('spacelens:auto-tour', h); window.removeEventListener('spacelens:walk-speed', sp); window.removeEventListener('spacelens:walk-seated', se); };
   }, []);
   useEffect(() => {
     if (!import.meta.env.DEV) return;

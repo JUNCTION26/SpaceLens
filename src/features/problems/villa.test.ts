@@ -4,7 +4,7 @@ import { furnishBuilding } from '../building/furnish';
 import { collectProblems } from './collect';
 
 describe('villa demo', () => {
-  it.runIf(!!process.env.VILLA_MEASURE)('furnished villa shows a plausible number of problems', async () => {
+  it.runIf(!!(globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VILLA_MEASURE)('furnished villa shows a plausible number of problems', async () => {
     const m = demoBuilding('villa')!;
     expect(m).toBeTruthy();
     const res = await furnishBuilding(m, {}, { parallel: 3, timeBudgetMs: 900 });
