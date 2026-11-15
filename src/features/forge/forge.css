@@ -6,7 +6,7 @@
 
 .forge-preview { position: relative; height: 240px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); overflow: hidden; }
 .forge-preview canvas { display: block; }
-.forge-callout { font: 11px/1 var(--mono); color: var(--text); background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; white-space: nowrap; pointer-events: none; }
+
 
 .forge-meta { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .forge-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -32,3 +32,6 @@
 .forge-tile-actions .icon-btn { width: 28px; height: 28px; }
 .forge-tile-actions .icon-btn svg { width: 15px; height: 15px; }
 @media (hover: none) { .forge-tile-actions { opacity: 1; } }
+.forge-fail { color: var(--bad); font-size: 12.5px; }
+.forge-dims { white-space: nowrap; }
+.forge-title strong { min-width: 0; }

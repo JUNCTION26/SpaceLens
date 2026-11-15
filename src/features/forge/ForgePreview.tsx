@@ -1,10 +1,8 @@
-import { ContactShadows, Html, Line, OrbitControls } from '@react-three/drei';
+import { ContactShadows, OrbitControls } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ObjectSpec } from '../../core/types';
 import { GeneratedMesh } from './GeneratedMesh';
-
-const cm = (m: number) => `${Math.round(m * 100)}`;
 
 /** Keeps the whole object in view as it grows. */
 function Frame({ size }: { size: ObjectSpec['size'] }) {
@@ -17,24 +15,6 @@ function Frame({ size }: { size: ObjectSpec['size'] }) {
     camera.updateProjectionMatrix();
   }, [camera, r, size.h]);
   return null;
-}
-
-/** W, D and H measured along the object's edges. */
-function Callouts({ size }: { size: ObjectSpec['size'] }) {
-  const { w, d, h } = size;
-  const o = Math.max(0.04, Math.max(w, d, h) * 0.06);
-  const col = '#8b8b93';
-  const label = (text: string) => <div className="forge-callout">{text}</div>;
-  return (
-    <group>
-      <Line points={[[-w / 2, 0, d / 2 + o], [w / 2, 0, d / 2 + o]]} color={col} lineWidth={1} />
-      <Html position={[0, 0, d / 2 + o * 2]} center>{label(`W ${cm(w)}`)}</Html>
-      <Line points={[[w / 2 + o, 0, -d / 2], [w / 2 + o, 0, d / 2]]} color={col} lineWidth={1} />
-      <Html position={[w / 2 + o * 2, 0, 0]} center>{label(`D ${cm(d)}`)}</Html>
-      <Line points={[[-w / 2 - o, 0, d / 2], [-w / 2 - o, h, d / 2]]} color={col} lineWidth={1} />
-      <Html position={[-w / 2 - o * 2, h / 2, d / 2]} center>{label(`H ${cm(h)}`)}</Html>
-    </group>
-  );
 }
 
 /** Small turntable view of an object, assembling while it streams. */
@@ -69,7 +49,6 @@ export function ForgePreview({ spec, assembling, open }: { spec: ObjectSpec | nu
         <directionalLight position={[-4, 3, -2]} intensity={0.45} />
         {spec && <GeneratedMesh spec={spec} assembling={assembling} open={openT} />}
         {silhouette && <GeneratedMesh key={`ghost-${spec!.id}`} spec={{ ...spec!, parts: silhouette.map((q) => ({ ...q, material: 'plastic', color: '#8b8b93' })), motions: undefined }} ghost />}
-        {spec && !assembling && <Callouts size={spec.size} />}
         <ContactShadows position={[0, 0.001, 0]} scale={shadow} blur={2.4} opacity={0.45} far={Math.max(1, size.h)} resolution={512} />
         <OrbitControls target={[0, size.h / 2, 0]} autoRotate autoRotateSpeed={assembling ? 2.2 : 0.9} enablePan={false} enableDamping makeDefault minDistance={0.3} maxDistance={20} />
       </Canvas>

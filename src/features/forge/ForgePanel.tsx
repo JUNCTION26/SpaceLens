@@ -14,7 +14,7 @@ const RecCtor = (): (new () => Rec) | undefined =>
 
 
 const cm = (m: number) => Math.round(m * 100);
-const dims = (s: ObjectSpec['size']) => `${cm(s.w)} × ${cm(s.d)} × ${cm(s.h)} cm`;
+const dims = (s: ObjectSpec['size']) => `W ${cm(s.w)} · D ${cm(s.d)} · H ${cm(s.h)} cm`;
 
 export function ForgePanel() {
   const [failed, setFailed] = useState(false);
@@ -98,7 +98,7 @@ export function ForgePanel() {
               <span className="forge-dims">{dims(spec.size)}</span>
             </div>
           </>
-        ) : failed ? <div className="muted">Failed</div> : null}
+        ) : failed ? <div className="forge-fail" role="alert">Failed</div> : null}
       </div>
 
       {done && (
