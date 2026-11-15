@@ -65,21 +65,21 @@ function FurnitureFromPhoto() {
   };
 
   const num = (k: 'widthCm' | 'depthCm' | 'heightCm', label: string) => (
-    <label>{label} <input type="number" min={1} value={est ? Math.round(est[k]) : 0} onChange={(e) => est && setEst({ ...est, [k]: Number(e.target.value) || 1 })} style={{ width: 70 }} /> cm</label>
+    <label>{label} <input type="number" min={1} value={est ? Math.round(est[k]) : 0} onChange={(e) => est && setEst({ ...est, [k]: Number(e.target.value) || 1 })} style={{ width: 70 }} /></label>
   );
 
   return (
     <div className="vision-body">
-      <input aria-label="Known size" title="A4 sheet sets scale" placeholder="cm" value={known} onChange={(e) => setKnown(e.target.value)} />
-      <PhotoInput label={busy ? 'Looking...' : 'Choose photo'} onFile={run} />
+      <input aria-label="Known size" placeholder="cm" value={known} onChange={(e) => setKnown(e.target.value)} />
+      <PhotoInput label={busy ? 'Looking...' : 'Photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
       {est && (
         <div className="vision-result">
                     <label>Name <input value={est.name} onChange={(e) => setEst({ ...est, name: e.target.value })} /></label>
           <label>Type <select value={est.category} onChange={(e) => setEst({ ...est, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
-          {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')}
+          {num('widthCm', 'W')} {num('depthCm', 'D')} {num('heightCm', 'H')} <span className="muted">cm</span>
           <details className="small"><summary>More</summary><p className="muted">{est.reasoning}</p></details>
-          <button className="btn btn-primary" onClick={add}>Add as owned</button>
+          <button className="btn btn-primary" onClick={add}>Add</button>
         </div>
       )}
     </div>
@@ -123,9 +123,9 @@ function RoomCheck() {
 
   return (
     <div className="vision-body">
-      <PhotoInput label={busy ? 'Comparing...' : 'Choose photo'} onFile={run} />
+      <PhotoInput label={busy ? 'Comparing...' : 'Photo'} onFile={run} />
       {err && <p className="error small">{err}</p>}
-      {issues && (issues.length === 0 ? <p className="small">No differences</p> : (
+      {issues && (issues.length === 0 ? <p className="small"><Icon name="check" size={16} /><span className="sr-only">No differences</span></p> : (
         <ul className="small">{issues.map((x, i) => <li key={i} title={`${x.detail} ${x.suggestion}`}><strong>{x.kind}</strong></li>)}</ul>
       ))}
     </div>
@@ -144,10 +144,10 @@ export function VisionPanel() {
   return <VisionTools />;
 }
 
-const TOOLS: Array<{ id: string; title: string; hint: string; icon: string; body: () => ReactNode }> = [
-  { id: 'style', title: 'Inspiration', hint: 'Make the room look like a picture', icon: 'palette', body: () => <InspireTool /> },
-  { id: 'furniture', title: 'Furniture', hint: 'Measure an item and add it', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
-  { id: 'check', title: 'Compare', hint: 'Spot differences from the model', icon: 'camera', body: () => <RoomCheck /> },
+const TOOLS: Array<{ id: string; title: string; icon: string; body: () => ReactNode }> = [
+  { id: 'style', title: 'Inspiration', icon: 'palette', body: () => <InspireTool /> },
+  { id: 'furniture', title: 'Furniture', icon: 'sofa', body: () => <FurnitureFromPhoto /> },
+  { id: 'check', title: 'Compare', icon: 'camera', body: () => <RoomCheck /> },
 ];
 
 function VisionTools() {
@@ -158,7 +158,7 @@ function VisionTools() {
         <div key={t.id} className={`vision-row${open === t.id ? ' on' : ''}`}>
           <button className="vision-head" aria-expanded={open === t.id} onClick={() => setOpen((o) => (o === t.id ? null : t.id))}>
             <Icon name={t.icon} size={16} />
-            <span className="vision-title" title={t.hint}>{t.title}</span>
+            <span className="vision-title">{t.title}</span>
             <Icon name={open === t.id ? 'chevronDown' : 'chevronRight'} size={14} />
           </button>
           {open === t.id && t.body()}
