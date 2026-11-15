@@ -1,5 +1,5 @@
-// Marks on the plan: the agent's proposals (ghost footprints, arrows, zones, labels) drawing
-// themselves on, and the person's own pencil strokes. Works two ways:
+// Marks on the plan: the agent's proposals (ghost footprints, arrows, zones) drawing
+// themselves on, and the person's own pencil strokes. Marks only, no text. Works two ways:
 //  - <SketchLayer /> inside the plan's <svg> (plan-metre coordinates, no transform needed);
 //  - <SketchOverlay /> anywhere: it finds the plan svg and lays a matching svg on top of it,
 //    following pan and zoom through the plan's screen transform.
@@ -22,12 +22,6 @@ function MarkView({ m, mpp }: { m: AgentMark; mpp: number }) {
   const agent = m.by === 'agent';
   const color = m.color ?? (agent ? 'var(--accent)' : 'var(--sketch-you, var(--text))');
   const anim = { animationDuration: `${m.drawMs ?? 0}ms`, animationDelay: delayOf(m) } as React.CSSProperties;
-  const font = 12 * mpp;
-  const label = (p: Vec2, text: string, dy = 0) => (
-    <text x={p.x} y={p.y + dy} fontSize={font} className="sk-label" style={{ ...anim, animationDuration: '220ms', strokeWidth: 3 * mpp }} fill={color}>
-      {text}
-    </text>
-  );
   const g = markGeometry(m);
 
   switch (m.kind) {
@@ -43,19 +37,17 @@ function MarkView({ m, mpp }: { m: AgentMark; mpp: number }) {
               <path d={`M${-w / 2 + 0.06} ${d / 2 - 0.04}L${w / 2 - 0.06} ${d / 2 - 0.04}`} stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
             </g>
           </g>
-          {m.text && label({ x: c.x, y: c.y - d / 2 - 0.08 }, m.text)}
         </g>
       );
     }
     case 'label':
-      return m.points[0] && m.text ? <g className="sk-mark">{label(m.points[0], m.text)}</g> : null;
+      return null;
     case 'zone':
     case 'rect':
       return (
         <g className="sk-mark">
           <path d={pathOf(m.points, true)} className="sk-fade" style={anim} fill={color} fillOpacity={m.kind === 'zone' ? 0.09 : 0} stroke="none" />
           <path d={pathOf(m.points, true)} pathLength={1} className="sk-draw" style={anim} fill="none" stroke={color} strokeOpacity={0.7} strokeDasharray="1" vectorEffect="non-scaling-stroke" strokeWidth={1.25} />
-          {m.text && g && label({ x: g.bbox.minX + 0.1, y: g.bbox.minY + 0.1 + font }, m.text)}
         </g>
       );
     case 'arrow': {
@@ -71,7 +63,6 @@ function MarkView({ m, mpp }: { m: AgentMark; mpp: number }) {
         <g className="sk-mark">
           <path d={pathOf(pts)} pathLength={1} className="sk-draw" style={anim} fill="none" stroke={color} strokeDasharray="1" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           <path d={pathOf(head)} className="sk-fade" style={headAnim} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-          {m.text && label({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, m.text, -6 * mpp)}
         </g>
       );
     }
@@ -82,7 +73,6 @@ function MarkView({ m, mpp }: { m: AgentMark; mpp: number }) {
         <g className="sk-mark">
           <path d={pathOf(m.points, closed && m.by === 'agent')} pathLength={1} className={m.drawMs ? 'sk-draw' : undefined} style={anim}
             fill="none" stroke={color} strokeDasharray={m.drawMs ? '1' : undefined} strokeWidth={agent ? 2 : 2.5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" strokeOpacity={agent ? 1 : 0.85} />
-          {m.text && g && label({ x: g.centroid.x, y: g.bbox.minY - 0.08 }, m.text)}
         </g>
       );
     }

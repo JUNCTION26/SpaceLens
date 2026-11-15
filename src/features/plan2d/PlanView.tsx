@@ -59,7 +59,6 @@ function useGlide(target: FurnitureItem[], frozen: boolean, lastShown: React.Mut
   return frozen ? target : frame;
 }
 
-type Card = { key: string; anchor: Vec2; pinned: boolean };
 const worstOf = (ps: Problem[]): ProblemSeverity | null => ps.reduce<ProblemSeverity | null>((w, p) => (!w || SEVERITY_ORDER[p.severity] < SEVERITY_ORDER[w] ? p.severity : w), null);
 
 type VB = { x: number; y: number; w: number; h: number };
@@ -147,8 +146,6 @@ export function PlanView() {
   const problemList = useProblems((s) => s.problems);
   const fixPreview = useProblems((s) => s.preview);
   const focusId = useProblems((s) => s.focusId);
-  const [card, setCard] = useState<Card | null>(null);
-  const cardTimer = useRef<ReturnType<typeof setTimeout>>();
   const dragRef = useRef<Drag | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ d: number; vb: VB; c: Vec2 } | null>(null);
@@ -157,7 +154,6 @@ export function PlanView() {
   const [multi, setMultiState] = useState<string[]>([]);
   const multiRef = useRef<string[]>([]);
   const setMulti = (ids: string[]) => { multiRef.current = ids; setMultiState(ids); };
-  const [hover, setHover] = useState<{ id: string; sx: number; sy: number } | null>(null);
   const [ghost, setGhost] = useState<{ id: string | null; p: Vec2; spec?: { name: string; w: number; d: number } | null } | null>(null);
   const anim = useRef<number>(0);
   const sketching = useSketch((s) => s.drawing);
@@ -246,7 +242,7 @@ export function PlanView() {
   const dragIds = drag?.kind === 'item' ? drag.ids : drag?.kind === 'rotate' ? [drag.id] : [];
   const dragBad = dragIds.some((id) => outside.has(id) || overlapsWith.has(id));
 
-  // Background problems by item and by door or window, for markers and the hover card.
+  // Background problems by item and by door or window, for markers.
   const { byItem, byOpening, loose } = useMemo(() => {
     const byItem = new Map<string, Problem[]>(), byOpening = new Map<string, Problem[]>(), loose: Problem[] = [];
     const add = (m: Map<string, Problem[]>, k: string, p: Problem) => { const l = m.get(k) ?? []; l.push(p); m.set(k, l); };
@@ -257,34 +253,7 @@ export function PlanView() {
     }
     return { byItem, byOpening, loose };
   }, [problemList]);
-  const cardProblems = (key: string): Problem[] => {
-    if (key.startsWith('f:')) return byItem.get(key.slice(2)) ?? [];
-    if (key.startsWith('o:')) return byOpening.get(key.slice(2)) ?? [];
-    if (key.startsWith('p:')) return problemList.filter((p) => p.id === key.slice(2));
-    return [];
-  };
   const focusIds = useMemo(() => new Set(problemList.find((p) => p.id === focusId)?.itemIds ?? []), [problemList, focusId]);
-
-  const cancelClose = () => clearTimeout(cardTimer.current);
-  const closeSoon = (ms = 260) => { clearTimeout(cardTimer.current); cardTimer.current = setTimeout(() => { setCard((c) => (c?.pinned ? c : null)); useProblems.getState().setPreview(null); }, ms); };
-  const closeCard = () => { clearTimeout(cardTimer.current); setCard(null); useProblems.getState().setPreview(null); };
-  /** Card for an item, a door or window, or a loose problem, pinned for taps and marker clicks. */
-  const openCard = (key: string, pinned: boolean) => {
-    cancelClose();
-    let anchor: Vec2 | null = null;
-    if (key.startsWith('f:')) { const f = furniture.find((x) => x.id === key.slice(2)); if (f) { const b = aabb(itemCorners(f)); anchor = { x: b.maxX, y: b.minY }; } }
-    else if (key.startsWith('o:')) { const o = model.openings.find((x) => x.id === key.slice(2)); const sp = o && model.spaces.find((s) => s.id === o.spaceId); if (o && sp) anchor = openingSegment(sp, o).c; }
-    else if (key.startsWith('p:')) anchor = problemList.find((p) => p.id === key.slice(2))?.at ?? null;
-    if (!anchor || !cardProblems(key).length) return;
-    setCard((c) => (c && c.key === key ? { ...c, pinned: c.pinned || pinned } : { key, anchor: anchor!, pinned }));
-  };
-  useEffect(() => {
-    const close = () => { clearTimeout(cardTimer.current); setCard(null); };
-    window.addEventListener('spacelens:close-card', close);
-    return () => window.removeEventListener('spacelens:close-card', close);
-  }, []);
-  // Close the card once its problems are all fixed.
-  useEffect(() => { if (card && !cardProblems(card.key).length) closeCard(); }); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Editing a previewed candidate applies it first. */
   const ensureEditable = () => {
@@ -390,7 +359,7 @@ export function PlanView() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const st = useStore.getState(); const sel = st.selection; const A = actions.current;
-      if (e.key === 'Escape') { setCard(null); useProblems.getState().setPreview(null); st.select(null); setMulti([]); setEditWall(null); return; }
+      if (e.key === 'Escape') { useProblems.getState().setPreview(null); st.select(null); setMulti([]); setEditWall(null); return; }
       if ((e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { A.zoomToSelection(); return; }
       if (!sel) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -519,11 +488,9 @@ export function PlanView() {
       const key = hit.slice(3);
       if (key.startsWith('f:')) { setMulti([key.slice(2)]); select({ kind: 'furniture', id: key.slice(2) }); }
       else if (key.startsWith('o:')) select({ kind: 'opening', id: key.slice(2) });
-      openCard(key, true);
       window.dispatchEvent(new Event('spacelens:checks'));
       return;
     }
-    if (card && !hit.startsWith('f:')) closeCard();
     if (hit.startsWith('v:')) {
       const [sid, idx] = splitId(hit.slice(2));
       select({ kind: 'vertex', id: hit.slice(2) });
@@ -534,7 +501,6 @@ export function PlanView() {
       if (f && !f.locked) setD({ kind: 'rotate', id, rot: f.rotation });
     } else if (hit.startsWith('f:')) {
       const id = hit.slice(2); const f = furniture.find((x) => x.id === id)!;
-      setHover(null);
       if (e.shiftKey) {
         const cur = selection?.kind === 'furniture' ? (multiRef.current.length ? multiRef.current : [selection.id]) : [];
         const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
@@ -584,23 +550,7 @@ export function PlanView() {
       return;
     }
     const d = dragRef.current;
-    if (!d) {
-      if (e.pointerType !== 'mouse') return;
-      const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
-      // Hover to check: an item, door or marker with problems opens the fix card.
-      const key = hit.startsWith('mk:') ? hit.slice(3) : hit.startsWith('f:') ? hit : hit.startsWith('o:') ? hit : '';
-      if (key && cardProblems(key).length) {
-        if (hover) setHover(null);
-        if (card?.key !== key) { if (!card?.pinned) openCard(key, false); } else cancelClose();
-        return;
-      }
-      if (card && !card.pinned) closeSoon();
-      if (hit.startsWith('f:')) {
-        const r = svgRef.current!.getBoundingClientRect();
-        setHover({ id: hit.slice(2), sx: e.clientX - r.left, sy: e.clientY - r.top });
-      } else if (hover) setHover(null);
-      return;
-    }
+    if (!d) return;
     if (d.kind === 'marquee') { setD({ ...d, b: toPlan(e.clientX, e.clientY) }); return; }
     if (d.kind === 'pan') {
       setVb({ ...d.vb, x: d.vb.x - (e.clientX - d.start.x) * d.sx, y: d.vb.y - (e.clientY - d.start.y) * d.sy });
@@ -619,7 +569,6 @@ export function PlanView() {
       const f = shown.find((x) => x.id === d.id)!;
       // A few pixels of slack so a tap or click does not count as a move.
       if (!d.moved && Math.hypot(e.clientX - d.start.x, e.clientY - d.start.y) < 3) return;
-      if (!d.moved) closeCard();
       const r = snapItem(f, raw, d.ids, e.altKey);
       if (r.snap && r.snap.key !== d.snap?.key && e.pointerType !== 'mouse') { try { navigator.vibrate?.(6); } catch { /* not supported */ } }
       setD({ ...d, pos: r.pos, rot: r.rot, guides: r.guides, wall: r.wall, snap: r.snap, moved: true });
@@ -649,10 +598,8 @@ export function PlanView() {
       }
       const others = overlapsWith.get(d.id);
       const name = furniture.find((x) => x.id === d.id)?.name ?? 'It';
-      if (others?.length) notify(`${name} overlaps ${others[0]}.`, { tone: 'warn', actions: [{ label: 'Show fixes', primary: true, run: () => openCard(`f:${d.id}`, true) }, { label: 'Undo', run: () => useStore.getState().undo() }] });
+      if (others?.length) notify(`${name} overlaps ${others[0]}.`, { tone: 'warn', actions: [{ label: 'Show fixes', primary: true, run: () => { window.dispatchEvent(new Event('spacelens:checks')); } }, { label: 'Undo', run: () => useStore.getState().undo() }] });
     }
-    // A tap (no move) on an item with problems opens its fix card; hover does this for a mouse.
-    if (d.kind === 'item' && !d.moved && e.pointerType !== 'mouse' && cardProblems(`f:${d.id}`).length) openCard(`f:${d.id}`, true);
     if (d.kind === 'marquee') {
       const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), y0 = Math.min(d.a.y, d.b.y), y1 = Math.max(d.a.y, d.b.y);
       const hits = furniture.filter((f) => f.x >= x0 && f.x <= x1 && f.y >= y0 && f.y <= y1).map((f) => f.id);
@@ -780,7 +727,6 @@ export function PlanView() {
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
-        onPointerLeave={() => { setHover(null); if (card && !card.pinned) closeSoon(); }}
         onContextMenu={(e) => {
           const hit = ((e.target as Element).closest('[data-hit]') as HTMLElement | null)?.getAttribute('data-hit') ?? '';
           e.preventDefault();
@@ -788,7 +734,6 @@ export function PlanView() {
           // Right-click selects; the actions are in the inspector.
           const id = hit.slice(2);
           if (!(multiRef.current.includes(id) && selection?.kind === 'furniture')) { setMulti([id]); select({ kind: 'furniture', id }); }
-          setHover(null);
         }}
         role="img" aria-label={`Floor plan of ${model.name}`}
       >
@@ -930,8 +875,8 @@ export function PlanView() {
           const dragging = dragIds.includes(f.id) && (drag?.kind === 'rotate' || (drag?.kind === 'item' && drag.moved));
           return (
             <Item key={f.id} f={f} px={px} fs={fs} layers={layers} sel={isSel('furniture', f.id) || (selection?.kind === 'furniture' && multi.includes(f.id))}
-              drag={dragging ? (dragBad ? 'bad' : 'ok') : null} focus={focusIds.has(f.id) || card?.key === `f:${f.id}`}
-              hl={hlMap.get(f.id)} preview={!!activeCandidateId} hover={hover?.id === f.id} blocker={dragBad && !dragging && blockers.has(f.id)} />
+              drag={dragging ? (dragBad ? 'bad' : 'ok') : null} focus={focusIds.has(f.id)}
+              hl={hlMap.get(f.id)} preview={!!activeCandidateId} blocker={dragBad && !dragging && blockers.has(f.id)} />
           );
         })}
 
@@ -1131,8 +1076,8 @@ function Heat({ grid }: { grid: NonNullable<import('../../core/types').Analysis[
   return <g pointerEvents="none">{cells}</g>;
 }
 
-function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker }: {
-  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; drag: 'ok' | 'bad' | null; focus: boolean; hl?: { color: string; label: string }; preview: boolean; hover: boolean; blocker?: boolean;
+function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, blocker }: {
+  f: FurnitureItem; px: number; fs: number; layers: Layers; sel: boolean; drag: 'ok' | 'bad' | null; focus: boolean; hl?: { color: string; label: string }; preview: boolean; blocker?: boolean;
 }) {
   const deg = (f.rotation * 180) / Math.PI;
   const { w, d } = f; const c = f.clearance;
@@ -1150,7 +1095,7 @@ function Item({ f, px, fs, layers, sel, drag, focus, hl, preview, hover, blocker
         className="plan2d-item-body" strokeWidth={(sel || drag ? 1.5 : 1) * px} strokeDasharray={f.category === 'rug' ? `${6 * px} ${4 * px}` : undefined} />
       <g className="plan2d-sym" strokeWidth={px} pointerEvents="none"><FurnSymbol cat={f.category} w={w} d={d} /></g>
       {hl && <rect x={-w / 2 - 4 * px} y={-d / 2 - 4 * px} width={w + 8 * px} height={d + 8 * px} fill="none" stroke={hl.color} strokeWidth={1.5 * px} pointerEvents="none" />}
-      {(sel || hover) && (
+      {sel && (
         <text fontSize={fs * 0.9} textAnchor="middle" dominantBaseline="central" className="plan2d-item-label plan2d-halo" pointerEvents="none"
           transform={`rotate(${-deg})`}>{f.locked ? 'Locked · ' : ''}{f.name}</text>
       )}

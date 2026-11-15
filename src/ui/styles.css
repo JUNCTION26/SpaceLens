@@ -267,12 +267,6 @@ button.brand:hover { background: var(--hover); }
 .empty .empty-action, .empty button { margin-top: var(--s2); }
 
 /* Guided demo caption and first-run coach */
-.demo-caption { position: fixed; top: calc(var(--top-h) + 12px); left: calc(var(--nav-w) + var(--panel-w) + (100vw - var(--nav-w) - var(--panel-w)) / 2); transform: translateX(-50%); z-index: 70; width: min(440px, calc(100vw - var(--nav-w) - var(--panel-w) - 32px)); display: flex; align-items: center; gap: var(--s2); padding: 8px 8px 8px 14px; border-radius: var(--radius-lg); font-size: var(--fs); line-height: 1.4; animation: fade .16s; }
-.demo-caption .demo-text { flex: 1; min-width: 0; }
-.demo-caption .demo-title { display: flex; gap: 8px; align-items: baseline; font-weight: var(--fw-strong); }
-.demo-caption .demo-count { font-size: var(--fs-sm); color: var(--muted); font-weight: var(--fw); font-variant-numeric: tabular-nums; }
-.demo-caption .demo-sub { color: var(--muted); min-height: 18px; }
-.workspace.nav-collapsed ~ .demo-caption, .app.nav-collapsed .demo-caption { left: calc(var(--nav-w-collapsed) + var(--panel-w) + (100vw - var(--nav-w-collapsed) - var(--panel-w)) / 2); }
 
 @media (max-width: 1100px) { :root { --panel-w: 312px; } }
 @media (prefers-reduced-motion: reduce) {

@@ -3,7 +3,7 @@ import { ShowRunner } from './ShowRunner';
 
 /**
  * Mounts the film and routes every demo entry to it: Settings > More > Demo and the search command
- * both emit spacelens:demo, which plays the full-screen film instead of a floating caption.
+ * both emit spacelens:demo, which plays the full-screen film.
  * ?demo=<kind> still loads the demo building.
  */
 export function DemoRunner() {

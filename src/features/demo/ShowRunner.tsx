@@ -225,7 +225,7 @@ export function buildShow(ui: ShowUi): SeqStep[] {
       S().setView('3d');
       ui.speak('And it still feels right at night.');
       camera('orbit', 6);
-      // The slider sits in the 3D view's View menu, which stays closed while the film plays. The view listens for
+      // The slider sits in the left panel's View fold, which stays closed while the film plays. The view listens for
       // spacelens:hour (detail.hour, 6 to 23) and sets detail.handled; a slider that is already on screen is driven directly.
       const sun = query<HTMLInputElement>('.scene3d-sun input[type="range"]');
       for (let h = 15; h <= 20.5; h += 0.5) {
