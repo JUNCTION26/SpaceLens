@@ -84,6 +84,17 @@
 .home-quick-text { flex: none; }
 .home-quick-text strong { font-size: var(--fs); line-height: 1.25; }
 .home-quick + .home-start { margin-top: 12px; }
+.home-ask-btn.is-go { color: var(--accent); }
+
+/* The first start is the one filled button on the page; it pulses once so the eye finds it. */
+.home-quick-card.is-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; animation: homePulse 1.2s var(--ease) 2.5s 1 both; }
+.home-quick-card.is-primary:hover, .home-quick-card.is-primary:focus-visible { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: transparent; }
+.home-quick-card.is-primary .home-quick-icon { background: color-mix(in srgb, var(--accent-ink) 18%, transparent); color: var(--accent-ink); }
+.home-quick-card:disabled { opacity: .55; cursor: default; }
+.home-quick-card[aria-busy] { cursor: progress; }
+.home-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+@keyframes homePulse { 0%, 100% { box-shadow: none; } 50% { box-shadow: var(--glow); } }
+@media (prefers-reduced-motion: reduce) { .home-quick-card.is-primary { animation: none; } }
 
 @media (max-width: 640px) {
   .home-top { height: 52px; }

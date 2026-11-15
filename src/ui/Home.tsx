@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../core/store';
-import { sampleRoom } from '../core/sample';
+import { showcaseRoom } from '../core/showcase';
 import { useUi, type CaptureKind } from './uiStore';
 import { Settings } from './Settings';
 import { Icon } from './icons';
-import { runStart, type StartKind } from '../features/demo/starts';
+import { queueBrief, runStart, type StartKind } from '../features/demo/starts';
 import './home.css';
 
-/** One-click starts: each lands on a finished result in seconds, no key needed. */
+/** One-click starts: each lands on a finished result in seconds, no key needed. The fastest one comes first. */
 const STARTS: Array<{ kind: StartKind; title: string; text: string; icon: string }> = [
-  { kind: 'plan', title: 'Plan to 3D', text: 'Real apartment', icon: 'file' },
-  { kind: 'villa', title: 'Plan a villa', text: '3 bedrooms', icon: 'grid' },
-  { kind: 'room', title: 'Design a room', text: 'Home office', icon: 'layout' },
+  { kind: 'room', title: 'Design a room', text: 'Home office', icon: 'sofa' },
+  { kind: 'plan', title: 'Plan to 3D', text: 'Real apartment', icon: 'cube' },
+  { kind: 'villa', title: 'Plan a villa', text: '3 bedrooms', icon: 'home' },
 ];
 
-const EXAMPLES = ['A room for my cat Gerard', 'a calm home office', 'a ramen bar', 'a kids room for two'];
+/** Each one reads as a new room, so pressing Enter on the shown example always designs one. */
+const EXAMPLES = ['A room for my cat Gerard', 'a calm home office', 'a bedroom for a teenager who games', 'a kids room for two'];
+/** The cursor starts in the field on desktop; on a phone the keyboard stays down until a tap. */
+const FINE_POINTER = typeof matchMedia === 'undefined' || !matchMedia('(pointer: coarse)').matches;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const SpeechCtor = (): (new () => any) | undefined =>
@@ -81,6 +84,8 @@ export function Home() {
   const [text, setText] = useState('');
   const [ex, setEx] = useState(0);
   const [listening, setListening] = useState(false);
+  /** The start that is loading: its card shows a spinner and the others wait. */
+  const [going, setGoing] = useState<StartKind | null>(null);
   const recRef = useRef<any>(null);
   const canListen = useMemo(() => !!SpeechCtor(), []);
   useEffect(() => {
@@ -94,11 +99,16 @@ export function Home() {
     const brief = raw.trim();
     if (!brief) return;
     const st = useStore.getState();
-    if (!st.model.spaces.length) dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() });
+    if (!st.model.spaces.length) dispatch({ type: 'REPLACE_MODEL', model: showcaseRoom() });
     setMode('design');
     st.setView('split');
     openSection('describe');
-    setTimeout(() => window.dispatchEvent(new CustomEvent('spacelens:request', { detail: brief })), 400);
+    queueBrief(brief);
+  };
+  const start = (kind: StartKind) => {
+    if (going) return;
+    setGoing(kind);
+    void runStart(kind).finally(() => setGoing(null));
   };
   const listen = () => {
     const C = SpeechCtor();
@@ -112,7 +122,7 @@ export function Home() {
     recRef.current = r; setListening(true);
     try { r.start(); } catch { setListening(false); }
   };
-  const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: { ...sampleRoom(), name: 'My room' } }); setMode('design'); };
+  const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: showcaseRoom() }); setMode('design'); };
   return (
     <div className="home">
       <header className="home-top">
@@ -122,18 +132,20 @@ export function Home() {
       <main className="home-hero">
         <div className="home-copy">
           <h1>Measure a room.<br />Design it. Walk through it.</h1>
-          <form className="home-ask" onSubmit={(e) => { e.preventDefault(); submit(text); }}>
+          <form className="home-ask" onSubmit={(e) => { e.preventDefault(); submit(text || EXAMPLES[ex]); }}>
             <input
-              className="home-ask-input" value={text} onChange={(e) => setText(e.target.value)}
+              className="home-ask-input" value={text} onChange={(e) => setText(e.target.value)} autoFocus={FINE_POINTER}
               placeholder={EXAMPLES[ex]} aria-label="Describe the space you want" enterKeyHint="go" autoComplete="off"
             />
             {canListen && <button type="button" className={`home-ask-btn${listening ? ' on' : ''}`} onClick={listen} aria-label="Speak" aria-pressed={listening} title="Speak"><Icon name="mic" size={18} /></button>}
             <button type="button" className="home-ask-btn" onClick={() => openSection('capture')} aria-label="Room from a photo" title="Room from a photo"><Icon name="camera" size={18} /></button>
+            <button type="submit" className="home-ask-btn is-go" aria-label="Design it" title="Design it"><Icon name="send" size={18} /></button>
           </form>
           <div className="home-quick" role="group" aria-label="Try it in one click">
-            {STARTS.map((s) => (
-              <button key={s.kind} className="home-quick-card" onClick={() => { void runStart(s.kind); }}>
-                <span className="home-quick-icon"><Icon name={s.icon} size={18} /></span>
+            {STARTS.map((s, i) => (
+              <button key={s.kind} className={`home-quick-card${i === 0 ? ' is-primary' : ''}`} onClick={() => start(s.kind)}
+                aria-busy={going === s.kind || undefined} disabled={!!going && going !== s.kind}>
+                <span className="home-quick-icon">{going === s.kind ? <span className="home-spin" aria-hidden="true" /> : <Icon name={s.icon} size={18} />}</span>
                 <span className="home-quick-text"><strong>{s.title}</strong></span>
               </button>
             ))}

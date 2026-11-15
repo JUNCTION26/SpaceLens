@@ -146,7 +146,7 @@ export function FloorChips({ briefs = {} }: { briefs?: Record<string, string> })
     <section className="fl">
       <div className="fl-chips" role="group" aria-label="Rooms">{model.spaces.map(chip)}</div>
       <div className="row bld-actions">
-        <button className="btn" onClick={furnishAll} disabled={running}>
+        <button className={`btn${model.furniture.length === 0 ? ' btn-primary' : ''}`} onClick={furnishAll} disabled={running}>
           {progress && !finished ? <Ring done={progress.done} total={progress.total} /> : <Icon name="sofa" />} Furnish all
         </button>
         {running && <button className="btn btn-ghost" onClick={stop} aria-label="Stop"><Icon name="x" /></button>}

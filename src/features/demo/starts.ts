@@ -15,6 +15,18 @@ export const OFFICE_BRIEF = 'Home office for two, keep my desk, clear route to t
 /** A brief waiting for the Describe panel to mount and run it. */
 let pendingBrief: string | null = null;
 export function takePendingBrief(): string | null { const b = pendingBrief; pendingBrief = null; return b; }
+/**
+ * Hands a brief to Describe: an open panel runs it at once, otherwise it waits until the panel mounts,
+ * however long the workspace takes to load.
+ */
+export function queueBrief(brief: string): void {
+  if (typeof document !== 'undefined' && document.querySelector('.intent')) {
+    pendingBrief = null;
+    window.dispatchEvent(new CustomEvent('spacelens:request', { detail: brief }));
+    return;
+  }
+  pendingBrief = brief;
+}
 
 const withTimeout = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
@@ -65,7 +77,8 @@ export async function startVilla(): Promise<boolean> {
     const s = useStore.getState();
     s.dispatch({ type: 'RENAME', name: 'Villa, 3 bedrooms' });
     s.setMode('design'); s.setView('3d');
-    useUi.getState().openSection('building');
+    // Already furnished and in 3D, so the next step is the walk.
+    useUi.getState().openSection('walk');
     const m = useStore.getState().model;
     notify(`Villa ready, ${m.spaces.length} rooms`, { tone: 'ok', ttl: 8000, actions: [{ label: 'Walk', run: () => useUi.getState().openSection('walk') }, { label: 'See plan', run: () => useStore.getState().setView('split') }] });
     return true;
@@ -78,12 +91,10 @@ export async function startVilla(): Promise<boolean> {
 
 /** Runs the office brief in the room that is open now. */
 async function startRoomIn(): Promise<void> {
-  pendingBrief = OFFICE_BRIEF;
   useStore.getState().setMode('design');
   useStore.getState().setView('split');
   useUi.getState().openSection('describe');
-  // The panel may already be open; it also listens for this event.
-  setTimeout(() => { if (pendingBrief) { pendingBrief = null; window.dispatchEvent(new CustomEvent('spacelens:request', { detail: OFFICE_BRIEF })); } }, 600);
+  queueBrief(OFFICE_BRIEF);
 }
 
 /** The sample room with a short office brief: layouts appear in seconds, each with its reasons. */
