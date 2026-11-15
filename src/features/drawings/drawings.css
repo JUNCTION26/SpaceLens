@@ -119,3 +119,8 @@
   .drawings-side { overflow: visible; }
   .drawings-ask { position: static; }
 }
+
+.drawings.is-drop { outline: 2px dashed var(--accent, #6aa7ff); outline-offset: -4px; }
+.drawings-pic .row { gap: 6px; flex-wrap: wrap; align-items: center; }
+.drawings-underlay input[type="range"] { flex: 1; }
+.drawings-num.is-need { border-color: var(--warn, #e0a030); }

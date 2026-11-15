@@ -12,6 +12,7 @@ import { answerFromGeometry } from './geoAnswer';
 import { buildFromProposals, cleanProposals, PROPOSAL_PROMPT, PROPOSAL_SCHEMA, scaleFromAreas, type RoomProposal } from './rasterRooms';
 import type { SpaceModel } from '../../core/types';
 import { dxfToModel } from '../formats/dxfRead';
+import { dataUrlToPlan, factorForLength, imageToPlan, rescaleModel, type ImagePlanReport } from './planImage';
 import './drawings.css';
 
 type Tool = 'pan' | 'calibrate' | 'trace';
@@ -74,6 +75,10 @@ export function DrawingsPanel() {
   const [pickRoom, setPickRoom] = useState<string | null>(null);
   const [proposals, setProposals] = useState<RoomProposal[] | null>(null);
   const setView = useStore((s) => s.setView);
+  const [pic, setPic] = useState<{ model: SpaceModel; report: ImagePlanReport } | null>(null);
+  const [underlay, setUnderlay] = useState(0.35);
+  const [knownLen, setKnownLen] = useState('');
+  const [dragOver, setDragOver] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
@@ -89,6 +94,17 @@ export function DrawingsPanel() {
       return { r, area: a?.value };
     });
   }, [pageItems]);
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const f = Array.from(e.clipboardData?.files ?? []).find((x) => x.type.startsWith('image/'));
+      if (!f) return;
+      e.preventDefault();
+      void openBlob(f, f.name && f.name !== 'image.png' ? f.name : `Pasted plan ${new Date().toLocaleTimeString()}.png`);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  });
 
   useEffect(() => {
     const el = stageRef.current; if (!el) return;
@@ -136,7 +152,49 @@ export function DrawingsPanel() {
   function openDoc(d: DrawingDoc) {
     docCache.set(d.name, d); lastDoc = d; saveSummary(d);
     setDoc(d); setPage(0); setZoom(1); setPan({ x: 0, y: 0 }); setAnswers([]); setFocus(null); setTrace([]); setCalPts([]); setMPerPx({});
-    setBuilt(null); setPickRoom(null); setProposals(null);
+    setBuilt(null); setPickRoom(null); setProposals(null); setPic(null); setKnownLen('');
+  }
+
+  const isPicture = (f: Blob, name: string) => /^image\//.test(f.type) || /\.(png|jpe?g|webp)$/i.test(name);
+
+  function showPicture(out: { model: SpaceModel; report: ImagePlanReport }) {
+    if (!out.report.ok) { toast(out.report.reason ?? 'No rooms found', 'warn'); return; }
+    setPic(out); setOverlay(false); setTool('pan'); setZoom(1); setPan({ x: 0, y: 0 });
+    setKnownLen(''); setUnderlay(0.35);
+  }
+
+  async function readPicture(blob: Blob | null, d: DrawingDoc, name: string) {
+    const p0 = d.pages[0]; if (!p0) return;
+    setBuilding(true); setLoading('Reading');
+    try {
+      let imageUrl = p0.dataUrl;
+      try { imageUrl = URL.createObjectURL(blob ?? await (await fetch(p0.dataUrl)).blob()); } catch { /* keep the data URL */ }
+      showPicture(blob ? await imageToPlan(blob, { name, imageUrl }) : await dataUrlToPlan(p0.dataUrl, p0.pxW, p0.pxH, { name, imageUrl }));
+    } catch (e) {
+      toast(`Could not read the picture: ${(e as Error).message}`, 'error');
+    } finally { setBuilding(false); setLoading(null); }
+  }
+
+  function applyKnownLength() {
+    if (!pic) return;
+    const v = Number(knownLen.replace(',', '.'));
+    const k = factorForLength(pic.report.sizeM, v);
+    if (!k) { toast('Type metres', 'warn'); return; }
+    const model = rescaleModel(pic.model, k);
+    const report: ImagePlanReport = {
+      ...pic.report, needsLength: false, confidence: Math.max(pic.report.confidence, 0.8), warnings: [],
+      scale: { ...pic.report.scale, source: 'dimensions', mPerPx: pic.report.scale.mPerPx ? pic.report.scale.mPerPx * k : null },
+      sizeM: { w: pic.report.sizeM.w * k, h: pic.report.sizeM.h * k },
+      rooms: pic.report.rooms.map((r) => ({ ...r, computedArea: Math.round(r.computedArea * k * k * 100) / 100 })),
+    };
+    setPic({ model, report }); setKnownLen('');
+  }
+
+  function openPicture3d() {
+    if (!pic) return;
+    dispatch({ type: 'REPLACE_MODEL', model: pic.model });
+    setView('3d'); setMode('design');
+    toast(`${pic.model.spaces.length} rooms built`, 'ok');
   }
 
   async function buildPlan() {
@@ -203,6 +261,8 @@ export function DrawingsPanel() {
       const isPdf = blob.type === 'application/pdf' || /\.pdf$/i.test(name);
       const d = isPdf ? await loadPdf(await blob.arrayBuffer(), name, setLoading) : await loadImage(blob, name);
       openDoc(d);
+      if (isPicture(blob, name)) void readPicture(blob, d, name);
+      else if (isPdf && (d.vectors?.[0]?.paths.length ?? 0) < 30) void readPicture(null, d, name);
     } catch (e) {
       toast(`Could not open ${name}: ${(e as Error).message}`, 'error');
     } finally { setLoading(null); }
@@ -513,8 +573,35 @@ export function DrawingsPanel() {
     </section>
   );
 
+  const picCard = pic && (
+    <section className="card drawings-pic">
+      <div className="row">
+        <span className={`chip ${pic.report.confidence >= 0.7 ? 'chip-ok' : pic.report.confidence >= 0.4 ? 'chip-warn' : 'chip-bad'}`}>{Math.round(pic.report.confidence * 100)}%</span>
+        <span className="chip">{pic.report.scale.source === 'dimensions' ? 'Dimensions' : pic.report.scale.source === 'areas' ? 'Areas' : pic.report.scale.source === 'door' ? 'Door' : 'No scale'}</span>
+        <span className="chip">{pic.model.spaces.length} rooms</span>
+        <span className="chip">{pic.report.sizeM.w.toFixed(1)} x {pic.report.sizeM.h.toFixed(1)} m</span>
+      </div>
+      <label className="row drawings-underlay">
+        <span className="muted">Picture</span>
+        <input type="range" min={0} max={1} step={0.05} value={underlay} onChange={(e) => setUnderlay(Number(e.target.value))} aria-label="Picture opacity" />
+      </label>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); applyKnownLength(); }}>
+        <input className={`field drawings-num${pic.report.needsLength ? ' is-need' : ''}`} value={knownLen} onChange={(e) => setKnownLen(e.target.value)} placeholder="Longest side, m" inputMode="decimal" aria-label="One known length in metres, the longest side of the plan" />
+        <button className="btn btn-sm" disabled={!knownLen.trim()}>Set</button>
+      </form>
+      {pic.report.warnings.length > 0 && (
+        <details><summary>{pic.report.warnings.length}</summary><ul>{pic.report.warnings.map((w) => <li key={w}>{w}</li>)}</ul></details>
+      )}
+      <button className="btn btn-primary drawings-big" onClick={openPicture3d}>Open in 3D</button>
+      <button className="btn btn-ghost btn-sm" onClick={() => setPic(null)}>Clear</button>
+    </section>
+  );
+
   return (
-    <div className="drawings">
+    <div className={`drawings${dragOver ? ' is-drop' : ''}`}
+      onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true); } }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+      onDrop={(e) => { setDragOver(false); if (e.defaultPrevented) return; const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); void openBlob(f, f.name); } }}>
       {doc && (
         <div className="drawings-bar row" role="toolbar" aria-label="Drawing tools">
           {(['pan', 'calibrate', 'trace'] as Tool[]).map((t) => (
@@ -561,7 +648,7 @@ export function DrawingsPanel() {
           <div className={`drawings-stage tool-${tool}`} ref={stageRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => { drag.current = null; }} onWheel={onWheel}>
             {pg && (
               <div className={`drawings-sheet ${anim ? 'is-anim' : ''}`} style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, aspectRatio: `${pg.pxW} / ${pg.pxH}` }}>
-                <img src={pg.dataUrl} alt={`${doc.name} page ${page + 1}`} draggable={false} />
+                <img src={pg.dataUrl} alt={`${doc.name} page ${page + 1}`} draggable={false} style={pic ? { opacity: underlay } : undefined} />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none">
                   {overlay && pageItems.map((i) => <rect key={`o${i.id}`} className={`drawings-ov ov-${i.kind}`} x={i.x} y={i.y} width={i.w} height={i.h}><title>{`${i.kind}: ${i.str}`}</title></rect>)}
                   {hover && hover.page === page && <rect className="drawings-hover" x={hover.x - 0.005} y={hover.y - 0.005} width={hover.w + 0.01} height={hover.h + 0.01} />}
@@ -576,6 +663,9 @@ export function DrawingsPanel() {
                       ))}
                     </g>
                   )}
+                  {pic && pic.report.rooms.map((r) => (
+                    <polygon key={`pic${r.spaceId}`} className="drawings-broom st-none" points={r.outline.map((p) => `${p.x},${p.y}`).join(' ')}><title>{r.name}</title></polygon>
+                  ))}
                   {proposals?.map((r, i) => <polygon key={`p${i}`} className="drawings-broom st-none" points={r.polygon.map((p) => `${p.x},${p.y}`).join(' ')}><title>{`${r.name} (proposed)`}</title></polygon>)}
                   {built && built.page === page && built.report.failed.map((f, i) => <rect key={`f${i}`} className="drawings-bfail" x={f.box[0] - 0.004} y={f.box[1] - 0.004} width={f.box[2] + 0.008} height={f.box[3] + 0.008}><title>{f.reason}</title></rect>)}
                   {pageFocus.map((r, i) => <rect key={i} className="drawings-hit" x={r.x} y={r.y} width={r.w} height={r.h} />)}
@@ -604,6 +694,7 @@ export function DrawingsPanel() {
           </div>
 
           <aside className="drawings-side">
+            {picCard}
             {buildCard}
             {sampleList}
             <section className="card drawings-ask">
