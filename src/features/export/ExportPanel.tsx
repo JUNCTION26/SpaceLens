@@ -134,7 +134,7 @@ td,th{border:1px solid #bbb;padding:3px 6px;text-align:left}table{border-collaps
 
   return (
     <div className="export">
-      <section className="export-block" aria-label="Send">
+      <section className="export-block" aria-label="Send" data-guide="share">
         <h3>Send</h3>
         <div className="export-grid">
           <button className="export-file" onClick={() => void share()} aria-label="Link" aria-pressed={qr} title="Link">

@@ -61,7 +61,7 @@ export function SizeRow() {
   const m2 = space.polygon.length === 4 ? w * d : area(space.polygon) * (w / (cur[0] || 1)) * (d / (cur[1] || 1));
   return (
     <div>
-      <div className="capture-size">
+      <div className="capture-size" data-guide="size">
         {(['W', 'D', 'H'] as const).map((l, i) => (
           <label key={l}><span>{l}</span>
             <input className="field" inputMode="decimal" value={vals[i]} aria-label={`${['Width', 'Depth', 'Height'][i]} in metres`}

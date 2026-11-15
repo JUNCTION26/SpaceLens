@@ -1,0 +1,22 @@
+/* Guide: the card stays in the left panel; the ring and arrow never take clicks. */
+.guide-card { position: sticky; top: 0; z-index: 3; display: grid; gap: var(--s2); margin: 0 0 var(--s3); padding: var(--s3); background: var(--raised); border: 1px solid var(--accent); border-radius: var(--radius); }
+.guide-text { margin: 0; font-size: var(--fs); color: var(--text); }
+.guide-actions { display: flex; align-items: center; gap: var(--s1); }
+/* Skip on the left; Back and Next together on the right. */
+.guide-actions > :nth-child(2) { margin-left: auto; }
+.guide-keys { display: grid; gap: var(--s1); margin: 0; }
+.guide-keys > div { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.guide-keys dt { display: flex; gap: var(--s1); }
+.guide-keys dd { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.guide-btn { height: var(--ctl); }
+.guide-btn.on { color: var(--accent); }
+
+.guide-ring { z-index: 90; pointer-events: none; animation: guide-pulse 1.4s ease-out infinite; }
+.guide-arrow { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 90; pointer-events: none; overflow: visible; }
+.guide-arrow path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+.guide-arrow marker path { fill: var(--accent); stroke: none; }
+@keyframes guide-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  100% { box-shadow: 0 0 0 var(--s2) color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .guide-ring { animation: none; } }

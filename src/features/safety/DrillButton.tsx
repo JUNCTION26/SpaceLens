@@ -52,7 +52,7 @@ export function DrillButton({ onStart, extra, trapped = 0, bottleneck = '' }: { 
   return (
     <div className="drill" role="group" aria-label="Fire drill">
       <div className="drill-main">
-        <button type="button" className="btn btn-primary drill-go" onClick={go} aria-label={result ? 'Replay drill' : 'Start drill'}>
+        <button type="button" className="btn btn-primary drill-go" data-guide="drill" onClick={go} aria-label={result ? 'Replay drill' : 'Start drill'}>
           <Icon name="play" size={14} /> <span>Drill</span>
         </button>
         {result && <button type="button" className="btn btn-ghost drill-clear" aria-label="Clear drill" title="Clear" onClick={() => useDrill.getState().set(null)}><Icon name="x" size={14} /></button>}

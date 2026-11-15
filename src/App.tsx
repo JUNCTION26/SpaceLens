@@ -29,6 +29,7 @@ import { VoiceAdd } from './features/voice/VoiceAdd';
 import { AgentDock, OPTIONAL_PANELS } from './ui/sections';
 import { PollOverlay } from './features/vote/VoteUi';
 import { ViewFold, toggleStageFull, useStageFullSync, useViewPrefs } from './ui/ViewFold';
+import { GuideCard } from './ui/guide/Guide';
 
 applyDeepLink();
 
@@ -126,6 +127,7 @@ function Workspace() {
         <Sidebar active={active} />
         <section className="panel-col" aria-label={shellLabel}>
           <div className="side-body">
+            <GuideCard />
             <InspectorSection />
             {searchOpen ? <SearchResults /> : settingsOpen ? <Settings /> : <>
               <header className="panel-col-head"><h1>{active.group}</h1><SectionTabs active={active} /></header>
@@ -136,9 +138,9 @@ function Workspace() {
           {AgentDock ? <Suspense fallback={null}><AgentDock overlay={false} /></Suspense> : <VoiceAdd />}
           <Toasts />
         </section>
-        <main className={`stage stage-${shown}${pseudoFull ? ' is-pseudo' : ''}`}>
+        <main className={`stage stage-${shown}${pseudoFull ? ' is-pseudo' : ''}`} data-guide="stage">
           {shown !== '3d' && <section className="pane pane-2d" aria-label="Plan"><ErrorBoundary scope="area" label="The plan"><PlanView /></ErrorBoundary></section>}
-          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={null}><SceneView /></Suspense></ErrorBoundary></section>}
+          {shown !== '2d' && <section className="pane pane-3d" aria-label="3D view" data-guide="view3d"><ErrorBoundary scope="area" label="The 3D view"><Suspense fallback={null}><SceneView /></Suspense></ErrorBoundary></section>}
         </main>
       </div>
       <MobileNav active={active} />

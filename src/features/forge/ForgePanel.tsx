@@ -109,7 +109,7 @@ export function ForgePanel() {
 
   return (
     <div className="forge">
-      <form className="forge-ask" onSubmit={submit}>
+      <form className="forge-ask" onSubmit={submit} data-guide="create">
         <input
           value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe"
           aria-label="Describe any object, with sizes if you know them" autoComplete="off" enterKeyHint="go"

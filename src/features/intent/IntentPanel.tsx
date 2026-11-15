@@ -189,7 +189,7 @@ export function IntentPanel() {
 
   return (
     <div className="intent">
-      <div className="intent-composer">
+      <div className="intent-composer" data-guide="describe">
         <textarea className="intent-text" rows={3} value={text} aria-label="Describe your space" onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void compile(); } }}
           placeholder="Describe" />
@@ -201,7 +201,7 @@ export function IntentPanel() {
         </div>
       </div>
       {!text && !req && !chip && !cannot && !retry && !compiling && (
-        <div className="intent-chips">{EXAMPLES.map((x) => <button key={x} className="chip" onClick={() => { setText(x); void compile(x, true); }}>{x}</button>)}</div>
+        <div className="intent-chips">{EXAMPLES.map((x, i) => <button key={x} className="chip" data-guide={i === 0 ? 'example' : undefined} onClick={() => { setText(x); void compile(x, true); }}>{x}</button>)}</div>
       )}
       {(cannot || retry) && (
         <div className="intent-chips" role="status">

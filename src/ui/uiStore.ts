@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { OPTIONAL_PANELS } from './sections';
+import { useGuide } from './guide/guideStore';
 
 export type CaptureKind = 'scan' | 'photos' | 'draw' | 'import';
 type WorkMode = 'capture' | 'design' | 'experience' | 'deliver';
@@ -103,7 +104,7 @@ export const useUi = create<UiState>((set, get) => ({
 }));
 
 /**
- * Deep links for demos and review: ?start=<plan|villa|room>&nav=<section>&sample=1&view=<2d|split|3d>&theme=<dark|light|system>&coach=0&open=<settings|command|checks|demo>
+ * Deep links for demos and review: ?start=<plan|villa|room>&nav=<section>&sample=1&view=<2d|split|3d>&theme=<dark|light|system>&coach=0&open=<settings|command|checks|demo>&guide=1
  * Runs once before the first render.
  */
 export function applyDeepLink(search: string = typeof location !== 'undefined' ? location.search : '') {
@@ -123,4 +124,6 @@ export function applyDeepLink(search: string = typeof location !== 'undefined' ?
   const open = q.get('open');
   if (open === 'settings') useUi.getState().setSettingsOpen(true);
   else if (open) setTimeout(() => window.dispatchEvent(new Event(`spacelens:${open}`)), 300);
+  // The guide opens the workspace on its first step.
+  if (q.get('guide') === '1') { useUi.getState().openSection('capture'); useGuide.getState().start(); }
 }

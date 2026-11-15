@@ -3,6 +3,7 @@ import { SearchField } from '../features/command/CommandPalette';
 import { useStore } from '../core/store';
 import { useXRSupport, type XRMode } from '../features/xr/xrSupport';
 import { Logo } from './Home';
+import { GuideButton } from './guide/Guide';
 import { Icon } from './icons';
 import { toggleStageFull, toggleWalk, useViewPrefs } from './ViewFold';
 import './shell.css';
@@ -69,7 +70,7 @@ export function TopBar() {
         </div>
       )}
       <div className="tools">
-        <button className={`icon-btn${walking || touring ? ' on' : ''}`} onClick={toggleWalk} aria-pressed={walking || touring}
+        <button className={`icon-btn${walking || touring ? ' on' : ''}`} onClick={toggleWalk} aria-pressed={walking || touring} data-guide="walk"
           aria-label={touring ? 'Stop tour' : 'Walk'} title={touring ? 'Stop tour' : walking ? 'Stop walking (Esc)' : 'Walk'}>
           <Icon name={touring ? 'pause' : 'walk'} />
         </button>
@@ -78,6 +79,7 @@ export function TopBar() {
         {has3d && xr.ar && <button className={`icon-btn${xrMode === 'immersive-ar' ? ' on' : ''}`} onClick={() => startXR('immersive-ar')} aria-label="AR" title="AR"><Icon name="cube" /></button>}
         <SearchField />
         <button className="icon-btn" onClick={shareLink} title="Share" aria-label="Share"><Icon name="share" /></button>
+        <GuideButton />
       </div>
     </header>
   );
