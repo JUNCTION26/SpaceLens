@@ -751,7 +751,9 @@ export function applyRoomOps(ops: Op[], label: string): void {
   if (!ops.length) return;
   let model = st.model;
   for (const op of ops) model = applyOp(model, op);
-  st.dispatch({ type: 'SET_FURNITURE', items: model.furniture, label });
+  const furnitureOnly = ops.every((o) => o.type === 'PLACE_OBJECT' || o.type === 'UPDATE_OBJECT' || o.type === 'REMOVE_OBJECT' || o.type === 'SET_FURNITURE');
+  // Room shape edits (resize, walls, openings) must land too, as one undo step.
+  st.dispatch(furnitureOnly ? { type: 'SET_FURNITURE', items: model.furniture, label } : { type: 'REPLACE_MODEL', model });
 }
 
 /** Marks for actions whose execution draws nothing itself. */
