@@ -4,7 +4,8 @@ import { parseSpoken, type SpokenCommand } from '../voice/parse';
 import type { Action, AgentReply } from './actions';
 import { refersToSketch } from './deixis';
 import { isThemedRequest, roomKind } from '../themes/brief';
-import { answerFromModel, type AnswerState } from './answer';
+import { answerFromModel, itemsNamed, type AnswerState } from './answer';
+import { D, type Lang } from './conversation';
 
 const WALL_WORD: Record<string, string> = { north: 'north', south: 'south', east: 'east', west: 'west', window: 'window', door: 'door' };
 
@@ -14,14 +15,14 @@ function place(cmd: SpokenCommand | null, text: string, hasSketch: boolean): str
 }
 
 /** Rule-based reply for one utterance. `hasSketch`: the person has drawn something recently. */
-export function offlineReply(text: string, hasSketch: boolean, inRoom: (category: string) => boolean = () => false, room?: AnswerState): AgentReply {
+export function offlineReply(text: string, hasSketch: boolean, inRoom: (category: string) => boolean = () => false, room?: AnswerState, lang: Lang = 'en'): AgentReply {
   const t = text.toLowerCase().trim();
   const reply = (say: string, actions: Action[] = []): AgentReply => ({ say, sketch: [], actions });
 
   if (!t) return reply('');
-  const known = room ? answerFromModel(text, room) : null;
+  const known = room ? answerFromModel(text, room, lang) : null;
   if (known) return reply(known);
-  if (/\b(undo|ångra|take that back)\b/.test(t)) return reply('Undone.', [{ type: 'undo' }]);
+  if (/(?<![\p{L}])(undo|ångra|take that back|peru)(?![\p{L}])/u.test(t)) return reply(D(lang, 'undone'), [{ type: 'undo' }]);
   if (/\b(walk|walkthrough|walk through|first person)\b/.test(t) && /\b(show|let|go|start|view|me)\b/.test(t)) return reply('Walking you through it.', [{ type: 'set_view', view: 'walk' }]);
   const view = t.match(/\b(2d|3d|two d|three d|plan view|split)\b/);
   if (view && /\b(show|switch|go|view|see)\b/.test(t)) {
@@ -32,21 +33,23 @@ export function offlineReply(text: string, hasSketch: boolean, inRoom: (category
     return reply('Adding a wall along your line.', [{ type: 'add_wall', from: 'here' }]);
   }
   if (/\b(how (far|long|wide|big)|measure|distance|mät)\b/.test(t)) return reply('', [{ type: 'measure' }]);
-  if (/\b(safe|safety|hazard|danger|childproof|fire)\b/.test(t)) return reply('Let me check.', [{ type: 'check_safety' }]);
-  if (/\b(why|varför|explain)\b/.test(t)) {
+  if (/(?<![\p{L}])(safe|safety|hazard|danger|childproof|fire|säker|turvall)/u.test(t)) return reply(D(lang, 'checking'), [{ type: 'check_safety' }]);
+  if (/(?<![\p{L}])(why|varför|miksi|explain)(?![\p{L}])/u.test(t)) {
     const topic = /price|cost|expensive|cheap|pris/.test(t) ? 'price' : /face|facing|direction|turned/.test(t) ? 'direction' : 'layout';
-    const id = /\b(this|that|it)\b/.test(t) ? 'selected' : undefined;
+    const named = room ? itemsNamed(t, room.model.furniture)[0] : undefined;
+    const id = named?.id ?? (/\b(this|that|it|den|det|se)\b/.test(t) ? 'selected' : undefined);
     return reply('', [{ type: 'explain', topic, id }]);
   }
   if (/\b(find|buy|shop|where can i get|search for)\b/.test(t)) {
     const q = t.replace(/^.*?\b(find|buy|shop for|shop|where can i get|search for)\b\s*(me\s+)?(a|an|some)?\s*/, '').replace(/[?.!]+$/, '');
     return reply('Searching.', [{ type: 'find_products', query: q || t }]);
   }
+  const designWord = /(?<![\p{L}])(design|furnish|plan(?![\p{L}])|lay ?out|arrange|inred\p{L}*|möblera|sisusta\p{L}*|kalusta\p{L}*)/u.test(t);
   const themedRoom = isThemedRequest(text) && /\b(room|nook|office|bedroom|den|space|corner)\b/.test(t) && !/\b(poster|sign|statue|neon)\b/.test(t);
-  if (themedRoom || (/\b(design|furnish|plan|lay ?out|arrange|inred)\b/.test(t) && /\b(room|office|space|bedroom|living|kitchen|it|this|for|with|me)\b/.test(t))) {
-    return reply('Designing it now.', [{ type: 'design_room', brief: text }]);
+  if (themedRoom || (designWord && /(?<![\p{L}])(room|office|space|bedroom|living|kitchen|it|this|for|with|me|rum|rummet|huone|huoneen|den|detta|tämä)(?![\p{L}])/u.test(t))) {
+    return reply(D(lang, 'designing'), [{ type: 'design_room', brief: text }]);
   }
-  if (/\b(apply|use|go with|pick) (this|that|it|the (first|best)|option|layout)\b/.test(t)) return reply('Applied.', [{ type: 'apply_layout' }]);
+  if (/\b(apply|use|go with|pick) (this|that|it|the (first|best)|option|layout)\b/.test(t)) return reply(D(lang, 'applied'), [{ type: 'apply_layout' }]);
 
   const cmd = parseSpoken(text);
   const hasHere = hasSketch && refersToSketch(t);

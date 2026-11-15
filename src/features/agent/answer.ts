@@ -63,7 +63,7 @@ const ITEM_WORDS: Array<[string, string]> = [
 ];
 
 /** Items named in the question, in the order they were mentioned. */
-function itemsNamed(t: string, items: FurnitureItem[]): FurnitureItem[] {
+export function itemsNamed(t: string, items: FurnitureItem[]): FurnitureItem[] {
   const hits: Array<{ at: number; item: FurnitureItem }> = [];
   const used = new Set<string>();
   const add = (at: number, item: FurnitureItem) => { if (!used.has(item.id)) { used.add(item.id); hits.push({ at, item }); } };
@@ -80,6 +80,12 @@ function itemsNamed(t: string, items: FurnitureItem[]): FurnitureItem[] {
     if (pick) add(m.index, pick);
   }
   return hits.sort((a, b) => a.at - b.at).map((h) => h.item);
+}
+
+/** English category for a furniture word in any of the three languages, or null. */
+export function canonicalItem(word: string): string | null {
+  for (const [alts, canon] of ITEM_WORDS) if (new RegExp(`^(?:${alts})`, 'u').test(word.toLowerCase())) return canon;
+  return null;
 }
 
 const footprint = (i: FurnitureItem) => i.w * i.d;

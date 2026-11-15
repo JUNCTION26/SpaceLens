@@ -7,7 +7,8 @@ import { applyOp } from '../../core/ops';
 import { getState } from '../../core/store';
 import type { FurnitureItem, Infeasibility, Op, LayoutCandidate, ObjectSpec, SketchMark, SpaceModel, StoreListing, Vec2 } from '../../core/types';
 import { catalogEntry, findByKeyword, makeItem, makeOwnItem } from '../furniture/catalog';
-import { clampInside, findFreeSpot, resolveOverlap, rotationFacing, snapToWall, wallCompass } from '../objects/placement';
+import { clampInside, describeItemPlacement, findFreeSpot, resolveOverlap, rotationFacing, snapToWall, wallCompass } from '../objects/placement';
+import { applyGoals, type Goals } from './conversation';
 import { validateLayout } from '../referee/validate';
 import { colorHex, parseSpoken } from '../voice/parse';
 import { sketchForAll, type SketchWorld } from '../voice/sketchFor';
@@ -126,6 +127,8 @@ export interface Ctx {
   signal?: AbortSignal;
   /** Show progress under the caption (not spoken). */
   status?: (text: string) => void;
+  /** What the person has said they need; applied to every design the turn makes. */
+  goals?: Goals;
 }
 
 export function resolveItem(ref: string | undefined, ctx: Ctx, model: SpaceModel = getState().model): FurnitureItem | undefined {
@@ -385,7 +388,7 @@ export function explain(a: Action, ctx: Ctx): string {
     if (dec) parts.push(dec.reason);
     const bad = r?.verdicts?.find((v) => !v.pass && v.itemIds.includes(item.id));
     if (bad) parts.push(`One catch: ${bad.message}`);
-    if (!parts.length) parts.push(`The ${item.name} is ${dims(item)} and sits where it has its ${cm(item.clearance.front)} cm of use space in front.`);
+    if (!parts.length) parts.push(`${describeItemPlacement(model, item)}, with ${cm(item.clearance.front)} cm of use space in front.`);
     return [...new Set(parts)].slice(0, 3).join(' ');
   }
   if (/price|cost|budget/.test(topic)) {
@@ -663,8 +666,9 @@ export async function execute(a: Action, ctx: Ctx): Promise<ExecResult> {
       if (!intent || !pipe) return { ok: false, line: 'Design engine not available', speak: 'The design engine is not loaded.' };
       ctx.status?.('Reading the brief…');
       const model = getState().model;
-      const req = await intent.compileIntent(brief, model);
+      const req0 = await intent.compileIntent(brief, model);
       if (ctx.signal?.aborted) return { ok: false };
+      const req = ctx.goals ? applyGoals(req0, ctx.goals) : req0;
       st.setRequirements(req);
       const res = await pipe.designRoom(model, req, {
         brief, signal: ctx.signal,

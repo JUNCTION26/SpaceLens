@@ -100,7 +100,7 @@ const ROOM_WORDS: string[] = [
   'hall|hallway|entré|eteinen', 'office|kontor|työhuone', 'toilet|wc|vessa', 'balcony|balkong|parveke', 'dining|matsal|ruokailu',
 ];
 
-function roomsNamed(t: string, model: SpaceModel) {
+export function roomsNamed(t: string, model: SpaceModel) {
   const hits: Array<{ at: number; idx: number }> = [];
   const seen = new Set<number>();
   model.spaces.forEach((s, idx) => {
@@ -118,6 +118,12 @@ function roomsNamed(t: string, model: SpaceModel) {
 }
 
 const spaceArea = (s: { polygon: Vec2[] }) => polyArea(s.polygon);
+
+/** Is there clear floor for a 1.5 m wheelchair turn in the room, among the furniture? */
+export function turnSpaceFree(model: SpaceModel, furniture: FurnitureItem[] = model.furniture): boolean {
+  const space = model.spaces[0];
+  return !!space && boxFits(space.polygon, furniture.filter((f) => (f.mount ?? 'floor') === 'floor' && !(f.elevationM && f.elevationM > 0.5)), 1.5, 1.5);
+}
 
 /** Largest circle that fits in the room walls, as a diameter. */
 function inscribedDiameter(poly: Vec2[]): number {

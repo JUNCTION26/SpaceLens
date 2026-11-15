@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import type { StoreListing } from '../../core/types';
+import { emptyConversation, type Conversation } from './conversation';
 
 export interface Turn {
   id: string;
   who: 'you' | 'agent';
   text: string;
   at: number;
-  /** "Gemini · flash-lite · 0.9 s" or "Offline rules". */
+  /** Which engine answered ("Gemini · flash-lite"); never a timing. */
   meta?: string;
   /** What the agent did, one short line each. */
   done?: string[];
@@ -17,6 +18,8 @@ export type Phase = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface AgentState {
   turns: Turn[];
+  /** What the assistant remembers: referred things, last action, stated goals. Plain data. */
+  conv: Conversation;
   /** Live words while the person is talking. */
   interim: string;
   /** The agent's line in progress or its last line. */
@@ -26,7 +29,7 @@ interface AgentState {
   speaking: boolean;
   handsFree: boolean;
   muted: boolean;
-  /** Latency of the last reply. */
+  /** Kept for older readers; no longer carries a latency. */
   timing: string | null;
   /** Work in progress under the caption ("Solving the layout…"); not spoken. */
   status: string;
@@ -40,6 +43,7 @@ function loadMuted() { try { return localStorage.getItem('spacelens:agentMuted')
 
 export const useAgent = create<AgentState>((set, get) => ({
   turns: [],
+  conv: emptyConversation(),
   interim: '',
   caption: '',
   listening: false,
