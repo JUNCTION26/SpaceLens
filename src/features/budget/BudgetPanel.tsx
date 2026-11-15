@@ -103,8 +103,10 @@ export function BudgetPanel() {
                       <span className="budget-swap-top"><b>{KIND_LABEL[s.kind]}</b><span className="ok">{`−${kr(s.saving)}`}</span></span>
                       <span className="budget-ba">
                         <span>{s.before.name} <em>{kr(s.before.priceSek)}</em></span>
-                        <Icon name="redo" size={12} aria-hidden="true" />
-                        <span>{s.after ? s.after.name : 'None'} <em>{kr(s.after?.priceSek ?? 0)}</em></span>
+                        {s.after && (<>
+                          <Icon name="redo" size={12} aria-hidden="true" />
+                          <span>{s.after.name} <em>{kr(s.after.priceSek)}</em></span>
+                        </>)}
                       </span>
                     </span>
                   </label>
@@ -132,8 +134,8 @@ export function BudgetPanel() {
           <span className="budget-input"><input id="budget-monthly" inputMode="numeric" placeholder="0" value={saved.monthly ? String(saved.monthly) : ''} onChange={(e) => update({ ...saved, monthly: num(e.target.value) })} /><span>kr</span></span>
         </div>
         <ol className="budget-phases">
-          {phases.map((p) => (
-            <li key={p.key} className={p.items.length ? '' : 'empty'}>
+          {phases.filter((p) => p.items.length > 0).map((p) => (
+            <li key={p.key}>
               <div className="budget-phase-head">
                 <b>{p.label}</b><span>{kr(p.total)}</span>
               </div>
