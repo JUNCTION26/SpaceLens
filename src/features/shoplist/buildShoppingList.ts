@@ -31,7 +31,8 @@ export function searchUrl(name: string, wCm: number, dCm: number, hCm: number): 
 
 function priceOf(it: FurnitureItem): { price: number; currency: string } | null {
   if (it.listing && it.listing.price != null) return { price: it.listing.price, currency: it.listing.currency };
-  if ((it.priceStatus === 'user' || it.priceStatus === 'catalog') && it.priceSek > 0) return { price: it.priceSek, currency: 'SEK' };
+  // Estimated prices count too, so the list total matches the budget.
+  if (it.priceStatus !== 'owned' && it.priceSek > 0) return { price: it.priceSek, currency: 'SEK' };
   return null;
 }
 
