@@ -141,7 +141,7 @@ describe('designThemedRoom', () => {
     const { next } = await refineIntent(req, 'add a second poster that says GOOD BOY', [], model);
     const res2 = await designRoom(model, next, { brief: text });
     expect(res2.candidates[0].furniture.some((f) => f.custom && textOf(f.custom).includes('GOOD BOY'))).toBe(true);
-  });
+  }, 400000);
 });
 
 describe('junk filter and fallback', () => {
@@ -169,5 +169,5 @@ describe('junk filter and fallback', () => {
     expect(res.candidates.length).toBeGreaterThan(0);
     expect(res.candidates.every((c) => c.furniture.length > 0 && c.metrics.score > 0)).toBe(true);
     expect(res.brief.objects.some((o) => o.text === 'GERARD')).toBe(true);
-  }, 400000);
+  });
 });
