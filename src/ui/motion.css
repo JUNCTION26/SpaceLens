@@ -1,0 +1,160 @@
+/* SpaceLens motion and finish layer: tokens, transitions, depth, type, accessibility.
+   Loaded after styles.css and before mobile.css. Selectors stay low-specificity so feature CSS can override. */
+:root {
+  /* Durations */
+  --dur-1: 120ms; --dur-2: 200ms; --dur-3: 320ms; --dur-4: 500ms;
+  /* Easings: standard, emphasised decelerate, spring-like */
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-out: cubic-bezier(.05, .7, .1, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  /* Radii */
+  --r-1: 6px; --r-2: 10px; --r-3: 16px;
+  /* Hairline and UI border (3:1 against surfaces) */
+  --hairline: color-mix(in srgb, var(--text) 9%, transparent);
+  --ui-border: #646469;
+  /* Elevation, with an inner highlight on dark surfaces */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .04);
+  --elev-2: 0 2px 4px rgba(0, 0, 0, .25), 0 8px 24px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .05);
+  --elev-3: 0 8px 16px rgba(0, 0, 0, .3), 0 24px 64px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .06);
+  /* Focus */
+  --focus-ring-width: 2px; --focus-ring-offset: 2px;
+  --focus-ring: var(--focus-ring-width) solid var(--accent);
+  /* Motion distances; zeroed for reduced motion */
+  --mo-shift: 8px; --mo-lift: -1px; --mo-press: .98; --mo-enter: .98;
+  /* Map the older tokens onto the new scale */
+  --dur: var(--dur-1); --ease: var(--ease-standard);
+  --radius-sm: var(--r-1); --radius: var(--r-2); --radius-lg: var(--r-3);
+  --shadow: var(--elev-2); --shadow-lg: var(--elev-3);
+  --lh-tight: 1.25; --lh: 1.5;
+}
+:root[data-theme='light'] {
+  --ui-border: #85858e;
+  --elev-1: 0 1px 2px rgba(0, 0, 0, .06);
+  --elev-2: 0 1px 3px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .08);
+  --elev-3: 0 8px 16px rgba(0, 0, 0, .08), 0 24px 64px rgba(0, 0, 0, .16);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]), :root[data-theme='system'] {
+    --ui-border: #85858e;
+    --elev-1: 0 1px 2px rgba(0, 0, 0, .06);
+    --elev-2: 0 1px 3px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .08);
+    --elev-3: 0 8px 16px rgba(0, 0, 0, .08), 0 24px 64px rgba(0, 0, 0, .16);
+  }
+}
+
+/* Keyframes (distances come from tokens so reduced motion can zero them) */
+@keyframes mo-rise { from { opacity: 0; transform: translateY(var(--mo-shift)); } to { opacity: 1; transform: none; } }
+@keyframes mo-slide-x { from { opacity: 0; transform: translateX(var(--mo-shift)); } to { opacity: 1; transform: none; } }
+@keyframes mo-scale-in { from { opacity: 0; transform: scale(var(--mo-enter)); } to { opacity: 1; transform: none; } }
+@keyframes mo-backdrop { from { opacity: 0; -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0); } to { opacity: 1; } }
+@keyframes mo-fade-out { to { opacity: 0; transform: translateY(var(--mo-shift)); } }
+@keyframes mo-pop { from { opacity: 0; transform: translate(-50%, calc(var(--mo-shift) * -.5)); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes mo-shimmer { to { background-position: -200% 0; } }
+
+/* Panels, sheets, popovers, toasts, dialogs */
+.side-body > * { animation: mo-rise var(--dur-2) var(--ease-out) both; }
+.inspector-sheet { animation: mo-slide-x var(--dur-2) var(--ease-out) both; }
+.checks-pop { animation: mo-pop var(--dur-2) var(--ease-out) both; }
+.toast { animation: mo-rise var(--dur-2) var(--ease-out) both; }
+.toast.leaving, .toast.is-leaving, .toast[data-leaving], .toast[data-state='closed'] { animation: mo-fade-out var(--dur-2) var(--ease-standard) forwards; }
+.demo-caption { animation: mo-rise var(--dur-2) var(--ease-out) both; }
+.dialog-backdrop, .modal-back { animation: mo-backdrop var(--dur-3) var(--ease-standard) both; }
+.dialog, .modal { animation: mo-scale-in var(--dur-2) var(--ease-out) both; }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .dialog-backdrop, .modal-back { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  .mobile-more { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+}
+
+/* Interactive states */
+button, .chip, .card, .seg button, .nav-item, .rail-item, summary, input, select, textarea {
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+  transition-duration: var(--dur-1); transition-timing-function: var(--ease-standard);
+}
+.nav-item, .rail-item, .seg button { transition-duration: var(--dur-2); transition-timing-function: var(--ease-out); }
+.nav-item svg, .rail-item svg { transition: color var(--dur-2) var(--ease-standard), transform var(--dur-2) var(--ease-spring); }
+.nav-item.on svg, .rail-item.on svg { transform: scale(1.06); }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled), .rail-item:active, .nav-item:active, .seg button:active, button.chip:active, .toast-act:active { transform: scale(var(--mo-press)); transition-duration: 60ms; }
+@media (hover: hover) {
+  .btn:hover:not(:disabled):not(.btn-ghost), .card.clickable:hover, button.card:hover { transform: translateY(var(--mo-lift)); box-shadow: var(--elev-1); }
+  .btn:active:not(:disabled) { transform: scale(var(--mo-press)); box-shadow: none; }
+  button.card:active { transform: scale(var(--mo-press)); }
+}
+.seg button.on { box-shadow: 0 0 0 1px var(--ui-border), var(--elev-1); }
+.chip { transition-timing-function: var(--ease-spring); }
+input[type='checkbox']:active, input[type='radio']:active { transform: scale(var(--mo-press)); }
+details > summary { transition: color var(--dur-1) var(--ease-standard); }
+.provenance-more > summary::before { transition: transform var(--dur-2) var(--ease-spring); display: inline-block; }
+
+/* Disclosures open and close without a height jump where the engine supports it */
+@supports selector(::details-content) {
+  details { interpolate-size: allow-keywords; }
+  details::details-content { block-size: 0; overflow: clip; opacity: 0; transition: block-size var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-standard), content-visibility var(--dur-2) allow-discrete; }
+  details[open]::details-content { block-size: auto; opacity: 1; }
+}
+/* Reusable grid-rows disclosure for new markup: .disclosure with one child; add .open to expand */
+.disclosure { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-2) var(--ease-out); }
+.disclosure.open, .disclosure[data-open='true'] { grid-template-rows: 1fr; }
+.disclosure > * { min-height: 0; overflow: hidden; }
+
+/* Loading */
+.shimmer, .skeleton i {
+  background: linear-gradient(100deg, var(--panel-2) 30%, color-mix(in srgb, var(--text) 8%, var(--panel-2)) 50%, var(--panel-2) 70%) 0 0 / 200% 100%;
+  animation: mo-shimmer 1.4s linear infinite;
+}
+.busy i, .spinner { width: 12px; height: 12px; border-width: 2px; animation: spin .75s cubic-bezier(.5, .15, .5, .85) infinite; }
+.spinner { display: inline-block; flex: none; border-style: solid; border-color: currentColor; border-right-color: transparent; border-radius: 50%; }
+
+/* Depth: glass for floating surfaces with a solid fallback */
+.float, .checks-pop, .toast, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg { background: var(--panel); border-color: var(--hairline); }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .float, .checks-pop, .toast, .mobile-tabs, .mobile-more-sheet, .demo-caption, .stage-tools .seg {
+    background: color-mix(in srgb, var(--panel) 76%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+  }
+}
+.float, .checks-pop, .toast, .demo-caption { box-shadow: var(--elev-2); }
+.dialog, .modal, .inspector-sheet, .crash-card { border-color: var(--hairline); box-shadow: var(--elev-3); }
+.sheet-head, .panel, .list, .list > *, .shortcuts dl > div { border-color: var(--hairline); }
+.card, .stat, .chip { border-color: var(--hairline); }
+
+/* Controls and UI borders reach 3:1 */
+input:not([type='checkbox']):not([type='radio']):not([type='range']), select, textarea { border-color: var(--ui-border); }
+.btn:not(.btn-primary):not(.btn-ghost) { border-color: var(--ui-border); }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--text); }
+.project-name, .project-name:hover { border-color: transparent; }
+.project-name:focus { border-color: var(--accent); }
+
+/* Typography */
+body { line-height: var(--lh); font-optical-sizing: auto; font-kerning: normal; font-variant-numeric: tabular-nums; }
+h1, h2, h3, h4 { line-height: var(--lh-tight); text-wrap: balance; font-optical-sizing: auto; }
+h1, .panel-col-head h1 { letter-spacing: -0.022em; }
+h2 { letter-spacing: -0.018em; }
+:where(label, .field > span, .chip, .nav-label, .rail-item, .section-label, .toast-text, .empty p, p) { text-wrap: pretty; }
+:where(button, input, select, summary) { line-height: var(--lh-tight); }
+
+/* Focus: always visible for keyboard users, never removed */
+:where(button, a, input, select, textarea, summary, [tabindex], [role='button'], [role='tab'], [role='switch']):focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.toast-act:focus-visible, .toast-x:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+
+/* Scrollbars, selection, overflow */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 40%, transparent) transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--muted) 55%, transparent); background-clip: padding-box; }
+::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); color: inherit; }
+html { overflow-x: clip; max-width: 100%; }
+.toasts, .dialog, .modal, .checks-pop { max-width: min(100%, calc(100vw - 16px)); }
+@media (max-width: 360px) { .btn, .chip, .toast-text { white-space: normal; } .row { min-width: 0; } }
+
+/* Touch keeps the 44 px targets from mobile.css and drops hover lift */
+@media (pointer: coarse) {
+  :root { --mo-lift: 0px; }
+}
+
+/* Reduced motion: no movement, state changes become instant opacity */
+@media (prefers-reduced-motion: reduce) {
+  :root { --mo-shift: 0px; --mo-lift: 0px; --mo-press: 1; --mo-enter: 1; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+  .nav-item.on svg, .rail-item.on svg { transform: none; }
+  .shimmer, .skeleton i { background: var(--panel-2); }
+  .busy i, .spinner { animation: none !important; border-right-color: currentColor; opacity: .6; }
+}

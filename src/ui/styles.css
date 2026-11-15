@@ -8,7 +8,7 @@
 :root {
   --bg: #0b0b0c; --panel: #111112; --panel-2: #19191b; --raised: #1d1d20;
   --line: #242427; --line-strong: #323236;
-  --text: #ececee; --muted: #8e8e96; --faint: #5c5c63;
+  --text: #ececee; --muted: #9a9aa2; --faint: #82828a;
   --accent: #6b77f0; --accent-ink: #ffffff; --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --ok: #45c08a; --warn: #e0a33c; --bad: #ef5b5f;
   --hover: rgba(255, 255, 255, .045); --press: rgba(255, 255, 255, .07);
@@ -35,13 +35,11 @@
 :root[data-theme='light'] {
   --bg: #f6f6f7; --panel: #ffffff; --panel-2: #f3f3f4; --raised: #ffffff;
   --line: #e6e6e8; --line-strong: #d4d4d8;
-  --text: #18181b; --muted: #6a6a73; --faint: #a1a1a9;
+  --text: #18181b; --muted: #5f5f68; --faint: #6a6a73;
   --accent: #4655e0; --accent-ink: #ffffff;
-  --ok: #17905c; --warn: #a86400; --bad: #d42f3c;
+  --ok: #0f7549; --warn: #8f5400; --bad: #c82a37;
   --hover: rgba(0, 0, 0, .04); --press: rgba(0, 0, 0, .07);
   --overlay: color-mix(in srgb, var(--panel) 86%, transparent);
-  --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .08);
-  --shadow-lg: 0 24px 64px rgba(0, 0, 0, .16);
   --plan-bg: #f3f3f4; --plan-grid: #e9e9eb; --plan-grid-major: #dedee1; --plan-floor: #ffffff; --plan-wall: #1f1f23; --plan-ink: #2a2a2f; --plan-dim: #5d5d66;
   color-scheme: light;
 }
@@ -49,13 +47,11 @@
   :root:not([data-theme]), :root[data-theme='system'] {
     --bg: #f6f6f7; --panel: #ffffff; --panel-2: #f3f3f4; --raised: #ffffff;
     --line: #e6e6e8; --line-strong: #d4d4d8;
-    --text: #18181b; --muted: #6a6a73; --faint: #a1a1a9;
+    --text: #18181b; --muted: #5f5f68; --faint: #6a6a73;
     --accent: #4655e0; --accent-ink: #ffffff;
-    --ok: #17905c; --warn: #a86400; --bad: #d42f3c;
+    --ok: #0f7549; --warn: #8f5400; --bad: #c82a37;
     --hover: rgba(0, 0, 0, .04); --press: rgba(0, 0, 0, .07);
     --overlay: color-mix(in srgb, var(--panel) 86%, transparent);
-    --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .08);
-    --shadow-lg: 0 24px 64px rgba(0, 0, 0, .16);
     --plan-bg: #f3f3f4; --plan-grid: #e9e9eb; --plan-grid-major: #dedee1; --plan-floor: #ffffff; --plan-wall: #1f1f23; --plan-ink: #2a2a2f; --plan-dim: #5d5d66;
     color-scheme: light;
   }
@@ -90,7 +86,7 @@ input[type='checkbox'], input[type='radio'] { width: auto; min-height: 0; paddin
 input[type='range'] { padding: 0; background: none; border: 0; min-height: 20px; accent-color: var(--accent); }
 input[type='file'] { padding: 6px; }
 input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: color-mix(in srgb, var(--muted) 50%, var(--line-strong)); }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: var(--glow); }
 ::placeholder { color: var(--faint); opacity: 1; }
 
 /* Buttons */
@@ -261,7 +257,7 @@ button.brand:hover { background: var(--hover); }
 .toast-text { flex: 1 1 auto; min-width: 0; max-width: 260px; line-height: 1.4; }
 .toast-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .toast-act { height: 26px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: 560 12px var(--font); cursor: pointer; white-space: nowrap; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease); }
-.toast-act:hover, .toast-act:focus-visible { background: var(--hover); border-color: var(--accent); outline: none; }
+.toast-act:hover, .toast-act:focus-visible { background: var(--hover); border-color: var(--accent); }
 .toast-act.is-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .toast-x { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--faint); cursor: pointer; }
 .toast-x:hover, .toast-x:focus-visible { color: var(--text); background: var(--hover); }

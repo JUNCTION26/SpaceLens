@@ -85,3 +85,8 @@
   .provenance-step { min-width: 44px; min-height: 44px; }
   input, select, textarea { font-size: max(16px, 1em); }
 }
+
+@media (max-width: 900px) {
+  .inspector-sheet, .mobile-more-sheet { animation: mo-rise var(--dur-2) var(--ease-out) both; }
+  .dialog { animation: mo-rise var(--dur-3) var(--ease-out) both; }
+}
