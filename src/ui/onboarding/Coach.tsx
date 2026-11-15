@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../../core/store';
+import '../shell.css';
 
 const KEY = 'spacelens.coach.done.v1';
 
@@ -7,14 +8,14 @@ const KEY = 'spacelens.coach.done.v1';
 const nav = (k: string) => () => visible(document.querySelector(`.sidebar [data-nav="${k}"]`));
 const visible = (el: Element | null) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? el : null; };
 
-const STEPS: Array<{ title: string; text: string; find: () => Element | null }> = [
+const STEPS: Array<{ title: string; find: () => Element | null }> = [
   // Points at a real size label on the plan; skipped when the plan is hidden (3D only).
-  { title: 'Edit the room', text: 'Click a size to type the real length, or drag a corner.', find: () => visible(document.querySelector('.pane-2d .plan2d-dim-label')) ?? visible(document.querySelector('.pane-2d .plan2d-vertex')) },
-  { title: 'Describe it', text: 'Say how you use the room.', find: nav('describe') },
-  { title: 'Pick a layout', text: 'Compare layouts that fit.', find: nav('layouts') },
-  { title: 'Walk through', text: 'Step inside in 3D.', find: nav('walk') },
-  { title: 'Export', text: 'Plans, images and a shopping list.', find: nav('export') },
+  { title: 'Click a size', find: () => visible(document.querySelector('.pane-2d .plan2d-dim-label')) ?? visible(document.querySelector('.pane-2d .plan2d-vertex')) },
+  { title: 'Describe it', find: nav('describe') },
+  { title: 'Pick a layout', find: nav('layouts') },
 ];
+
+const suppressed = () => { try { const q = new URLSearchParams(location.search); return q.has('show') || q.get('coach') === '0'; } catch { return false; } };
 
 function seen(): boolean { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } }
 function markSeen() { try { localStorage.setItem(KEY, '1'); } catch { /* blocked */ } }
@@ -26,7 +27,7 @@ export function Coach() {
   const nextRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (mode === 'design' && step === null && !seen()) { const t = setTimeout(() => setStep(0), 600); return () => clearTimeout(t); }
+    if (mode === 'design' && step === null && !seen() && !suppressed()) { const t = setTimeout(() => setStep(0), 600); return () => clearTimeout(t); }
   }, [mode, step]);
 
   useEffect(() => {
@@ -62,25 +63,23 @@ export function Coach() {
     return () => window.removeEventListener('keydown', onKey);
   }, [step]);
 
-  if (mode === 'home' || step === null || step < 0 || !box) return null;
+  if (mode === 'home' || step === null || step < 0 || !box || suppressed()) return null;
   const s = STEPS[step];
   const last = step === STEPS.length - 1;
-  const w = Math.min(280, window.innerWidth - 32);
-  const side = box.width < 260 && box.right + w + 24 < window.innerWidth;
-  const below = box.bottom + 160 < window.innerHeight;
-  const top = side ? Math.max(16, Math.min(box.top, window.innerHeight - 170)) : below ? box.bottom + 10 : Math.max(16, box.top - 150);
-  const left = side ? box.right + 12 : Math.max(16, Math.min(box.left, window.innerWidth - w - 16));
+  const w = 190, h = 36, gap = 12;
+  // Always placed beside the target, never on top of it.
+  const room = { right: window.innerWidth - box.right, below: window.innerHeight - box.bottom };
+  let top: number, left: number;
+  if (room.right >= w + gap + 8 && box.width < 260) { left = box.right + gap; top = Math.max(8, Math.min(box.top + (box.height - h) / 2, window.innerHeight - h - 8)); }
+  else if (room.below >= h + gap + 8) { top = box.bottom + gap; left = Math.max(8, Math.min(box.left, window.innerWidth - w - 8)); }
+  else { top = Math.max(8, box.top - h - gap); left = Math.max(8, Math.min(box.left, window.innerWidth - w - 8)); }
   return (
     <>
-      <div className="coach-ring" aria-hidden="true" style={{ top: box.top - 4, left: box.left - 4, width: box.width + 8, height: box.height + 8 }} />
-      <div className="coach-tip" role="dialog" aria-live="polite" aria-label={s.title} style={{ top, left, width: w }}>
-        <span className="coach-count">{step + 1} of {STEPS.length}</span>
-        <strong>{s.title}</strong>
-        <p>{s.text}</p>
-        <div className="coach-actions">
-          <button className="btn btn-ghost btn-sm" onClick={finish}>Skip</button>
-          <button ref={nextRef} className="btn btn-primary btn-sm" onClick={() => (last ? finish() : setStep(step + 1))}>{last ? 'Done' : 'Next'}</button>
-        </div>
+      <div className="coach-ring" aria-hidden="true" style={{ top: box.top - 4, left: box.left - 4, width: box.width + 8, height: box.height + 8, pointerEvents: 'none' }} />
+      <div className="coach-pin" role="dialog" aria-live="polite" aria-label={s.title} style={{ top, left }}>
+        <span>{s.title}</span>
+        <button ref={nextRef} className="coach-next" onClick={() => (last ? finish() : setStep(step + 1))} aria-label={last ? 'Done' : 'Next'}>{last ? 'Done' : 'Next'}</button>
+        <button onClick={finish} aria-label="Skip tour">Skip</button>
       </div>
     </>
   );

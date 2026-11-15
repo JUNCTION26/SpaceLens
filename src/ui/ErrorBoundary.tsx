@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useStore } from '../core/store';
+import { Icon } from './icons';
+import './shell.css';
 
 interface Props { children: ReactNode; /** 'app' fills the screen; 'area' replaces just one panel or pane. */ scope?: 'app' | 'area'; label?: string }
 interface State { error: Error | null; info: string; copied: boolean }
@@ -26,10 +28,23 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
     const canUndo = useStore.getState().past.length > 0;
     const area = this.props.scope === 'area';
-    return (
-      <div className={area ? 'crash crash-area' : 'crash crash-app'} role="alert">
+    if (area) return (
+      <div className="crash crash-area" role="alert">
         <div className="crash-card">
-          <h2>{area ? `${this.props.label ?? 'This part'} stopped working` : 'Something broke'}</h2>
+          <Icon name="alert" size={22} />
+          <strong>{this.props.label ?? 'Panel'} stopped</strong>
+          <button type="button" className="btn btn-primary btn-sm" onClick={this.reset}>Reload panel</button>
+          <div className="crash-actions">
+            {canUndo && <button type="button" className="btn btn-ghost btn-sm" onClick={this.undo}>Undo</button>}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={this.copy}>{copied ? 'Copied' : 'Copy details'}</button>
+          </div>
+        </div>
+      </div>
+    );
+    return (
+      <div className="crash crash-app" role="alert">
+        <div className="crash-card">
+          <h2>Something broke</h2>
           <p>Your plan is saved on this device.</p>
           <div className="crash-actions">
             {canUndo
