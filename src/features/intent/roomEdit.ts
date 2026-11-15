@@ -44,7 +44,7 @@ const cannot = (reason: string, nearest: string): RoomEditCannot => ({ ok: false
 
 /** What a handler produces: the whole new furniture list plus a short label. */
 interface Draft { furniture: FurnitureItem[]; label: string; notes: string[]; focus?: string[]; compromises?: string[]; extra?: Partial<EditReport> }
-type Handler = (model: SpaceModel, clause: string, furniture: FurnitureItem[], mem: RefMemory) => Draft | RoomEditCannot | null;
+type Handler = (model: SpaceModel, clause: string, furniture: FurnitureItem[], mem?: RefMemory) => Draft | RoomEditCannot | null;
 
 // ---- Small helpers -----------------------------------------------------------------------------
 

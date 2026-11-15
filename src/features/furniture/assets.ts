@@ -13,7 +13,6 @@ const BY_CATEGORY: Record<string, ModelSpec> = {
   sofa: SOFA, 'sofa-bed': SOFA,
   armchair: m('modern_arm_chair_01', 0, ['modern_arm_chair_01_pillow']),
   chair: m('dining_chair_02'),
-  desk: m('metal_office_desk'),
   table: m('dining_table'),
   'coffee-table': m('modern_coffee_table_01', Math.PI / 2),
   storage: m('modern_wooden_cabinet'),
@@ -21,7 +20,6 @@ const BY_CATEGORY: Record<string, ModelSpec> = {
   'tv-unit': m('modern_wooden_cabinet'),
   dresser: m('drawer_cabinet'),
   'filing-cabinet': m('drawer_cabinet'),
-  bookshelf: m('wooden_bookshelf_worn'),
   nightstand: m('ClassicNightstand_01'),
   stool: m('bar_chair_round_01'),
 };
