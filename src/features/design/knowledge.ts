@@ -7,7 +7,7 @@
 import type { FurnitureItem, Relation, SpaceModel } from '../../core/types';
 import { catalogEntry } from '../furniture/catalog';
 import { overlapDepth, pointInPolygon, segmentsIntersect, type P } from '../referee/geom';
-import { analyse, buildRoom, doorPoint, floorGrid, frontOf, rayFree, toPlanOf, widestFrom, type AItem, type FloorGrid, type LayoutCtx, type RoomCtx } from './rules';
+import { analyse, buildRoom, doorPoint, floorGrid, frontOf, polyDist, rayFree, toPlanOf, widestFrom, type AItem, type FloorGrid, type LayoutCtx, type RoomCtx } from './rules';
 
 // ================================================================ programmes
 export type RoomUse =
@@ -304,6 +304,7 @@ export const RELATION_DEFS: RelationDef[] = [
   { id: 'desk-pullback', group: 'work', hard: true, weight: 1, okChip: 'Chair room', badChip: 'Chair cramped', definition: 'Free depth in front of the desk at least its stated clearance (75 cm), 90 cm ideal, chairs ignored.' },
   { id: 'dining-pullout', group: 'dining', hard: true, weight: 0.9, okChip: 'Chairs pull out', badChip: 'No pull-out', definition: 'Behind every dining chair 60 cm free to pull out, 90 cm to walk behind.' },
   { id: 'storage-front', group: 'storage', hard: true, weight: 0.8, okChip: 'Doors open', badChip: 'Doors blocked', definition: 'In front of storage its stated clearance stays free; wardrobes 90 cm dressing zone ideal.' },
+  { id: 'seat-at-host', group: 'work', hard: true, weight: 1, okChip: 'Chairs drawn up', badChip: 'Chair adrift', definition: 'Every desk, dining or task chair within 30 cm of its desk or table (3 cm tolerance) and facing it: a point 10 cm past the chair front lands on the surface.' },
   { id: 'circulation', group: 'circulation', hard: false, weight: 0.8, okChip: 'Easy to reach', badChip: 'Tight route', definition: 'An 80 cm path from the door to every group and window.' },
   { id: 'bed-door-line', group: 'sleep', hard: false, weight: 0.5, okChip: 'Feet off door', badChip: 'Feet to door', definition: 'The door is not straight out from the foot of the bed.' },
   { id: 'bed-command', group: 'sleep', hard: false, weight: 0.4, okChip: 'Bed sees door', badChip: 'Door behind bed', definition: 'From the pillow the door is in view (not behind the head).' },
@@ -575,6 +576,18 @@ export function evaluateKnowledge(model: SpaceModel, furniture: FurnitureItem[],
         push('desk-light', sc, [d.f.id], { measured: c, target: [-0.5, 0.5], ...(sc < 0.7 ? { chip: c > 0 ? 'Faces window' : 'Screen glare', repair: { itemId: d.f.id, action: 'move-to-wall', to: `wall:${perp[0] ?? 0}`, chip: 'Window to the side', relation: rel('against-wall', d.f.id, `wall:${perp[0] ?? 0}`, 'A desk at right angles to the window: daylight from the side, no glare.', undefined, 0.8) } } : {}) });
       }
     }
+  }
+
+  // --- seats belong to their desk or table: close, and facing it
+  for (const s of Lc.items.filter((a) => /^(chair|desk-chair|office-chair|stool)$/.test(a.f.category))) {
+    const host = Lc.byId.get(Lc.hostOf.get(s.f.id) ?? '');
+    if (!host || (s.f.category === 'stool' && !/counter|island/.test(host.f.category + host.f.catalogId))) continue;
+    const gap = polyDist(s.poly, host.poly);
+    const ahead = { x: s.f.x + s.front.x * (s.f.d / 2 + Math.min(gap, 0.3) + 0.1), y: s.f.y + s.front.y * (s.f.d / 2 + Math.min(gap, 0.3) + 0.1) };
+    const faces = edgeToPoint(host, ahead) <= 0.05;
+    const ok = gap <= 0.33 && faces;
+    const isDesk = /desk|counter/.test(host.f.category);
+    push('seat-at-host', ok ? band(gap, 0, 0.15, 0.3) : 0, [s.f.id, host.f.id], { hardFail: !ok, measured: gap, target: [0, 0.3], ...(!ok ? { chip: gap > 0.33 ? 'Chair adrift' : 'Chair turned away', repair: { itemId: s.f.id, action: 'pull-in', to: host.f.id, byM: Math.round(Math.max(0, gap - 0.1) * 100) / 100, chip: isDesk ? 'Chair to desk' : 'Chair to table', relation: rel('paired-seat', s.f.id, host.f.id, isDesk ? 'The chair drawn up to its desk.' : 'The chair drawn up to its table.') } } : {}) });
   }
 
   // --- dining: chairs at tables pull out

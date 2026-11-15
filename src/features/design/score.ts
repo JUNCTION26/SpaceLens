@@ -1,4 +1,5 @@
-import type { RuleVerdict } from '../../core/types';
+import type { FurnitureItem, RuleVerdict, SpaceModel } from '../../core/types';
+import { evaluateKnowledge, type KnowledgeResult, type RoomUse } from './knowledge';
 
 export const SEVERITY_WEIGHT: Record<RuleVerdict['severity'], number> = { hard: 4, strong: 3, preference: 1 };
 
@@ -55,6 +56,41 @@ export function designScore(verdicts: RuleVerdict[]): number {
   const hardFails = verdicts.filter((v) => v.severity === 'hard' && !v.pass).length;
   const capped = hardFails ? Math.min(base, Math.max(0, 30 - 5 * (hardFails - 1))) : base;
   return Math.round(capped);
+}
+
+export interface RankDetail {
+  /** 0..100: the number candidates are ranked by. */
+  score: number;
+  /** designScore over the measured rules. */
+  rules: number;
+  /** evaluateKnowledge score (0..100), when the layout could be measured. */
+  knowledge?: number;
+  /** Ids of every broken hard rule and hard relation ("rule:walkway", "knowledge:seat-at-host"). */
+  hardBroken: string[];
+  good: string[];
+  bad: string[];
+}
+
+/**
+ * The ranking score: 70% measured rules, 30% professional relations (door swing, headboard on a
+ * wall, chair drawn up to its desk ...). Any broken hard rule or hard relation caps the result at
+ * 30, 5 less for each further break, while a layout with none never scores below 31, so a layout a
+ * professional would not hand over never outranks one they would.
+ */
+export function rankDetail(verdicts: RuleVerdict[], model?: SpaceModel, furniture?: FurnitureItem[], use?: RoomUse, spaceId?: string): RankDetail {
+  const rules = designScore(verdicts);
+  const ruleHard = verdicts.filter((v) => v.severity === 'hard' && !v.pass).map((v) => `rule:${v.ruleId}`);
+  let k: KnowledgeResult | null = null;
+  if (model && furniture?.length) { try { k = evaluateKnowledge(model, furniture, use, spaceId); } catch { k = null; } }
+  const hardBroken = [...ruleHard, ...(k?.hardBroken ?? []).map((v) => `knowledge:${v.id}`)];
+  const raw = k ? 0.7 * rules + 0.3 * k.score : rules;
+  const score = hardBroken.length ? Math.min(raw, Math.max(0, 30 - 5 * (hardBroken.length - 1))) : k ? Math.max(31, raw) : raw;
+  return { score: Math.round(score), rules, ...(k ? { knowledge: k.score } : {}), hardBroken, good: k?.good ?? [], bad: k?.bad ?? [] };
+}
+
+/** rankDetail(...).score: what candidates are ordered by. Without a layout it is designScore. */
+export function rankScore(verdicts: RuleVerdict[], model?: SpaceModel, furniture?: FurnitureItem[], use?: RoomUse, spaceId?: string): number {
+  return rankDetail(verdicts, model, furniture, use, spaceId).score;
 }
 
 /** How many score points a verdict costs, for ordering explanations. */

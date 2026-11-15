@@ -10,7 +10,7 @@ import { explainInfeasible } from '../layout/solver';
 import { applyFixes, critique, type Critique } from './critic';
 import { planConcepts, rulesConcept, type Concept } from './planner';
 import { evaluateRules } from './rules';
-import { designScore } from './score';
+import { designScore, rankScore } from './score';
 import { describeLayout, solveProgram } from './solve';
 import { mergeFurniture, subModelFor } from '../building/submodel';
 import { isThemedRequest } from '../themes/brief';
@@ -80,9 +80,9 @@ export function buildDesignItems(model: SpaceModel, req: Requirements): Furnitur
 
 // ---------- scoring ----------
 
-/** designScore, clamped to 0..100. */
-export function score100(verdicts: RuleVerdict[]): number {
-  const s = Number(designScore(verdicts)) || 0;
+/** The ranking score (rules plus professional relations, capped by any hard break), clamped to 0..100. Without a layout: designScore. */
+export function score100(verdicts: RuleVerdict[], model?: SpaceModel, furniture?: FurnitureItem[]): number {
+  const s = Number(model && furniture ? rankScore(verdicts, model, furniture) : designScore(verdicts)) || 0;
   return Math.round(Math.min(100, Math.max(0, s)));
 }
 
@@ -185,7 +185,7 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
       const early = await solveProgram(model, items, rulesConcept(model, items, req), { variants: Math.max(2, want), seed: model.version * 31 + 500, signal: opts.signal, req });
       const cands = early.candidates.map((cand) => {
         const verdicts = evaluateRules(model, cand.furniture, req);
-        return { cand, verdicts, ds: score100(verdicts) };
+        return { cand, verdicts, ds: score100(verdicts, model, cand.furniture) };
       }).sort((a, b) => b.ds - a.ds);
       if (cands.length) {
         const desc = cands.map(({ cand }) => describeLayout(model, cand.furniture, req));
@@ -231,7 +231,7 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
   t = start('rules', 'Checking rules', 'rules');
   const reports: FullReport[] = entries.map(({ cand, concept, report }) => {
     const verdicts = evaluateRules(model, cand.furniture, req);
-    const ds = score100(verdicts);
+    const ds = score100(verdicts, model, cand.furniture);
     return { candidateId: cand.id, program: report?.program ?? concept, verdicts, conceptName: concept.name, idea: concept.idea, designScore: ds, finalScore: ds };
   });
   const ruleCount = new Set(reports.flatMap((r) => r.verdicts.map((v) => v.ruleId))).size;
@@ -271,7 +271,7 @@ async function designOneRoom(model: SpaceModel, req: Requirements, opts: DesignO
       const next = again.candidates[0];
       if (!next) return;
       const verdicts = evaluateRules(model, next.furniture, req);
-      const ds = score100(verdicts);
+      const ds = score100(verdicts, model, next.furniture);
       // Keep the revision only if the measured rules do not get worse.
       if (ds < rep.designScore) { rep.program = { ...rep.program, notes: [...rep.program.notes, 'Second-opinion fixes were tried and made the measured result worse, so they were not kept.'] }; return; }
       revisedCount++;

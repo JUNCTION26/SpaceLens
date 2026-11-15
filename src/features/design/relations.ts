@@ -176,7 +176,8 @@ export function seatArrangements(host: FurnitureItem, seats: FurnitureItem[], mi
       for (let j = 0; j < c[i]; j++) {
         const seat = seats[k++];
         const u = ((j + 0.5) / c[i] - 0.5) * span(s) * (c[i] > 1 ? 1 : 0);
-        const off = (desk ? 0.03 : 0.05) + seat.d / 2;
+        // At a desk the chair centre sits 35-45 cm from the desk front: knees under the top, room to sit down.
+        const off = desk ? Math.min(0.45, Math.max(0.35, seat.d / 2 + 0.1)) : 0.05 + seat.d / 2;
         if (s === 'front') poses.push(poseAt(host, u, host.d / 2 + off, host.rotation + Math.PI));
         else if (s === 'back') poses.push(poseAt(host, u, -host.d / 2 - off, host.rotation));
         else if (s === 'left') poses.push(poseAt(host, -host.w / 2 - off, u, host.rotation - Math.PI / 2));

@@ -4,13 +4,18 @@
 import type { FurnitureItem, Op, Requirements, RuleVerdict, SpaceModel, ValidationResult } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { buildRoom, evaluateRules, pairSeatsOf, type RoomCtx } from './rules';
-import { rotationFacing } from './relations';
+import { critiqueKnowledge, evaluateKnowledge, type CriticItem, type KnowledgeResult, type Repair, type RoomUse } from './knowledge';
+import { flankOptions, rotationFacing, seatArrangements } from './relations';
 import { designScore } from './score';
 import { isRug, normaliseItem, semanticsOf } from './semantics';
 
 export interface RepairMove { itemId: string; from: { x: number; y: number; rotation: number }; to: { x: number; y: number; rotation: number }; reason: string }
-export interface RepairResult { furniture: FurnitureItem[]; moves: RepairMove[]; valid: boolean; scoreBefore: number; scoreAfter: number }
-export interface RepairOptions { spaceId?: string; maxMoves?: number }
+export interface RepairResult {
+  furniture: FurnitureItem[]; moves: RepairMove[]; valid: boolean; scoreBefore: number; scoreAfter: number;
+  /** The relation pass after the referee pass: hard relations broken before and after, and what is left. */
+  knowledge?: { hardBefore: string[]; hardAfter: string[]; scoreBefore: number; scoreAfter: number; left: CriticItem[] };
+}
+export interface RepairOptions { spaceId?: string; maxMoves?: number; use?: RoomUse; /** false skips the relation pass. */ knowledge?: boolean }
 export interface Fix { label: string; ops: Op[]; preview: FurnitureItem[] }
 
 type Pose = { x: number; y: number; rotation: number };
@@ -139,7 +144,92 @@ export function repairLayout(model: SpaceModel, furniture: FurnitureItem[], req:
     }
     cur = best.items; j = best.j;
   }
-  return { furniture: cur, moves, valid: j.failCount === 0, scoreBefore, scoreAfter: j.score };
+  if (opts.knowledge === false) return { furniture: cur, moves, valid: j.failCount === 0, scoreBefore, scoreAfter: j.score };
+  // Then the professional relations: each broken one comes with its own repair; apply, re-check.
+  const k = repairKnowledge(model, cur, req, { spaceId: opts.spaceId, use: opts.use, maxMoves: Math.max(1, maxMoves - moves.length) });
+  const jk = judge(model, k.furniture, req, opts.spaceId);
+  return { furniture: k.furniture, moves: [...moves, ...k.moves], valid: jk.failCount === 0, scoreBefore, scoreAfter: jk.score, knowledge: { hardBefore: k.hardBefore, hardAfter: k.hardAfter, scoreBefore: k.scoreBefore, scoreAfter: k.scoreAfter, left: k.left } };
+}
+
+export interface KnowledgeRepairResult {
+  furniture: FurnitureItem[]; moves: RepairMove[];
+  /** Ids of the broken hard relations before and after. */
+  hardBefore: string[]; hardAfter: string[];
+  /** evaluateKnowledge score before and after. */
+  scoreBefore: number; scoreAfter: number;
+  /** What is still broken after the repair, strongest first, as chips and data. */
+  left: CriticItem[];
+}
+
+const TASK_SEAT = /^(chair|desk-chair|office-chair|stool)$/;
+
+/** Moves that carry out one knowledge repair: a chair back to a free place at its host, a nightstand to the bed head, or the general slides, turns and wall slots. */
+function repairCands(room: RoomCtx, items: FurnitureItem[], rep: Repair): Cand[] {
+  const f = items.find((x) => x.id === rep.itemId);
+  if (!f || f.locked) return [];
+  const one = (p: Pose, label: string, reason: string): Cand => ({ label, reason, poses: new Map([[f.id, { x: r3(p.x), y: r3(p.y), rotation: p.rotation }]]) });
+  if (rep.relation.kind === 'paired-seat') {
+    const host = items.find((x) => x.id === rep.to);
+    if (!host) return [];
+    const hostOf = pairSeatsOf(items.map(normaliseItem));
+    const mates = items.filter((x) => TASK_SEAT.test(x.category) && (x.id === f.id || hostOf.get(x.id) === host.id));
+    const out: Cand[] = [];
+    for (const arr of seatArrangements(normaliseItem(host), mates.map(normaliseItem))) for (const p of arr) out.push(one(p, `Draw the ${lcName(f)} up to the ${lcName(host)}`, rep.chip));
+    return out;
+  }
+  if (rep.relation.kind === 'flanks') {
+    const bed = items.find((x) => x.id === rep.to);
+    return bed ? flankOptions(normaliseItem(bed), normaliseItem(f), [-1, 1]).map((p) => one(p, `Put the ${lcName(f)} beside the ${lcName(bed)}`, rep.chip)) : [];
+  }
+  // A seat never drags its desk or table along: it moves alone.
+  if (TASK_SEAT.test(f.category)) return [0.1, 0.3, 0.6].flatMap((d) => [[d, 0], [-d, 0], [0, d], [0, -d]]).map(([dx, dy]) => one({ x: f.x + dx, y: f.y + dy, rotation: f.rotation }, moveText(f, { x: f.x + dx, y: f.y + dy, rotation: f.rotation }), rep.chip));
+  return candidates(room, items, rep.itemId).map((c) => ({ ...c, reason: rep.chip }));
+}
+
+/**
+ * Apply the knowledge critic's repairs one at a time, strongest first, re-checking after each: a move
+ * is kept only when it clears a hard relation (or lifts the relation score by 3+ with none broken),
+ * adds no failed referee check and costs the measured rules at most 2 points. Locked items never move.
+ */
+export function repairKnowledge(model: SpaceModel, furniture: FurnitureItem[], req: Requirements | null = null, opts: { spaceId?: string; use?: RoomUse; maxMoves?: number } = {}): KnowledgeRepairResult {
+  const room = buildRoom(model, opts.spaceId);
+  const kOf = (items: FurnitureItem[]) => evaluateKnowledge(model, items, opts.use, opts.spaceId);
+  let cur = furniture, k = kOf(cur), j = judge(model, cur, req, opts.spaceId);
+  const first = k;
+  const moves: RepairMove[] = [];
+  const tried = new Set<string>();
+  for (let step = 0; step < (opts.maxMoves ?? 4); step++) {
+    const todo = critiqueKnowledge(model, cur, opts.use, opts.spaceId).filter((c) => c.repair && (c.hard || c.importance >= 4) && !tried.has(`${c.relation}:${c.repair.itemId}`));
+    let done = false;
+    for (const c of todo) {
+      tried.add(`${c.relation}:${c.repair!.itemId}`);
+      let best: { items: FurnitureItem[]; k: KnowledgeResult; j: Judge; cand: Cand; disp: number } | null = null;
+      for (const cand of repairCands(room, cur, c.repair!)) {
+        const next = apply(cur, cand.poses);
+        const nk = kOf(next);
+        const gain = nk.hardBroken.length < k.hardBroken.length || (nk.hardBroken.length === k.hardBroken.length && !nk.hardBroken.length && nk.score >= k.score + 3);
+        if (!gain) continue;
+        const nj = judge(model, next, req, opts.spaceId);
+        if (nj.failCount > j.failCount || nj.score < j.score - 2) continue;
+        const disp = displacement(next, cur);
+        if (!best || nk.hardBroken.length < best.k.hardBroken.length || (nk.hardBroken.length === best.k.hardBroken.length && (nk.score > best.k.score + 1 || (Math.abs(nk.score - best.k.score) <= 1 && disp < best.disp)))) best = { items: next, k: nk, j: nj, cand, disp };
+      }
+      if (!best) continue;
+      for (const [id, to] of best.cand.poses) {
+        const f = cur.find((x) => x.id === id)!;
+        moves.push({ itemId: id, from: { x: f.x, y: f.y, rotation: f.rotation }, to, reason: best.cand.reason });
+      }
+      cur = best.items; k = best.k; j = best.j; done = true;
+      break;
+    }
+    if (!done) break;
+  }
+  return {
+    furniture: cur, moves,
+    hardBefore: first.hardBroken.map((v) => v.id), hardAfter: k.hardBroken.map((v) => v.id),
+    scoreBefore: first.score, scoreAfter: k.score,
+    left: critiqueKnowledge(model, cur, opts.use, opts.spaceId),
+  };
 }
 
 const isCheck = (x: ValidationResult | RuleVerdict): x is ValidationResult => 'result' in x;
