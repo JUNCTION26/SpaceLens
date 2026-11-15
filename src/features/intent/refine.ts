@@ -154,3 +154,5 @@ export function diffRequirements(a: Requirements, b: Requirements): string[] {
   if (ta !== tb) out.push(`Route to: ${ta || 'none'} to ${tb || 'none'}`);
   return out;
 }
+
+export { refineRoom, refineRoomOffline, refineRoomAI, validateRoomOps, ROOM_PATCH_SCHEMA, type RoomEdit } from './roomEdit';
