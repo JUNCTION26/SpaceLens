@@ -205,3 +205,6 @@ circle.plan2d-mark-hit { stroke: none; }
   .plan2d-scale, .plan2d-toolbar { opacity: 0; transition: opacity .2s var(--ease); }
   .pane-2d:hover .plan2d-scale, .pane-2d:hover .plan2d-toolbar, .plan2d-toolbar:focus-within { opacity: 1; }
 }
+
+.plan2d-chip-input { width: 100%; height: 100%; box-sizing: border-box; padding: 0 2px; border: 1px solid var(--accent); border-radius: 3px; background: var(--panel); color: var(--text); text-align: center; outline: none; font-family: inherit; }
+.plan2d-chip-input.is-error { border-color: var(--bad, #d33); }

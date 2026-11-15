@@ -716,6 +716,19 @@ export function PlanView() {
     if (!editWall) return;
     const v = parseLength(editWall.value);
     if (v == null) { setEditWall({ ...editWall, error: true }); return; }
+    const sp = spaces.find((x) => x.id === editWall.spaceId);
+    if (sp) {
+      const [a, b] = wallSegment(sp, editWall.i);
+      const bb = bounds(sp.polygon), L = dist(a, b);
+      const horiz = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+      if (L > 1e-6 && Math.abs(horiz ? b.y - a.y : b.x - a.x) < 1e-6) {
+        // Axis-aligned wall: resize the room along that axis through the same op the size fields use.
+        const k = v / L;
+        dispatch(horiz ? { type: 'RESIZE_SPACE', spaceId: sp.id, widthM: bb.w * k } : { type: 'RESIZE_SPACE', spaceId: sp.id, depthM: bb.h * k });
+        setEditWall(null);
+        return;
+      }
+    }
     dispatch({ type: 'SET_WALL_LENGTH', spaceId: editWall.spaceId, wallIndex: editWall.i, lengthM: v, sourceKind: 'user-measured' });
     setEditWall(null);
   };
@@ -894,8 +907,18 @@ export function PlanView() {
                 onPointerDown={(e) => { e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
                 <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
-                <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>
-                <title>{`${label} (${status}). Click to type the real length.`}</title>
+                {editWall && editWall.spaceId === sp.id && editWall.i === i
+                  ? <foreignObject x={-fs * 2.4} y={-fs * 0.8} width={fs * 4.8} height={fs * 1.6}>
+                      <input className={`plan2d-chip-input${editWall.error ? ' is-error' : ''}`} autoFocus aria-label="Wall length" aria-invalid={editWall.error || undefined}
+                        value={editWall.value} style={{ fontSize: fs * 0.92 }}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => setEditWall({ ...editWall, value: e.target.value, error: false })}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') setEditWall(null); if (e.key === 'Enter') commitLength(); }}
+                        onBlur={() => setEditWall(null)} />
+                    </foreignObject>
+                  : <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>}
+                <title>{`${label} (${status})`}</title>
               </g>}
             </g>
           );
@@ -1075,16 +1098,6 @@ export function PlanView() {
         <DrillOverlay />
       </svg>
 
-      {editWall && (
-        <form className="plan2d-edit card" onSubmit={(e) => { e.preventDefault(); commitLength(); }}
-          style={{ left: ((editWall.pos.x - view.x) / view.w) * size.w, top: ((editWall.pos.y - view.y) / view.h) * size.h }}>
-          <label className="plan2d-edit-label" htmlFor="plan2d-len">Wall length</label>
-          <input id="plan2d-len" className="field" autoFocus value={editWall.value} aria-invalid={editWall.error || undefined}
-            onChange={(e) => setEditWall({ ...editWall, value: e.target.value, error: false })}
-            onKeyDown={(e) => { if (e.key === 'Escape') setEditWall(null); }} onBlur={() => setEditWall(null)} />
-          <span className={`plan2d-edit-hint${editWall.error ? ' is-error' : ' muted'}`}>{editWall.error ? 'Try 320 or 3.2 m' : 'cm or m'}</span>
-        </form>
-      )}
 
       {card && !drag && !menu && (() => {
         const ps = cardProblems(card.key); if (!ps.length) return null;
