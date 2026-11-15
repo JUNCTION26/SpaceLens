@@ -26,8 +26,8 @@ function Row({ p }: { p: Problem }) {
   );
 }
 
-/** Generated titles can run long; show the first six words. */
-export const clip = (t: string, n = 6) => { const w = t.split(/\s+/); return w.length > n ? `${w.slice(0, n).join(' ')}…` : t; };
+/** Generated titles can run long; show the first four words. */
+export const clip = (t: string, n = 4) => { const w = t.split(/\s+/); return w.length > n ? `${w.slice(0, n).join(' ')}…` : t; };
 
 export const ChecksPanel = memo(function ChecksPanel() {
   const problems = useProblems((s) => s.problems);
