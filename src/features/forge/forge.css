@@ -1,4 +1,4 @@
-.forge { width: 100%; max-width: var(--panel-w, 340px); display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+.forge { width: 100%; max-width: var(--panel-w, 340px); display: flex; flex-direction: column; gap: 12px; padding: 14px 0; }
 .forge-ask { display: flex; align-items: center; gap: 4px; }
 .forge-ask input { flex: 1; min-width: 0; }
 .forge-ask .icon-btn { flex: none; }
