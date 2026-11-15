@@ -7,7 +7,7 @@ import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
 import { designRoom } from '../design/pipeline';
 import { useReports } from '../design/reportStore';
-import { DecisionsPanel, shortLabel } from '../design/DecisionsPanel';
+import { DecisionsPanel } from '../design/DecisionsPanel';
 import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { Icon } from '../../ui/icons';
@@ -42,6 +42,8 @@ function Thumb({ model, cand, scale }: { model: SpaceModel; cand: LayoutCandidat
     </svg>
   );
 }
+
+const layoutLabel = (i: number) => `Layout ${String.fromCharCode(65 + i)}`;
 
 function TasteDisclosure() {
   return (
@@ -170,16 +172,14 @@ export function DesignPanel() {
           {candidates.map((c) => (
             <figure key={c.id} className={c.id === activeId ? 'on' : ''} onClick={() => useStore.getState().previewCandidate(c.id)}>
               <Thumb model={model} cand={c} scale={scale} />
-              <figcaption>{shortLabel(c.name)}</figcaption>
+              <figcaption title={c.name}>{layoutLabel(candidates.indexOf(c))}</figcaption>
             </figure>
           ))}
         </div>
       )}
       <div className="layout-cards">
         {candidates.map((c, i) => {
-          // Two layouts with the same short name get a letter so they can be told apart.
-          const short = shortLabel(c.name);
-          const label = candidates.filter((o) => shortLabel(o.name) === short).length > 1 ? `${short} ${String.fromCharCode(65 + i)}` : short;
+          const label = layoutLabel(i);
           const nowFail = recheck.get(c.id) ?? 0;
           const rep = reports[c.id];
           return (
