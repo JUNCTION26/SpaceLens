@@ -25,12 +25,18 @@ const FI241 = 'Ympäristöministeriön asetus esteettömästä rakennuksesta 241
 const FI241_URL = 'https://www.finlex.fi/fi/lainsaadanto/saadoskokoelma/2017/241';
 const FI848 = 'Ympäristöministeriön asetus rakennusten paloturvallisuudesta 848/2017';
 const FI848_URL = 'https://www.finlex.fi/fi/lainsaadanto/saadoskokoelma/2017/848';
-const BBR = 'Boverkets byggregler (BFS 2011:6, konsoliderad t.o.m. BFS 2024:5)';
-const BBR_URL = 'https://rinfo.boverket.se/BFS2011-6/dok/BFS2024-5_konsolidering.pdf';
+const FI1008 = 'Ympäristöministeriön asetus asuin-, majoitus- ja työtiloista 1008/2017';
+const FI1008_URL = 'https://www.finlex.fi/fi/lainsaadanto/saadoskokoelma/2017/1008';
+const BFS7 = 'Boverkets föreskrifter och allmänna råd (BFS 2024:7) om säkerhet i händelse av brand i byggnader';
+const BFS7_URL = 'https://rinfo.boverket.se/BFS2024-7/pdf/BFS2024-7.pdf';
+const BFS12 = 'Boverkets föreskrifter och allmänna råd (BFS 2024:12) om byggnaders tillgänglighet och användbarhet för personer med nedsatt rörelse- eller orienteringsförmåga';
+const BFS12_URL = 'https://rinfo.boverket.se/BFS2024-12/pdf/BFS2024-12.pdf';
 
 const fi241 = (section: string, quote: string): RuleSource => ({ doc: FI241, section, url: FI241_URL, readOn: READ, quote });
 const fi848 = (section: string, quote: string): RuleSource => ({ doc: FI848, section, url: FI848_URL, readOn: READ, quote });
-const bbr = (section: string, quote: string): RuleSource => ({ doc: BBR, section, url: BBR_URL, readOn: READ, quote });
+const fi1008 = (section: string, quote: string): RuleSource => ({ doc: FI1008, section, url: FI1008_URL, readOn: READ, quote });
+const bfs7 = (section: string, quote: string): RuleSource => ({ doc: BFS7, section, url: BFS7_URL, readOn: READ, quote });
+const bfs12 = (section: string, quote: string): RuleSource => ({ doc: BFS12, section, url: BFS12_URL, readOn: READ, quote });
 
 export const FI_PACK: RulePack = {
   id: 'FI',
@@ -62,6 +68,14 @@ export const FI_PACK: RulePack = {
       source: fi848('34 §', 'uloskäytävän korkeuden on oltava vähintään 2 100 millimetriä'), confidence: 'requirement' },
     { id: 'fi-door-outward', title: 'Exit doors open outwards above this many people', value: 60, unit: 'people', scope: 'Doors people leave through (and any apartment door onto a stair landing)',
       source: fi848('35 §', 'oven kautta poistuvien henkilöiden määrä on yli 60'), confidence: 'requirement', key: 'inwardSwingMaxOccupants' },
+    { id: 'fi-room-height', title: 'Room height, habitable and work rooms', value: 2.5, unit: 'm', scope: 'Dwelling, lodging and work rooms (2.4 m in houses; a small part of the room may be lower, not under 2.2 m)',
+      source: fi1008('4 §', 'huonekorkeuden on oltava vähintään 2,5 metriä'), confidence: 'requirement' },
+    { id: 'fi-room-height-house', title: 'Room height, detached and attached houses', value: 2.4, unit: 'm', scope: 'Houses (pientalo)',
+      source: fi1008('4 §', 'Pientalossa mainittu vähimmäiskorkeus on 2,4 metriä'), confidence: 'requirement' },
+    { id: 'fi-room-area', title: 'Smallest room area', value: 7, unit: 'm²', scope: 'Dwelling, lodging and work rooms',
+      source: fi1008('4 §', 'huonealan on kuitenkin aina oltava vähintään 7 neliömetriä'), confidence: 'requirement' },
+    { id: 'fi-approach-width', title: 'Clear width of approach route to the building', value: 1.2, unit: 'm', scope: 'Route from the plot boundary and from parking to the entrance (outdoors, not an indoor corridor)',
+      source: fi241('2 §', 'vähintään 1 200 millimetriä leveä'), confidence: 'requirement' },
   ],
 };
 
@@ -69,32 +83,34 @@ export const SE_PACK: RulePack = {
   id: 'SE',
   name: 'Sweden',
   rules: [
-    { id: 'se-door-passage', title: 'Door clear width, accessible doors', value: 0.8, unit: 'm', scope: 'Entrances, lift doors, corridor doors, openings on routes, doors to assembly rooms (door open to 90 degrees)',
-      source: bbr('3:143, allmänt råd', 'Det fria passagemåttet bör vara minst 0,80 meter, när dörren är uppställd i 90°'), confidence: 'guidance', key: 'wheelchairDoorM' },
-    { id: 'se-turn-outdoor-chair', title: 'Turning circle for a wheelchair', value: 1.5, unit: 'm', scope: 'Publicly accessible and shared spaces (smaller outdoor wheelchair)',
-      source: bbr('3:113, allmänt råd', 'en cirkel med diametern 1,50 meter'), confidence: 'guidance', key: 'turningM' },
-    { id: 'se-turn-indoor-chair', title: 'Turning circle, indoor wheelchair', value: 1.3, unit: 'm', scope: 'Inside individual dwellings',
-      source: bbr('3:113, allmänt råd', 'för en inomhusrullstol en cirkel med diametern 1,30 meter'), confidence: 'guidance' },
-    { id: 'se-circulation-width', title: 'Clear width of circulation space', value: 1.3, unit: 'm', scope: 'Entrance and circulation spaces (0.8 m where obstacles are limited, such as a pillar)',
-      source: bbr('3:142, allmänt råd', 'ha en fri bredd på minst 1,30 meter, gäller dock inte trappor'), confidence: 'guidance' },
-    { id: 'se-travel', title: 'Longest walk in an escape route', value: 30, unit: 'm', scope: 'Walk to the nearest stair to another floor or to an exit to a safe place',
-      source: bbr('5:332, allmänt råd', 'bör inte överstiga 30 meter'), confidence: 'guidance', key: 'maxTravelM' },
-    { id: 'se-travel-one-way-corridor', title: 'Longest walk with escape in one direction only', value: 10, unit: 'm', scope: 'Stair hall or corridor in activity classes 1, 2, 3 or 5B (7 m for classes 4, 5A, 5C)',
-      source: bbr('5:332, tabell 5:332', 'Maximalt gångavstånd när utrymningsmöjlighet endast finns i en riktning 10 m'), confidence: 'guidance' },
-    { id: 'se-route-width', title: 'Escape route clear width', value: 0.9, unit: 'm', scope: 'Escape routes (handrails may take up to 0.10 m per side)',
-      source: bbr('5:334, allmänt råd', 'Utrymningsvägar bör ha en fri bredd på minst 0,90 meter'), confidence: 'guidance', key: 'routeWidthM' },
-    { id: 'se-escape-door', title: 'Escape door opening clear width', value: 0.8, unit: 'm', scope: 'Door openings in escape routes',
-      source: bbr('5:334, allmänt råd', 'Dörröppningar bör ha en fri bredd på minst 0,80 meter'), confidence: 'guidance', key: 'doorWidthM' },
-    { id: 'se-route-width-large', title: 'Escape route clear width, many people', value: 1.2, unit: 'm', scope: 'Escape routes serving more than 150 people',
-      source: bbr('5:334, allmänt råd', 'som betjänar fler än 150 personer bör ha en fri bredd på minst 1,20 meter'), confidence: 'guidance' },
-    { id: 'se-door-inward-people', title: 'Inward-opening exit door, premises up to this many people', value: 30, unit: 'people', scope: 'Premises where people know the building (classrooms, small offices); queuing not expected',
-      source: bbr('5:335, allmänt råd', 'en lokal för maximalt 30 personer och där personerna har kännedom om miljön'), confidence: 'guidance', key: 'inwardSwingMaxOccupants' },
-    { id: 'se-height-dwelling', title: 'Room height, dwellings', value: 2.4, unit: 'm', scope: 'Dwellings (2.30 m in attic, basement and split-level floors of small houses)',
-      source: bbr('3:3111', 'Rumshöjden i bostäder ska vara minst 2,40 meter'), confidence: 'requirement' },
-    { id: 'se-height-public', title: 'Room height, public premises', value: 2.7, unit: 'm', scope: 'Public premises (not below 2.40 m in rooms for few people)',
-      source: bbr('3:3112', 'Rumshöjden i publika lokaler ska vara minst 2,70 meter'), confidence: 'requirement' },
-    { id: 'se-height-work', title: 'Room height, workrooms', value: 2.4, unit: 'm', scope: 'Workrooms',
-      source: bbr('3:3113', 'Rumshöjden i arbetsrum ska vara minst 2,40 meter'), confidence: 'requirement' },
+    { id: 'se-door-passage', title: 'Door clear width, accessible doors', value: 0.8, unit: 'm', scope: 'Where a building part must be accessible and usable (dwellings: 0.76 m)',
+      source: bfs12('1 kap. 6 §', 'öppningsmåttet för fri passage minst 0,80 meter'), confidence: 'requirement', key: 'wheelchairDoorM' },
+    { id: 'se-door-passage-dwelling', title: 'Door clear width, individual dwellings', value: 0.76, unit: 'm', scope: 'Individual dwellings',
+      source: bfs12('1 kap. 6 §', 'öppningsmåttet för fri passage minst 0,76 meter'), confidence: 'requirement' },
+    { id: 'se-turn-chair', title: 'Turning circle for a wheelchair', value: 1.5, unit: 'm', scope: 'Where a building part must be accessible and usable (dwellings: 1.3 m)',
+      source: bfs12('1 kap. 6 §', 'vändmåttet av en cirkel med diametern 1,50 meter'), confidence: 'requirement', key: 'turningM' },
+    { id: 'se-turn-chair-dwelling', title: 'Turning circle, individual dwellings', value: 1.3, unit: 'm', scope: 'Individual dwellings',
+      source: bfs12('1 kap. 6 §', 'vändmåttet av en cirkel med diametern 1,30 meter'), confidence: 'requirement' },
+    { id: 'se-exits-min', title: 'Independent exit doors, usual minimum', value: 2, unit: 'doors', scope: 'Dwellings (class 3A), guest rooms, premises with up to 600 people; 3 above 600, 4 above 1 000',
+      source: bfs7('7 kap. 9 §', 'Två utrymningsdörrar i verksamheter med högst 600 personer'), confidence: 'requirement' },
+    { id: 'se-exits-apart', title: 'Distance between independent exit doors', value: 5, unit: 'm', scope: 'Independent exit doors',
+      source: bfs7('7 kap. 9 §', 'avståndet mellan oberoende utrymningsdörrar är minst 5 meter'), confidence: 'requirement' },
+    { id: 'se-exit-single-small', title: 'One exit door enough up to this many people', value: 30, unit: 'people', scope: 'Activity classes 2A, 4, 5A, 5B, 5C when the door leads straight to a safe place (50 people in classes 1, 3A, 3B, 3C)',
+      source: bfs7('7 kap. 11 §', 'betjänar högst 30 personer'), confidence: 'requirement' },
+    { id: 'se-travel-class1', title: 'Longest walk to an exit door, offices and dwellings', value: 45, unit: 'm', scope: 'Activity classes 1, 3A, 3B, 3C, 5B (30 m in 2A, 2B, 4, 5A, 5C; 15 m in 2C); reduced for level differences, extended with sprinklers',
+      source: bfs7('7 kap. 19 §', 'Verksamhetsklass 1, 3A, 3B, 3C och 5B: 45 meter'), confidence: 'requirement' },
+    { id: 'se-travel-class2', title: 'Longest walk to an exit door, assembly, hotels, schools', value: 30, unit: 'm', scope: 'Activity classes 2A, 2B, 4, 5A, 5C',
+      source: bfs7('7 kap. 19 §', 'Verksamhetsklass 2A, 2B, 4, 5A och 5C: 30 meter'), confidence: 'requirement' },
+    { id: 'se-route-width', title: 'Escape passage clear width', value: 0.9, unit: 'm', scope: 'Escape passages serving up to 150 people (handrails may take 0.10 m per side)',
+      source: bfs7('7 kap. 28 §', 'Fri bredd ska vara minst 0,90 meter om de betjänar högst 150 personer'), confidence: 'requirement', key: 'routeWidthM' },
+    { id: 'se-route-width-large', title: 'Escape passage clear width, many people', value: 1.2, unit: 'm', scope: 'Escape passages serving more than 150 people',
+      source: bfs7('7 kap. 28 §', 'Fri bredd ska vara minst 1,20 meter om de betjänar fler än 150 personer'), confidence: 'requirement' },
+    { id: 'se-escape-door', title: 'Escape door clear width', value: 0.8, unit: 'm', scope: 'Exit doors serving up to 150 people',
+      source: bfs7('7 kap. 27 §', 'Fri bredd ska vara minst 0,80 meter om de betjänar högst 150 personer'), confidence: 'requirement', key: 'doorWidthM' },
+    { id: 'se-escape-door-large', title: 'Escape door clear width, many people', value: 1.15, unit: 'm', scope: 'Exit doors serving more than 150 people',
+      source: bfs7('7 kap. 27 §', 'Fri bredd ska vara minst 1,15 meter om de betjänar fler än 150 personer'), confidence: 'requirement' },
+    { id: 'se-door-inward-people', title: 'Door opening against the escape direction, up to this many people', value: 30, unit: 'people', scope: 'Hinged or manual sliding exit doors',
+      source: bfs7('7 kap. 33 §', 'Slagdörr som öppnar mot utrymningsriktningen om högst 30 personer förväntas nyttja den samtidigt'), confidence: 'requirement', key: 'inwardSwingMaxOccupants' },
   ],
 };
 

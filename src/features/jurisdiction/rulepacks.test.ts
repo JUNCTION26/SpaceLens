@@ -33,4 +33,12 @@ describe('rule packs', () => {
     expect(packFor('fi').id).toBe('FI'); expect(packFor('SE').id).toBe('SE');
     expect(packFor('DE').id).toBe('generic'); expect(packFor(undefined).id).toBe('generic');
   });
+  it('Sweden reads the 2025 statutes, not the repealed BBR chapters', () => {
+    for (const r of PACKS.SE.rules) expect(r.source.url).toMatch(/BFS2024-(7|12)\//);
+    expect(applyPack(PACKS.SE)).toEqual({ wheelchairDoorM: 0.8, turningM: 1.5, routeWidthM: 0.9, doorWidthM: 0.8, inwardSwingMaxOccupants: 30 });
+  });
+  it('Finland has the room height from the housing decree', () => {
+    const r = PACKS.FI.rules.find((x) => x.id === 'fi-room-height');
+    expect(r?.value).toBe(2.5); expect(r?.source.doc).toContain('1008/2017');
+  });
 });
