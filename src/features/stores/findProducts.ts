@@ -43,7 +43,7 @@ export function promptFor(item: Pick<FurnitureItem, 'name' | 'category'>, win: P
   const where = country === 'se' ? 'IKEA Sweden (ikea.com/se)' : country === 'fi' ? 'IKEA Finland (ikea.com/fi)' : 'IKEA Sweden (ikea.com/se) or IKEA Finland (ikea.com/fi)';
   return `Find 6 different real products currently sold by ${where} that could replace a "${item.name}" (category: ${item.category}).
 Each must fit in at most ${cm(win.w)} cm wide, ${cm(win.d)} cm deep and ${cm(win.h)} cm high. Use Google Search. Only individual product pages (URL contains /p/), never categories.
-Never guess a URL, price or size; leave a value null if you did not see it. Reply ONLY with:
+Copy each URL exactly as it appears in the search results: IKEA article numbers in URLs have 8 digits (for example ...-80213074/). Never type a URL from memory. Never guess a URL, price or size; leave a value null if you did not see it. Reply ONLY with:
 \`\`\`json
 {"products":[{"name":"","url":"","price":null,"currency":"SEK","widthCm":null,"depthCm":null,"heightCm":null}]}
 \`\`\``;
@@ -57,12 +57,22 @@ const defaultDeps: FindDeps = {
   read: readListing,
 };
 
-export type DropReason = 'page did not load' | 'no price on page' | 'redirected to another page' | 'currency does not match store' | 'no size on page' | 'size over window' | 'height missing and width or depth over window';
+export type DropReason = 'page did not load' | 'no price on page' | 'redirected to another page' | 'currency does not match store' | 'no size on page' | 'size over window' | 'different kind of product';
 export interface Dropped { url: string; reason: DropReason; detail?: string }
 export interface FindReport { asked: number; verified: number; dropped: Dropped[] }
 
 const sameUrl = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 const storeCurrency = (url: string) => (/\.ikea\.com\/fi\//i.test(url) ? 'EUR' : 'SEK');
+
+const KINDS = [['desk', 'table'], ['sofa', 'couch', 'loveseat'], ['bookshelf', 'bookcase', 'shelf', 'shelving', 'shelving-unit'], ['tv-unit', 'tv-bench', 'media'], ['dresser', 'chest', 'drawers'], ['nightstand', 'bedside-table']];
+/** Same family of furniture, so a drawer unit is not offered for a desk. Unknown words are accepted. */
+export function sameKind(want: string, got: string): boolean {
+  const a = want.toLowerCase(), b = got.toLowerCase();
+  if (a === b) return true;
+  const fa = KINDS.find((k) => k.includes(a)), fb = KINDS.find((k) => k.includes(b));
+  if (fa && fb) return fa === fb;
+  return !(fa || fb) ? true : false;
+}
 
 /** 'fits' when all three sizes are stated and within the window; 'height-unconfirmed' when width and depth fit and height is not stated. */
 export function fitState(stated: { w?: number; d?: number; h?: number } | undefined, win: Pick<FitWindow, 'w' | 'd' | 'h'>): 'fits' | 'height-unconfirmed' | 'over' | 'no-size' {
@@ -74,7 +84,7 @@ export function fitState(stated: { w?: number; d?: number; h?: number } | undefi
 }
 
 /** A candidate's page, read for real: kept only when it loads, is a product page, has a price in the store's currency and a size within the window (height may be unconfirmed). */
-export async function verifyCandidate(c: Candidate, win: Pick<FitWindow, 'w' | 'd' | 'h'>, read: FindDeps['read'], signal?: AbortSignal, dropped?: Dropped[]): Promise<Match | null> {
+export async function verifyCandidate(c: Candidate, win: Pick<FitWindow, 'w' | 'd' | 'h'>, kind: string | undefined, read: FindDeps['read'], signal?: AbortSignal, dropped?: Dropped[]): Promise<Match | null> {
   const drop = (reason: DropReason, detail?: string): null => { dropped?.push({ url: c.url, reason, detail }); return null; };
   let page: ReadListing;
   try { page = await read(c.url, signal); } catch (e) { if (signal?.aborted) throw e; return drop('page did not load', e instanceof Error ? e.message : undefined); }
@@ -84,6 +94,7 @@ export async function verifyCandidate(c: Candidate, win: Pick<FitWindow, 'w' | '
   if (page.note && /general page|redirected this link/i.test(page.note)) return drop('redirected to another page', page.note);
   if (page.price === null || !(page.price > 0)) return drop('no price on page');
   if (page.currency.toUpperCase() !== storeCurrency(url)) return drop('currency does not match store', page.currency);
+  if (kind && page.category && !sameKind(kind, page.category)) return drop('different kind of product', page.category);
   const st = fitState(page.stated, win);
   const sized = JSON.stringify(page.stated ?? {});
   if (st === 'no-size') return drop('no size on page', sized);
@@ -114,7 +125,7 @@ export async function findProductsReport(item: Pick<FurnitureItem, 'name' | 'cat
   try { text = await deps.ask(promptFor(item, win, opts.country), opts.signal); } catch (e) { if (opts.signal?.aborted) throw e; return { matches: [], report }; }
   const cands = parseCandidates(text);
   report.asked = cands.length;
-  const checked = await pool(cands, 3, (c) => verifyCandidate(c, win, deps.read, opts.signal, report.dropped));
+  const checked = await pool(cands, 3, (c) => verifyCandidate(c, win, item.category, deps.read, opts.signal, report.dropped));
   const ok = rankMatches(checked.filter((m): m is Match => m !== null)).slice(0, 3);
   report.verified = ok.length;
   return { matches: ok, report };

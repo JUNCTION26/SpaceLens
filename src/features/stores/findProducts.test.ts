@@ -70,3 +70,20 @@ describe('shopTheRoom', () => {
     expect(r.unmatched).toEqual(['nomatch']);
   });
 });
+
+describe('fitState and sameKind', () => {
+  const w = { w: 1.5, d: 0.8, h: 1.2 };
+  it('accepts a missing height when width and depth fit', async () => {
+    const { fitState } = await import('./findProducts');
+    expect(fitState({ w: 1.2, d: 0.6 }, w)).toBe('height-unconfirmed');
+    expect(fitState({ w: 1.6, d: 0.6 }, w)).toBe('over');
+    expect(fitState({ w: 1.2 }, w)).toBe('no-size');
+    expect(fitState({ w: 1.5, d: 0.8, h: 1.2 }, w)).toBe('fits');
+  });
+  it('keeps a drawer unit out of the desk results', async () => {
+    const { sameKind } = await import('./findProducts');
+    expect(sameKind('desk', 'table')).toBe(true);
+    expect(sameKind('desk', 'dresser')).toBe(false);
+    expect(sameKind('desk', 'weird')).toBe(false);
+  });
+});
