@@ -58,7 +58,7 @@ describe('designer-quality scenarios', () => {
     }, 120000);
   }
 
-  it('a 3 x 3 m room cannot take a bed, a sofa and a desk, and says why', async () => {
+  it('a 3 x 3 m room cannot take a bed, a sofa and a desk: it leaves pieces out and says why', async () => {
     const ids: Array<[string, number]> = [['bed-double', 1], ['sofa-3', 1], ['desk-140', 1]];
     const s: Scenario = {
       key: 'e-small', title: 'Small room 3 x 3 m', minScore: 0, ids,
@@ -66,7 +66,9 @@ describe('designer-quality scenarios', () => {
       req: reqs({ items: ids.map(([catalogId, qty]) => ({ catalogId, qty })), routeTargets: [{ kind: 'window' }], minRouteWidthM: 0.8 }),
     };
     const res = await run(s);
-    expect(res.candidates).toHaveLength(0);
+    // Never the full set: either nothing, or a layout that names what it left out.
+    for (const c of res.candidates) expect(c.furniture.length).toBeLessThan(3);
+    if (res.candidates.length) expect(res.infeasibility?.reasons[0]).toMatch(/left out/i);
     expect(res.infeasibility?.reasons.length).toBeGreaterThan(0);
     expect(res.infeasibility?.relaxations.length).toBeGreaterThan(0);
     writeFileSync(join(OUT, 'e-small.txt'), `${Math.round(res.ms)} ms\n${res.infeasibility!.reasons.join('\n')}\n${res.infeasibility!.relaxations.map((r) => r.label).join('\n')}`);

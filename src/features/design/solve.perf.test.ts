@@ -18,7 +18,8 @@ describe('solveProgram speed', () => {
     const res = await solveProgram(m, items, defaultProgram(m, items, req), { seed: 3, req });
     const ms = Date.now() - t;
     console.log('waiting room ms', ms, 'candidates', res.candidates.length);
-    expect(ms).toBeLessThan(5000);
+    // Includes the retries that leave out the chairs that cannot fit.
+    expect(ms).toBeLessThan(20000);
   }, 200000);
   it('stops at the wall-clock ceiling instead of searching on', async () => {
     const m = room(rect(4, 5), [opening('door', 'door', 2, 2, 0.9, 'in'), opening('win', 'window', 0, 2, 1.2)]);

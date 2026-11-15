@@ -1248,7 +1248,7 @@ async function solveOnce(model: SpaceModel, items: FurnitureItem[], programIn: D
   const finals: Array<{ st: State; verdicts: RuleVerdict[]; checks: ValidationResult[]; ds: number; sig: string }> = [];
   for (const st of pool) {
     const checks = validateLayout(model, restore(st.items), req, { spaceId: space.id });
-    if (checks.some((c) => c.result === 'fail')) continue;
+    if (checks.some((c) => c.result === 'fail')) { if (DBG) console.log('REFEREE', checks.filter((c) => c.result === 'fail').map((c) => c.id + ' ' + c.rule + ' ' + c.measured + '/' + c.threshold + ' ' + c.subjectIds)); continue; }
     const L = layoutCtx(ctx, st.items);
     const verdicts = evaluateCtx(L);
     finals.push({ st, verdicts, checks, ds: designScore(verdicts) + programScore(program, L) * 2, sig: signature(ctx, st, 1) });
@@ -1354,27 +1354,33 @@ function dropOrder(items: FurnitureItem[], fixed: Set<string>): FurnitureItem[] 
 export async function solveProgram(model: SpaceModel, items: FurnitureItem[], programIn: DesignProgram, opts: SolveProgramOptions = {}): Promise<SolveResult> {
   const t0 = now();
   const first = await solveOnce(model, items, programIn, opts);
-  if (first.candidates.length || items.length < 2) return first;
+  if (first.candidates.length || !items.length) return first;
   const wallMs = opts.maxWallMs ?? 20000;
-  const order = dropOrder(items, new Set(opts.fixedIds ?? []));
-  const gone: FurnitureItem[] = [];
-  // Decor goes as one step (it is already optional, so dropping it one by one rarely changes the outcome).
-  const steps: FurnitureItem[][] = [];
-  for (const f of order) { if (OPTIONAL.has(f.category) && steps.length === 1 && steps[0].every((x) => OPTIONAL.has(x.category))) steps[0].push(f); else steps.push([f]); }
-  for (const step of steps) {
-    if (opts.signal?.aborted || now() - t0 > wallMs || gone.length + step.length >= items.length) break;
-    gone.push(...step);
-    const ids = new Set(gone.map((g) => g.id));
-    const rest = items.filter((g) => !ids.has(g.id));
-    const res = await solveOnce(model, rest, without(programIn, ids), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
-    if (!res.candidates.length) continue;
-    const names = gone.map((g) => g.name.toLowerCase());
-    const note = `Left out ${names.join(', ')}: they do not fit this room with the rest`;
-    return {
-      ...res,
-      candidates: res.candidates.map((c) => ({ ...c, assumptions: [...c.assumptions, ...gone.map((g) => `Left out the ${g.name.toLowerCase()}: no layout of the full set passes the checks`)] })),
-      infeasibility: { reasons: [note, ...(first.infeasibility?.reasons ?? [])], relaxations: first.infeasibility?.relaxations ?? [] },
-    };
+  const fixedIds = new Set(opts.fixedIds ?? []);
+  // Each round tries the full set, then gives up pieces in order. Later rounds also shrink the
+  // clear space around every movable piece, for halls too narrow for the usual pull-out room.
+  for (const scale of [1, 0.5, 0.25]) {
+    const scaled = scale === 1 ? items : items.map((f) => (f.locked || fixedIds.has(f.id) ? f : { ...f, clearance: { front: f.clearance.front * scale, back: f.clearance.back * scale, left: f.clearance.left * scale, right: f.clearance.right * scale } }));
+    const order = dropOrder(scaled, fixedIds);
+    // Decor goes as one step (it is already optional, so dropping it one by one rarely changes the outcome).
+    const steps: FurnitureItem[][] = scale === 1 ? [] : [[]];
+    for (const f of order) { if (OPTIONAL.has(f.category) && steps.length === 1 && steps[0].every((x) => OPTIONAL.has(x.category))) steps[0].push(f); else steps.push([f]); }
+    const gone: FurnitureItem[] = [];
+    for (const step of steps) {
+      if (opts.signal?.aborted || now() - t0 > wallMs || gone.length + step.length >= items.length) break;
+      gone.push(...step);
+      const ids = new Set(gone.map((g) => g.id));
+      const res = await solveOnce(model, scaled.filter((g) => !ids.has(g.id)), without(programIn, ids), { ...opts, maxWallMs: Math.max(1000, wallMs - (now() - t0)) });
+      if (!res.candidates.length) continue;
+      const left = gone.map((g) => `Left out the ${g.name.toLowerCase()}: no layout of the full set passes the checks`);
+      const shrunk = scale < 1 ? [`Clear space around the pieces reduced to ${Math.round(scale * 100)}% so they fit this narrow room`] : [];
+      const lead = gone.length ? `Left out ${gone.map((g) => g.name.toLowerCase()).join(', ')}: they do not fit this room with the rest` : shrunk[0];
+      return {
+        ...res,
+        candidates: res.candidates.map((c) => ({ ...c, assumptions: [...c.assumptions, ...shrunk, ...left] })),
+        infeasibility: { reasons: [lead, ...(first.infeasibility?.reasons ?? [])], relaxations: first.infeasibility?.relaxations ?? [] },
+      };
+    }
   }
   return first;
 }
