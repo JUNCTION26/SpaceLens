@@ -71,7 +71,7 @@ export function PhotoRoom() {
       {result && live && space && (
         <>
           <div className="proom-strip">
-            {result.photos.map((p, i) => <img key={i} src={p} alt={`Photo ${i + 1}`} />)}
+            {result.photos.map((p, i) => <img key={i} src={p} alt="" />)}
           </div>
           <div className="proom-stats">
             <div><b>{len(live, 'back').toFixed(1)} × {len(live, 'left').toFixed(1)} m</b><span>Size</span></div>
