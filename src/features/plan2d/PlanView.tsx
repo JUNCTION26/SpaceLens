@@ -15,7 +15,6 @@ import { notify } from '../../ui/notify';
 import { useUi } from '../../ui/uiStore';
 import { SPEC_DND, specDrag } from './dnd';
 import { counts, useProblems } from '../problems/store';
-import { ProblemCard } from '../problems/ProblemCard';
 import { SEVERITY_ORDER, type GhostPose, type Problem, type ProblemSeverity } from '../problems/types';
 import { dampBox, lerpPose, pinchView, staggerDelay } from './motion';
 import { chipBox, pickChips, placeRoomLabels, type ChipIn } from './labelLayout';
@@ -94,7 +93,7 @@ const PROV: Record<SourceKind, string> = {
 };
 const PROV_LABEL: Record<SourceKind, string> = {
   'user-measured': 'Measured', 'ar-depth': 'Phone scan', 'photo-inferred': 'From photo', 'pdf-annotation': 'From drawing',
-  manual: 'Manual', catalog: 'Catalog', generated: 'Generated', sample: 'Sample',
+  manual: 'Manual', catalog: 'Catalog', generated: 'Generated', sample: 'Example',
 };
 
 /** Parse "320", "3.2", "3.2m", "320cm". Bare numbers above 10 are centimetres. */
@@ -903,23 +902,26 @@ export function PlanView() {
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} strokeDasharray={status === 'estimated' || status === 'unknown' ? `${5 * px} ${3 * px}` : undefined} />
               <line x1={A.x - tick.x + tick.y} y1={A.y - tick.y - tick.x} x2={A.x + tick.x - tick.y} y2={A.y + tick.y + tick.x} />
               <line x1={B.x - tick.x + tick.y} y1={B.y - tick.y - tick.x} x2={B.x + tick.x - tick.y} y2={B.y + tick.y + tick.x} />
-              {layout.shown.has(`${sp.id}:${i}`) && <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
-                onPointerDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
-                <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
-                {editWall && editWall.spaceId === sp.id && editWall.i === i
-                  ? <foreignObject x={-fs * 2.4} y={-fs * 0.8} width={fs * 4.8} height={fs * 1.6}>
-                      <input className={`plan2d-chip-input${editWall.error ? ' is-error' : ''}`} autoFocus aria-label="Wall length" aria-invalid={editWall.error || undefined}
-                        value={editWall.value} style={{ fontSize: fs * 0.92 }}
+              {layout.shown.has(`${sp.id}:${i}`) && (editWall && editWall.spaceId === sp.id && editWall.i === i
+                ? <g transform={`translate(${M.x} ${M.y}) scale(${px})`} className="plan2d-dim-label" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                    <foreignObject x={-40} y={-12} width={80} height={24}>
+                      <input className={`plan2d-chip-input${editWall.error ? ' is-error' : ''}`} autoFocus inputMode="decimal" aria-label="Wall length" aria-invalid={editWall.error || undefined}
+                        value={editWall.value} style={{ fontSize: 13 }}
                         onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) => setEditWall({ ...editWall, value: e.target.value, error: false })}
+                        onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') setEditWall(null); if (e.key === 'Enter') commitLength(); }}
                         onBlur={() => setEditWall(null)} />
                     </foreignObject>
-                  : <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>}
-                <title>{`${label} (${status})`}</title>
-              </g>}
+                  </g>
+                : <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
+                    onPointerDown={(e) => { e.stopPropagation(); }}
+                    onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
+                    <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
+                    <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>
+                    <title>{`${label} (${status})`}</title>
+                  </g>)}
             </g>
           );
         }))}
@@ -1098,13 +1100,6 @@ export function PlanView() {
         <DrillOverlay />
       </svg>
 
-
-      {card && !drag && !menu && (() => {
-        const ps = cardProblems(card.key); if (!ps.length) return null;
-        const sx = ((card.anchor.x - view.x) / view.w) * size.w, sy = ((card.anchor.y - view.y) / view.h) * size.h;
-        const left = Math.max(8, Math.min(sx + 10, size.w - 316)), top = Math.max(56, Math.min(sy - 10, size.h - 190));
-        return <ProblemCard problems={ps} style={{ left, top }} onEnter={cancelClose} onLeave={() => { if (!card.pinned) closeSoon(); }} onClose={closeCard} />;
-      })()}
 
       {hover && !drag && !menu && !card && (() => {
         const f = furniture.find((x) => x.id === hover.id); if (!f) return null;
