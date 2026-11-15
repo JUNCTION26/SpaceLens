@@ -9,10 +9,10 @@
 .bld-table th { text-align: left; font-weight: var(--fw-strong); color: var(--muted); padding: 0 4px 4px; white-space: nowrap; }
 .bld-table td { padding: 2px; }
 .bld-table input:not([type='checkbox']), .bld-table select { min-height: 28px; padding: 0 6px; font-size: var(--fs-sm); }
-.bld-table td:nth-child(2) input, .bld-table td:nth-child(3) input { width: 44px; }
-.bld-table td:nth-child(5) select { width: 78px; }
+.bld-table td:nth-child(2) input, .bld-table td:nth-child(3) input { width: 40px; padding: 0 4px; }
+.bld-table td:nth-child(5) select { width: 68px; padding: 0 2px; }
 .bld-table td:nth-child(6) .btn { padding: 0 4px; }
-.bld-table td:nth-child(1) input { width: 100%; min-width: 80px; }
+.bld-table td:nth-child(1) input { width: 100%; min-width: 56px; }
 .bld-table td:nth-child(4) { text-align: center; }
 .bld-cards { display: flex; flex-direction: column; gap: var(--s3); }
 .bld-card { display: flex; flex-direction: column; gap: var(--s2); }
