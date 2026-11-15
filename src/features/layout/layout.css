@@ -41,3 +41,19 @@
 .layout-taste > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
 .layout-taste > summary::-webkit-details-marker { display: none; }
 .layout-taste[open] > summary { margin-bottom: 6px; }
+
+.layout-card { position: relative; align-items: flex-start; }
+.layout-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout-card.applied::after { content: ''; position: absolute; top: 8px; left: 0; width: 3px; height: 22px; border-radius: 0 2px 2px 0; background: var(--ok); }
+.layout-card.degraded { border-style: dashed; }
+.layout-thumb { border-radius: 6px; }
+.layout-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lchip { font-size: 11px; line-height: 1; padding: 4px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); white-space: nowrap; }
+.lchip-trade { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+.lchip-left { background: color-mix(in srgb, var(--warn) 22%, transparent); cursor: help; }
+.layout-vs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; animation: layout-in 240ms var(--ease) both; }
+.layout-vs-col { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.layout-table { grid-column: 1 / -1; width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.layout-table td, .layout-table th { padding: 4px 6px; border-top: 1px solid var(--line); text-align: center; font-weight: 400; }
+.layout-table th { color: var(--muted); width: 22%; }
+.layout-table td.best { font-weight: 700; }

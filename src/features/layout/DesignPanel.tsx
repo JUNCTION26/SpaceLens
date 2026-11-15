@@ -1,7 +1,12 @@
 import { shortRelax } from './relax';
 import { useMemo, useRef, useState } from 'react';
+import { caseFor, whyText } from './caseFor';
+import { Chips, CheckRing, CompareView, PlanThumb, ringAround } from './LayoutCard';
+import { speak } from '../agent/speech';
+import { useSketch } from '../agent/sketchStore';
+import { mark } from '../agent/actions';
 import { useStore } from '../../core/store';
-import { bounds, fmtSek, itemCorners } from '../../core/geometry';
+import { fmtSek } from '../../core/geometry';
 import type { LayoutCandidate, SpaceModel } from '../../core/types';
 import { validateLayout } from '../referee/validate';
 import { crossover } from './solver';
@@ -16,34 +21,6 @@ import { SharePoll } from '../vote/VoteUi';
 import { TastePanel } from '../taste/TastePanel';
 import './layout.css';
 
-
-/** 0-100 score as a thin ring. */
-function ScoreRing({ value }: { value: number }) {
-  const r = 13, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, Math.round(value)));
-  const tone = v >= 80 ? 'var(--ok)' : v >= 60 ? 'var(--warn)' : 'var(--bad)';
-  return (
-    <svg className="layout-ring" width={32} height={32} viewBox="0 0 32 32" role="img" aria-label={`Score ${v} of 100`}>
-      <circle cx={16} cy={16} r={r} fill="none" stroke="var(--line)" strokeWidth={2} />
-      <circle cx={16} cy={16} r={r} fill="none" stroke={tone} strokeWidth={2} strokeLinecap="round"
-        strokeDasharray={`${(c * v) / 100} ${c}`} transform="rotate(-90 16 16)" />
-      <text x={16} y={16} textAnchor="middle" dominantBaseline="central" fontSize={10} fill="currentColor">{v}</text>
-    </svg>
-  );
-}
-
-function Thumb({ model, cand, scale }: { model: SpaceModel; cand: LayoutCandidate; scale: number }) {
-  const sp = model.spaces[0]; if (!sp) return null;
-  const b = bounds(sp.polygon);
-  const pts = (ps: { x: number; y: number }[]) => ps.map((p) => `${((p.x - b.minX) * scale).toFixed(1)},${((p.y - b.minY) * scale).toFixed(1)}`).join(' ');
-  return (
-    <svg className="layout-thumb" width={(b.maxX - b.minX) * scale + 2} height={(b.maxY - b.minY) * scale + 2} aria-label={cand.name}>
-      <polygon points={pts(sp.polygon)} fill="none" stroke="var(--muted)" />
-      {cand.furniture.map((f) => <polygon key={f.id} points={pts(itemCorners(f))} fill={f.color} opacity={0.8} />)}
-    </svg>
-  );
-}
-
-const layoutLabel = (i: number) => `Layout ${String.fromCharCode(65 + i)}`;
 
 function TasteDisclosure() {
   return (
@@ -63,6 +40,7 @@ export function DesignPanel() {
   const [compare, setCompare] = useState(false);
   const [pins, setPins] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const base = useRef<string | null>(null);
   const reports = useReports((s) => s.reports);
   const running = useReports((s) => s.running);
   const stages = useReports((s) => s.stages);
@@ -145,8 +123,17 @@ export function DesignPanel() {
   }
 
   const sp = model.spaces[0];
-  const bb = sp ? bounds(sp.polygon) : null;
-  const scale = bb ? 110 / Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY) : 30;
+  const cases = new Map(candidates.map((c) => [c.id, caseFor(c, reports[c.id], model, candidates.filter((x) => x.id !== c.id))]));
+  const pair = pins.length === 2 ? pins.map((id) => candidates.find((c) => c.id === id)) : [];
+  const holdPreview = (id: string) => { if (base.current === null) base.current = useStore.getState().activeCandidateId ?? ''; useStore.getState().previewCandidate(id); };
+  const releasePreview = () => { if (base.current !== null) { useStore.getState().previewCandidate(base.current || null); base.current = null; } };
+  const choose = (id: string) => { base.current = null; useStore.getState().previewCandidate(id); };
+  const why = (c: LayoutCandidate) => {
+    const k = cases.get(c.id); if (!k) return;
+    void speak(whyText(k, c));
+    const big = [...c.furniture].sort((x, y) => y.w * y.d - x.w * x.d).slice(0, 2);
+    useSketch.getState().addMany(big.map((f, i) => mark('circle', ringAround(f), { delayMs: i * 250 })));
+  };
 
   return (
     <div className="panel layout-panel">
@@ -167,30 +154,29 @@ export function DesignPanel() {
           <button className="btn btn-sm" disabled={busy || pins.length !== 2} onClick={combine}>Combine</button>
         </div>
       )}
-      {compare && sp && (
-        <div className="layout-compare">
-          {candidates.map((c) => (
-            <figure key={c.id} className={c.id === activeId ? 'on' : ''} onClick={() => useStore.getState().previewCandidate(c.id)}>
-              <Thumb model={model} cand={c} scale={scale} />
-              <figcaption title={c.name}>{layoutLabel(candidates.indexOf(c))}</figcaption>
-            </figure>
-          ))}
-        </div>
+      {compare && pair[0] && pair[1] && (
+        <CompareView model={model} a={pair[0]} b={pair[1]} ca={cases.get(pair[0].id)!} cb={cases.get(pair[1].id)!} />
       )}
       <div className="layout-cards">
         {candidates.map((c, i) => {
-          const label = layoutLabel(i);
+          const k = cases.get(c.id)!;
           const nowFail = recheck.get(c.id) ?? 0;
           const rep = reports[c.id];
+          const degraded = Boolean((c as { degraded?: unknown }).degraded) || k.leftOut.length > 0;
+          const on = c.id === activeId;
           return (
-            <div key={c.id} className={`layout-card${c.id === activeId ? ' on' : ''}`} onClick={() => useStore.getState().previewCandidate(c.id)}>
-              {sp && <Thumb model={model} cand={c} scale={scale * 0.6} />}
+            <div key={c.id} className={`layout-card${on ? ' on' : ''}${appliedId === c.id ? ' applied' : ''}${degraded ? ' degraded' : ''}`} style={{ animationDelay: `${i * 70}ms` }}
+              tabIndex={0} role="button" aria-label={k.title} aria-pressed={on}
+              onClick={() => choose(c.id)} onMouseEnter={() => holdPreview(c.id)} onMouseLeave={releasePreview} onFocus={() => holdPreview(c.id)} onBlur={releasePreview}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); choose(c.id); } }}>
+              {sp && <PlanThumb model={model} cand={c} size={92} />}
               <div className="layout-card-body">
                 <div className="layout-card-head">
-                  <strong title={c.name}>{label}</strong>
+                  <strong title={c.name}>{k.title}</strong>
                   {nowFail > 0 && <span className="chip chip-bad">{nowFail} fail</span>}
-                  <ScoreRing value={c.metrics.score} />
+                  <CheckRing passed={k.passed} total={k.total} degraded={degraded} />
                 </div>
+                <Chips c={k} degraded={degraded} />
                 <div className="layout-foot">
                   <span>{fmtSek(c.metrics.costSek)}</span>
                   {compare && (
@@ -198,11 +184,12 @@ export function DesignPanel() {
                       {pins.includes(c.id) ? 'Picked' : 'Pick'}
                     </button>
                   )}
+                  {on && <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); why(c); }}>Why</button>}
                   {appliedId === c.id
                     ? <button className="btn btn-sm" disabled aria-label="Applied"><Icon name="check" size={14} /></button>
-                    : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); useStore.getState().applyCandidate(c.id); }}>Apply</button>}
+                    : <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); base.current = null; useStore.getState().applyCandidate(c.id); }}>Apply</button>}
                 </div>
-                {rep && c.id === activeId && <DecisionsPanel report={rep} />}
+                {rep && on && <DecisionsPanel report={rep} />}
               </div>
             </div>
           );

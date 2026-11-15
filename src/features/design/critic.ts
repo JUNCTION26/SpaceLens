@@ -147,3 +147,5 @@ export function describeFix(f: Fix, name: (id: string) => string, model?: SpaceM
 }
 
 export { describePlacement };
+
+export { caseFor, whyText, leftOutOf, type Case } from '../layout/caseFor';
