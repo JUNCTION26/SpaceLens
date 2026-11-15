@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../core/store';
 import { sampleRoom } from '../core/sample';
 import { useUi, type CaptureKind } from './uiStore';
@@ -14,6 +14,12 @@ const STARTS: Array<{ kind: StartKind; title: string; text: string; icon: string
   { kind: 'room', title: 'Design a room', text: 'Home office', icon: 'layout' },
 ];
 
+const EXAMPLES = ['A room for my cat Gerard', 'a calm home office', 'a ramen bar', 'a kids room for two'];
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const SpeechCtor = (): (new () => any) | undefined =>
+  typeof window === 'undefined' ? undefined : ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition);
+
 const OPTIONS: Array<{ kind: CaptureKind; title: string; icon: string }> = [
   { kind: 'scan', title: 'Scan with phone', icon: 'camera' },
   { kind: 'photos', title: 'Use photos', icon: 'image' },
@@ -21,57 +27,32 @@ const OPTIONS: Array<{ kind: CaptureKind; title: string; icon: string }> = [
   { kind: 'draw', title: 'Draw by hand', icon: 'ruler' },
 ];
 
-/** Isometric hero drawn from the real sample room polygon and ceiling height. */
+/** Looping preview: an empty room, furniture arriving piece by piece, a dot walking through. */
+const ISO = (x: number, y: number, z = 0): [number, number] => [(x - y) * 17.3 + 120, (x + y) * 10 - z * 20 + 18];
+const P = (pts: Array<[number, number, number?]>) => pts.map(([x, y, z], i) => `${i ? 'L' : 'M'}${ISO(x, y, z).map((n) => n.toFixed(1)).join(' ')}`).join(' ') + ' Z';
+function box(x: number, y: number, w: number, d: number, h: number) {
+  return {
+    top: P([[x, y, h], [x + w, y, h], [x + w, y + d, h], [x, y + d, h]]),
+    front: P([[x + w, y, 0], [x + w, y + d, 0], [x + w, y + d, h], [x + w, y, h]]),
+    side: P([[x, y + d, 0], [x + w, y + d, 0], [x + w, y + d, h], [x, y + d, h]]),
+  };
+}
+const PIECES = [box(0.4, 0.4, 1.8, 0.8, 0.5), box(3.4, 0.4, 1.4, 0.7, 0.9), box(0.5, 3.4, 1, 1, 0.5), box(3.6, 3.2, 1.1, 1.1, 0.45)];
+const WALK = `M${ISO(2.6, 5.2).join(' ')} L${ISO(2.6, 2.4).join(' ')} L${ISO(5, 2.4).join(' ')}`;
+
 function Hero() {
-  const geo = useMemo(() => {
-    const m = sampleRoom();
-    const poly = m.spaces[0].polygon;
-    const h = m.ceilingM;
-    const s = 26;
-    const iso = (x: number, y: number, z: number): [number, number] => [(x - y) * 0.866 * s, (x + y) * 0.5 * s - z * s];
-    const path = (z: number) => poly.map((p, i) => `${i ? 'L' : 'M'}${iso(p.x, p.y, z).join(' ')}`).join(' ') + ' Z';
-    const verticals = poly.map((p) => `M${iso(p.x, p.y, 0).join(' ')} L${iso(p.x, p.y, h).join(' ')}`).join(' ');
-    const pts = poly.flatMap((p) => [iso(p.x, p.y, 0), iso(p.x, p.y, h)]);
-    const xs = pts.map((p) => p[0]);
-    const ys = pts.map((p) => p[1]);
-    const pad = 24;
-    const vb = `${Math.min(...xs) - pad} ${Math.min(...ys) - pad} ${Math.max(...xs) - Math.min(...xs) + pad * 2} ${Math.max(...ys) - Math.min(...ys) + pad * 2}`;
-    const cx = poly.reduce((a, p) => a + p.x, 0) / poly.length;
-    const cy = poly.reduce((a, p) => a + p.y, 0) / poly.length;
-    // Size labels sit just outside the two front edges of the floor.
-    const labels = poly.map((a, i) => ({ a, b: poly[(i + 1) % poly.length] }))
-      .map(({ a, b }) => {
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        const dx = mx - cx, dy = my - cy, d = Math.hypot(dx, dy) || 1;
-        const at = iso(mx + (dx / d) * 0.5, my + (dy / d) * 0.5, 0);
-        return { x: at[0], y: at[1] + 3, depth: mx + my, t: `${Math.hypot(b.x - a.x, b.y - a.y).toFixed(2)} m` };
-      })
-      .sort((p, q) => q.depth - p.depth).slice(0, 2);
-    const boxAt = (x: number, y: number, w: number, d: number, bh: number) => {
-      const c = [[x, y], [x + w, y], [x + w, y + d], [x, y + d]];
-      const top = c.map(([a, b], i) => `${i ? 'L' : 'M'}${iso(a, b, bh).join(' ')}`).join(' ') + ' Z';
-      const front = [[x + w, y], [x + w, y + d], [x + w, y + d, bh], [x + w, y, bh]].map(([a, b, z = 0], i) => `${i ? 'L' : 'M'}${iso(a, b, z).join(' ')}`).join(' ') + ' Z';
-      const side = [[x, y + d], [x + w, y + d], [x + w, y + d, bh], [x, y + d, bh]].map(([a, b, z = 0], i) => `${i ? 'L' : 'M'}${iso(a, b, z).join(' ')}`).join(' ') + ' Z';
-      return { top, front, side };
-    };
-    const furniture = [
-      boxAt(cx - 1.4, cy - 1.2, 2, 0.9, 0.45),
-      boxAt(cx + 0.2, cy + 0.3, 0.9, 0.9, 0.42),
-      boxAt(cx - 1.2, cy + 0.4, 0.6, 0.6, 0.75),
-    ];
-    return { floor: path(0), ceil: path(h), verticals, vb, labels, furniture };
-  }, []);
   return (
-    <svg className="hero-svg" viewBox={geo.vb} role="img" aria-label="Sample room outline rising into 3D">
-      <path className="hero-floor" d={geo.floor} pathLength={1} />
-      <path className="hero-walls" d={geo.verticals} />
-      {geo.furniture.map((f, i) => (
-        <g key={i} className="hero-furn" style={{ animationDelay: `${1.6 + i * 0.25}s` }}>
+    <svg className="hero-svg" viewBox="0 0 240 150" role="img" aria-label="An empty room filling with furniture while a person walks through it">
+      <path className="hr-wall" d={P([[0, 0, 0], [0, 0, 2.4], [6, 0, 2.4], [6, 0, 0]])} />
+      <path className="hr-wall" d={P([[0, 0, 0], [0, 0, 2.4], [0, 6, 2.4], [0, 6, 0]])} />
+      <path className="hr-floor" d={P([[0, 0], [6, 0], [6, 6], [0, 6]])} />
+      {PIECES.map((f, i) => (
+        <g key={i} className="hr-furn" style={{ animationDelay: `${0.9 + i * 0.7}s` }}>
           <path className="hf-side" d={f.side} /><path className="hf-front" d={f.front} /><path className="hf-top" d={f.top} />
         </g>
       ))}
-      <path className="hero-ceil" d={geo.ceil} pathLength={1} />
-      {geo.labels.map((l, i) => <text key={i} className="hero-label" x={l.x} y={l.y} textAnchor="middle">{l.t}</text>)}
+      <path className="hr-trail" d={WALK} />
+      <circle className="hr-walker" r="3.4" style={{ offsetPath: `path('${WALK}')` }} />
     </svg>
   );
 }
@@ -96,6 +77,41 @@ export function Home() {
       return m && m.spaces && m.spaces.length ? (m.name || 'Untitled room') : null;
     } catch { return null; }
   }, []);
+  const openSection = useUi((s) => s.openSection);
+  const [text, setText] = useState('');
+  const [ex, setEx] = useState(0);
+  const [listening, setListening] = useState(false);
+  const recRef = useRef<any>(null);
+  const canListen = useMemo(() => !!SpeechCtor(), []);
+  useEffect(() => {
+    if (text || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const t = setInterval(() => setEx((i) => (i + 1) % EXAMPLES.length), 3000);
+    return () => clearInterval(t);
+  }, [text]);
+  useEffect(() => () => recRef.current?.abort?.(), []);
+  /** Opens Describe with the words as the brief; the panel runs it as soon as it is open. */
+  const submit = (raw: string) => {
+    const brief = raw.trim();
+    if (!brief) return;
+    const st = useStore.getState();
+    if (!st.model.spaces.length) dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() });
+    setMode('design');
+    st.setView('split');
+    openSection('describe');
+    setTimeout(() => window.dispatchEvent(new CustomEvent('spacelens:request', { detail: brief })), 400);
+  };
+  const listen = () => {
+    const C = SpeechCtor();
+    if (!C) return;
+    if (listening) { recRef.current?.stop?.(); return; }
+    const r = new C();
+    r.lang = navigator.language || 'en-US'; r.interimResults = false; r.continuous = false;
+    r.onresult = (e: any) => { const t = String(e.results?.[0]?.[0]?.transcript ?? '').trim(); if (t) { setText(t); submit(t); } };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    recRef.current = r; setListening(true);
+    try { r.start(); } catch { setListening(false); }
+  };
   const openSample = () => { dispatch({ type: 'REPLACE_MODEL', model: sampleRoom() }); setMode('design'); };
   return (
     <div className="home">
@@ -106,12 +122,19 @@ export function Home() {
       <main className="home-hero">
         <div className="home-copy">
           <h1>Measure a room.<br />Design it. Walk through it.</h1>
+          <form className="home-ask" onSubmit={(e) => { e.preventDefault(); submit(text); }}>
+            <input
+              className="home-ask-input" value={text} onChange={(e) => setText(e.target.value)}
+              placeholder={EXAMPLES[ex]} aria-label="Describe the space you want" enterKeyHint="go" autoComplete="off"
+            />
+            {canListen && <button type="button" className={`home-ask-btn${listening ? ' on' : ''}`} onClick={listen} aria-label="Speak" aria-pressed={listening} title="Speak"><Icon name="mic" size={18} /></button>}
+            <button type="button" className="home-ask-btn" onClick={() => openSection('capture')} aria-label="Room from a photo" title="Room from a photo"><Icon name="camera" size={18} /></button>
+          </form>
           <div className="home-quick" role="group" aria-label="Try it in one click">
             {STARTS.map((s) => (
               <button key={s.kind} className="home-quick-card" onClick={() => { void runStart(s.kind); }}>
                 <span className="home-quick-icon"><Icon name={s.icon} size={18} /></span>
                 <span className="home-quick-text"><strong>{s.title}</strong></span>
-                <Icon name="chevronRight" size={14} className="home-row-go" />
               </button>
             ))}
           </div>
@@ -126,7 +149,7 @@ export function Home() {
             <button className="home-row" onClick={openSample}><Icon name="sofa" size={16} /><span>Sample room</span><Icon name="chevronRight" size={14} className="home-row-go" /></button>
           </details>
         </div>
-        <div className="home-art" aria-hidden="false"><Hero /></div>
+        <div className="home-art"><Hero /></div>
       </main>
       <Settings />
     </div>
