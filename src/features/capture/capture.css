@@ -99,3 +99,5 @@
 .capture-steps li b { width: 18px; height: 18px; border-width: 1px; font-size: 12px; }
 .capture-progress { height: 1px; }
 .capture-hint { font-weight: 560; font-size: 13px; }
+
+.capture-fs > .chip { display: inline-block; width: auto; margin: 6px 0 0; }

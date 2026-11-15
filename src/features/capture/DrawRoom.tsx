@@ -72,11 +72,11 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
   const lens = poly.map((p, i) => dist(p, poly[(i + 1) % poly.length]));
   const valid = poly.length >= 3 && poly.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) && lens.every((l) => l > 0.05)
     && (shape === 'rect' || shape === 'free' || (cw < W && cd < D));
-  const fmt = (m: number) => (unit === 'm' ? `${m.toFixed(2)} m` : `${Math.round(m * 100)} cm`);
+  const fmt = (m: number) => (!Number.isFinite(m) || m <= 0 ? '–' : unit === 'm' ? `${m.toFixed(2)} m` : `${Math.round(m * 100)} cm`);
   const problem = !valid ? (shape !== 'rect' && shape !== 'free' && !(cw < W && cd < D) ? 'The inner part must be smaller than the overall size.' : 'Every wall must be longer than 5 cm.')
     : !(ceilingCm > 150) ? 'Ceiling must be over 150 cm.' : null;
 
-  const openingFits = (o: { wall: number; offset: number; width: number }) => o.wall < poly.length && o.offset / 100 >= o.width / 200 && o.offset / 100 + o.width / 200 <= lens[o.wall] + 1e-6;
+  const openingFits = (o: { wall: number; offset: number; width: number }) => o.wall < poly.length && Number.isFinite(lens[o.wall]) && lens[o.wall] > 0 && o.width > 0 && Number.isFinite(o.offset) && o.offset / 100 >= o.width / 200 && o.offset / 100 + o.width / 200 <= lens[o.wall] + 1e-6;
   const doorOk = !door.on || openingFits(door);
   const winOk = !win.on || openingFits(win);
 
@@ -105,7 +105,7 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
   const b = bounds(poly.length ? poly : [{ x: 0, y: 0 }]);
   const pad = 0.4;
   const vb = `${b.minX - pad} ${b.minY - pad} ${Math.max(0.5, b.maxX - b.minX) + pad * 2} ${Math.max(0.5, b.maxY - b.minY) + pad * 2}`;
-  const wallOpts = poly.map((_, i) => <option key={i} value={i}>Wall {i + 1} ({fmt(lens[i])})</option>);
+  const wallOpts = poly.map((_, i) => <option key={i} value={i}>Wall {i + 1}{Number.isFinite(lens[i]) && lens[i] > 0 ? ` (${fmt(lens[i])})` : ''}</option>);
   const fs = Math.max(b.maxX - b.minX, b.maxY - b.minY, 1) * 0.045;
   const clickPreview = (e: React.MouseEvent<SVGSVGElement>) => {
     const svg = e.currentTarget, ctm = svg.getScreenCTM();
@@ -161,7 +161,7 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
 
       {pickWall && (
         <div className="row capture-wrap capture-pick">
-          <span>Wall {pickWall.wall + 1}, {fmt(pickWall.offset / 100)} from start:</span>
+          <span>Wall {pickWall.wall + 1}{Number.isFinite(pickWall.offset) && pickWall.offset > 0 ? `, ${fmt(pickWall.offset / 100)}` : ''}</span>
           <button className="btn btn-sm" onClick={() => putOpening('door')}>Door here</button>
           <button className="btn btn-sm" onClick={() => putOpening('window')}>Window here</button>
           <button className="btn btn-sm btn-ghost" onClick={() => setPickWall(null)}>Cancel</button>
@@ -188,7 +188,7 @@ export function DrawRoom({ onCreate, ceilingCm, setCeilingCm }: { onCreate: (d: 
           ))}
           <div className="row capture-wrap">
             <button className="btn btn-sm" onClick={() => setSegs([...segs, { len: 100, turn: 90 }])}>Add wall</button>
-            <span className={`chip ${closure < 0.01 ? 'chip-ok' : closure < 0.05 ? 'chip-warn' : 'chip-bad'}`}>Gap at the end: {fmt(closure)}</span>
+            <span className={`chip ${closure < 0.01 ? 'chip-ok' : closure < 0.05 ? 'chip-warn' : 'chip-bad'}`}>Gap at the end: {Number.isFinite(closure) ? fmt(closure) : '–'}</span>
           </div>
           {closure >= 0.01 && <p className="muted">Last wall estimated</p>}
         </div>
