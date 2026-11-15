@@ -71,4 +71,3 @@
 .fl-chip { min-height: var(--ctl); }
 .bld :focus-visible { outline: var(--focus-ring-width, 2px) solid var(--focus-ring, var(--accent)); outline-offset: 1px; }
 .bld .btn:disabled, .fl-use:disabled { opacity: 0.5; cursor: not-allowed; }
-.bld-thumb, .bld-opt svg { background: var(--bg); }
