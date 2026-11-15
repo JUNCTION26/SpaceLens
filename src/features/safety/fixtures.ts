@@ -63,3 +63,41 @@ export function cafe(): SpaceModel {
   }
   return model([space('c', 'Cafe', rect(0, 0, 10, 6))], [door('exit', 'c', 3, 3, 0.9, 'out')], f);
 }
+
+/** 10 x 4 m room with a single door in the middle of the left end wall (y = 2). */
+export function longRoom(len = 10, doors: Array<{ id: string; offset: number }> = [{ id: 'exit', offset: 2 }]): SpaceModel {
+  return model([space('r', 'Room', rect(0, 0, len, 4))], doors.map((d) => door(d.id, 'r', 3, d.offset, 0.9, 'out')));
+}
+
+/** Hall with an exit on the left; a 1.4 m wide, 9 m long corridor leaves it to the right and ends at a closed wall. */
+export function deadEndCorridor(): SpaceModel {
+  return model(
+    [space('hall', 'Hall', rect(0, 0, 6, 6)), space('cor', 'Corridor', rect(6, 2.5, 9, 1.4))],
+    [door('exit', 'hall', 3, 3, 0.9, 'out'), door('mouth', 'hall', 1, 3.2, 1.2, 'none', 'opening')],
+  );
+}
+
+/** 6 x 3 m room, exit on the left; a sofa 0.9 m deep stands across it and leaves a 0.6 m gap to the bottom wall. */
+export function sofaGapRoom(gapM = 0.6): SpaceModel {
+  const d = 3 - gapM;
+  return model([space('r', 'Lounge', rect(0, 0, 6, 3))], [door('exit', 'r', 3, 1.5, 0.9, 'out')],
+    [item('sofa', 'sofa', 3, d / 2, d, 0.9, { name: 'Sofa', rotation: Math.PI / 2 })]);
+}
+
+/** Open-plan office of the given size with one exit on the left wall. Named so the planning table counts it as an office. */
+export function bigOffice(w = 20, h = 10, swing: Opening['swing'] = 'out', doorW = 0.9): SpaceModel {
+  return model([space('o', 'Open office', rect(0, 0, w, h))], [door('exit', 'o', 3, h / 2, doorW, swing)]);
+}
+
+/** 15 rooms: seven 3 x 4 m offices above and below a 21 x 2 m corridor with an exit at each end. */
+export function officeFloor(): SpaceModel {
+  const spaces = [space('cor', 'Corridor', rect(0, 4, 21, 2))];
+  const doors = [door('exitL', 'cor', 3, 1, 1.2, 'out'), door('exitR', 'cor', 1, 1, 1.2, 'out')];
+  const furn: FurnitureItem[] = [];
+  for (let k = 0; k < 7; k++) {
+    spaces.push(space(`t${k}`, `Office ${k + 1}`, rect(k * 3, 0, 3, 4)), space(`b${k}`, `Office ${k + 8}`, rect(k * 3, 6, 3, 4)));
+    doors.push(door(`dt${k}`, `t${k}`, 2, 1.5, 0.9, 'out'), door(`db${k}`, `b${k}`, 0, 1.5, 0.9, 'out'));
+    furn.push(item(`dk${k}a`, 'desk', k * 3 + 1.5, 0.8, 1.4, 0.7, { name: `Desk ${k}a`, rotation: Math.PI }), item(`dk${k}b`, 'desk', k * 3 + 1.5, 9.2, 1.4, 0.7, { name: `Desk ${k}b` }));
+  }
+  return model(spaces, doors, furn);
+}

@@ -2,13 +2,14 @@
 // It is a planning aid built on stated rule-of-thumb defaults, not a code compliance check.
 import {
   add, area, centroid, convexOverlap, dist, distPointPolygonEdges, distPointSegment, dot, itemCorners, mul, norm, pointInPolygon,
-  polygonInside, segmentsIntersect, sub, doorSwingPolygon,
+  polygonInside, segmentsIntersect, sub, doorSwingPolygon, wallInwardNormal,
 } from '../../core/geometry';
-import type { FurnitureItem, Op, SpaceModel, Vec2 } from '../../core/types';
+import type { FurnitureItem, Op, Opening, SpaceModel, Vec2 } from '../../core/types';
 import { mulberry32 } from '../sim/crowd';
 import { isRug, pathLength, smooth } from '../sim/grid';
 import { buildSafetyGrid, cellAt, centre, chain, exitCells, shortest, widest, widthAt, type DoorInfo, type Field, type SafetyGrid } from './field';
 import { clearWidth, simulateEvacuation, type EvacResult } from './evac';
+import { DRILL, defaultOccupants } from './drill';
 
 // ---- Defaults ---------------------------------------------------------------------------------
 
@@ -37,6 +38,8 @@ export const SAFETY_DEFAULTS = {
   extinguisherTravelM: 20,
   alarmRadiusM: 7.5,
   maxMoveM: 1.0,
+  altExitAngleDeg: 45,
+  doorPeoplePerM: 100,
 };
 export type SafetyConfig = typeof SAFETY_DEFAULTS;
 export type SafetyKey = keyof SafetyConfig;
@@ -65,6 +68,8 @@ export const SAFETY_DEFAULT_INFO: Record<SafetyKey, { label: string; unit: strin
   doorFlowPerMS: { label: 'Door flow per metre', unit: 'people/s', group: 'sim', why: 'A widely used figure for how many people pass a metre of door each second.' },
   extinguisherTravelM: { label: 'Walk to an extinguisher', unit: 'm', group: 'fire', why: 'Guidance usually keeps one within 15 to 25 m of anywhere.' },
   alarmRadiusM: { label: 'Smoke alarm reach', unit: 'm', group: 'fire', why: 'A ceiling smoke alarm covers roughly this radius in an open room.' },
+  altExitAngleDeg: { label: 'Angle between two escape directions', unit: 'degrees', group: 'fire', why: 'Planning assumption: two exits count as alternatives only when, seen from where you stand, they lie at least this far apart, so one fire cannot cut off both.' },
+  doorPeoplePerM: { label: 'People per metre of exit width', unit: 'people/m', group: 'fire', why: 'Planning assumption for how many people one metre of clear exit width can serve in an evacuation; a rule of thumb, not a code figure.' },
   maxMoveM: { label: 'Largest suggested move', unit: 'm', group: 'fire', why: 'Fixes stay small so the room still works the way it is laid out.' },
 };
 
@@ -84,6 +89,7 @@ export type Severity = 'critical' | 'important' | 'advice';
 export type FindingKind =
   | 'no-exit' | 'trapped' | 'route-width' | 'travel' | 'single-direction' | 'dead-end' | 'door-blocked' | 'door-swing'
   | 'exit-swing' | 'exit-clearance' | 'two-exits' | 'pinch'
+  | 'alt-escape' | 'inner-room' | 'exit-capacity' | 'common-path'
   | 'wc-door' | 'wc-route' | 'wc-turn' | 'wc-reach' | 'wc-dead-end';
 
 export interface SafetyFix { label: string; ops: Op[]; movedM: number; verified: true }
@@ -102,7 +108,31 @@ export interface SafetyFinding {
   /** The measured width at `at`, when the finding is about a width. */
   measureM?: number;
   fix?: SafetyFix;
+  /** What was measured, with its unit. */
+  measured?: { value: number; unit: string; label: string };
+  /** What the active rule pack (or the planning default) asks for; ruleId names the rule. */
+  required?: SafetyRequirement;
+  /** What the UI should highlight: coordinates, furniture ids, door ids. */
+  highlight?: { points: Vec2[]; itemIds: string[]; doorIds: string[] };
+  /** Changes that were tried against this finding, with the measured effect. */
+  tried?: TriedFix[];
 }
+
+export interface SafetyRequirement { key: SafetyKey | null; value: number | null; unit: string; ruleId: string; label: string }
+
+export interface TriedFix {
+  kind: 'move-item' | 'widen-door' | 'add-exit' | 'flip-swing';
+  label: string;
+  /** The number that was compared before and after, e.g. 'narrowest point' or 'walk from the farthest point'. */
+  metric: string;
+  unit: string;
+  before: number | null;
+  after: number | null;
+  improved: boolean;
+  ops: Op[];
+}
+
+export interface ExitLegInfo { exitId: string; lengthM: number; /** bearing (degrees, 0 = +x) of the first ~1.5 m of the walk */ bearingDeg: number }
 
 export interface ExitInfo { id: string; label: string; spaceId: string; at: Vec2; outward: Vec2; widthM: number; swing: 'in' | 'out' | 'none'; auto: boolean }
 
@@ -119,6 +149,15 @@ export interface RoomEgress {
   travelTimeSlowS: number | null;
   exitsReachable: number;
   people: number;
+  /** Worst point of the room: the farthest standing spot from the nearest exit (same as `from`). */
+  worstPoint?: Vec2 | null;
+  nearestExit?: ExitLegInfo | null;
+  secondExit?: ExitLegInfo | null;
+  /** Nearest exit whose first leg points at least `altExitAngleDeg` away from the nearest exit's. */
+  altExit?: (ExitLegInfo & { angleDeg: number }) | null;
+  /** Largest angle between the first legs of any two exits seen from the worst point. */
+  bestAngleDeg?: number | null;
+  alternative?: 'two-directions' | 'same-direction' | 'single' | 'none';
 }
 
 export interface RoomOccupancy { spaceId: string; name: string; people: number; seats: number; areaM2: number; basis: string }
@@ -126,6 +165,29 @@ export interface OccupancyEstimate { total: number; rooms: RoomOccupancy[]; over
 
 export type SuggestionKind = 'extinguisher' | 'smoke-alarm' | 'heat-alarm' | 'exit-sign' | 'direction-sign' | 'first-aid' | 'assembly';
 export interface Suggestion { kind: SuggestionKind; at: Vec2; dir?: Vec2; label: string; reason: string }
+
+export interface BlockedDoorTest { doorId: string; label: string; exit: boolean; at: Vec2; trappedPeople: number; trappedRooms: Array<{ spaceId: string; name: string; people: number; share: number }> }
+export interface InnerRoom { spaceId: string; name: string; accessSpaceId: string; accessName: string; hops: number }
+export interface DoorCapacity { doorId: string; label: string; exit: boolean; widthM: number; clearWidthM: number; people: number; capacityPeople: number; ok: boolean }
+export interface SafetyDepth {
+  blockedDoors: BlockedDoorTest[];
+  innerRooms: InnerRoom[];
+  deadEnds: Array<{ spaceId: string | null; lengthM: number; at: Vec2; route: Vec2[]; requiredM: number }>;
+  capacity: {
+    basis: 'planning table by use and area' | 'your number';
+    total: number;
+    rooms: Array<{ spaceId: string; name: string; people: number; basis: string }>;
+    doors: DoorCapacity[];
+    peoplePerM: number;
+    /** People the remaining exits could serve if the widest exit were lost; null with one exit. */
+    capacityWithoutLargestExit: number | null;
+  };
+  /** Named planning assumptions behind the numbers, so the UI can list them. */
+  assumptions: string[];
+  /** Things the analysis had to leave out or simplify, machine-readable. */
+  compromised: string[];
+  elapsedMs: number;
+}
 
 export interface SafetyReport {
   exits: ExitInfo[];
@@ -140,6 +202,7 @@ export interface SafetyReport {
   evacuationSlowS: number | null;
   config: SafetyConfig;
   notAssessed: string[];
+  depth: SafetyDepth;
 }
 
 export interface SafetyOptions {
@@ -151,10 +214,15 @@ export interface SafetyOptions {
   /** Skip searching for furniture moves (faster). */
   skipFixes?: boolean;
   seed?: number;
+  /** Rule id per setting from the active rule pack, e.g. { maxTravelM: 'fi-travel-single' }. Unlisted settings use `generic-<key>`. */
+  ruleIds?: Partial<Record<SafetyKey, string>>;
 }
 
 // ---- Helpers ----------------------------------------------------------------------------------
 
+export function req(cfg: SafetyConfig, key: SafetyKey, label?: string, value?: number): SafetyRequirement {
+  return { key, value: value ?? cfg[key], unit: SAFETY_DEFAULT_INFO[key].unit, ruleId: `generic-${key}`, label: label ?? SAFETY_DEFAULT_INFO[key].label };
+}
 const cm = (m: number) => `${Math.round(m * 100)} cm`;
 const m1 = (m: number) => `${m.toFixed(1)} m`;
 const SEV_ORDER: Record<Severity, number> = { critical: 0, important: 1, advice: 2 };
@@ -221,6 +289,7 @@ interface Ctx {
   model: SpaceModel; furniture: FurnitureItem[]; cfg: SafetyConfig; g: SafetyGrid; exits: DoorInfo[]; sources: number[];
   F: Field | null; tol: number; stand: (i: number) => boolean; okW: (i: number) => boolean; FW: Field | null;
   occupancy: OccupancyEstimate;
+  perExit: Field[];
 }
 
 interface Core { ctx: Ctx; findings: SafetyFinding[]; egress: RoomEgress[] }
@@ -252,7 +321,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
   const okW = (i: number) => g.free[i] === 1 && g.dist[i] + tol >= wReq(i);
   const findings: SafetyFinding[] = [];
   const egress: RoomEgress[] = [];
-  const ctx: Ctx = { model, furniture, cfg, g, exits, sources, F: null, tol, stand, okW, FW: null, occupancy };
+  const ctx: Ctx = { model, furniture, cfg, g, exits, sources, F: null, tol, stand, okW, FW: null, occupancy, perExit: [] };
 
   if (!exits.length || !sources.length) {
     const c = model.spaces[0] ? centroid(model.spaces[0].polygon) : { x: 0, y: 0 };
@@ -272,6 +341,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
   for (let i = 0; i < N; i++) ratio[i] = stand(i) ? (g.dist[i] + tol) / reqAt(i) : 0;
   const W = widest(g, sources, ratio);
   const perExit = exits.length > 1 ? exits.slice(0, 8).map((d) => shortest(g, exitCells(g, d), stand)) : [];
+  ctx.perExit = perExit;
 
   // Pinch field: comfortable crowd width away from doors (doors are judged on their own).
   const anyBusy = occupancy.rooms.some((r) => r.people >= cfg.pinchOccupancy);
@@ -365,12 +435,14 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
         id: `travel:${s.id}`, kind: 'travel', area: 'fire', severity: 'important', title: `Long walk out of ${s.name}`,
         message: `From the far side of ${s.name} it is ${m1(lengthM)} to ${exitDoor?.label ?? 'the exit'} (guide: ${cfg.maxTravelM} m). About ${Math.round(lengthM / cfg.walkSpeedMS)} s at a brisk walk, ${Math.round(lengthM / cfg.slowSpeedMS)} s for a slower walker.`,
         itemIds: [], at: centre(g, far), route: pts,
+        measured: { value: lengthM, unit: 'm', label: 'Walk from the farthest point' }, required: req(cfg, 'maxTravelM'),
       });
     } else if (exitsReachable < 2 && lengthM > cfg.singleDirectionM) {
       findings.push({
         id: `single:${s.id}`, kind: 'single-direction', area: 'fire', severity: 'important', title: `Only one way out of ${s.name}, and it is far`,
         message: `The far side of ${s.name} is ${m1(lengthM)} from the only reachable exit (guide: ${cfg.singleDirectionM} m when there is just one direction to escape).`,
         itemIds: [], at: centre(g, far), route: pts,
+        measured: { value: lengthM, unit: 'm', label: 'Walk from the farthest point' }, required: req(cfg, 'singleDirectionM'),
       });
     }
     // Second exit for busy rooms.
@@ -379,6 +451,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
         id: `two-exits:${s.id}`, kind: 'two-exits', area: 'fire', severity: 'advice', title: `Plan a second way out of ${s.name}`,
         message: `About ${people} people (${occupancy.rooms[k]?.basis ?? 'estimate'}) share one exit. Above ${cfg.twoExitsOccupancy} people, add a second exit well apart from the first.`,
         itemIds: [], at: exitDoor ? exitDoor.c : centroid(s.polygon),
+        measured: { value: people, unit: 'people', label: 'People sharing the exit' }, required: req(cfg, 'twoExitsOccupancy'),
       });
     }
   });
@@ -392,12 +465,14 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
         id: `width:${key}`, kind: 'route-width', area: 'fire', severity, title: `Escape route narrows to ${cm(w.width)}`,
         message: `The way out from ${rooms} squeezes to ${cm(w.width)}${between}. Keep at least ${cm(w.need)} clear${w.need === cfg.routeWidthM ? ` (${cm(cfg.doorWidthM)} at doors)` : ' at doors'}.`,
         itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route, measureM: w.width,
+        measured: { value: w.width, unit: 'm', label: 'Clear width left' }, required: req(cfg, w.need === cfg.doorWidthM && w.need !== cfg.routeWidthM ? 'doorWidthM' : 'routeWidthM', undefined, w.need),
       });
     } else {
       findings.push({
         id: `pinch:${key}`, kind: 'pinch', area: 'fire', severity: 'advice', title: `Pinch point of ${cm(w.width)} on the way out`,
         message: `About ${w.people} people from ${rooms} pass a ${cm(w.width)} gap${between}. For a group this size ${cm(cfg.pinchWidthM)} lets two lines move side by side.`,
         itemIds: w.blockers.map((f) => f.id), at: w.at, route: w.route, measureM: w.width,
+        measured: { value: w.width, unit: 'm', label: 'Clear width left' }, required: req(cfg, 'pinchWidthM'),
       });
     }
   }
@@ -433,6 +508,8 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
           ? `About ${n} people leave through a door that opens inwards. Above ${cfg.inwardSwingMaxOccupants} people a crowd can hold it shut; it should open outwards.`
           : `The exit opens inwards. Fine for ${n || 'a few'} people; if more use this room later (over ${cfg.inwardSwingMaxOccupants}), it should open outwards.`,
         itemIds: [], at: d.c,
+        measured: { value: n, unit: 'people', label: 'People using this door' }, required: req(cfg, 'inwardSwingMaxOccupants'),
+        tried: [{ kind: 'flip-swing', label: `Make ${d.label} open outwards`, metric: 'door opens with the way out (0 = against, 1 = with)', unit: '', before: 0, after: 1, improved: true, ops: [{ type: 'UPDATE_OPENING', id: d.id, patch: { swing: 'out' } }] }],
       });
     }
     if (d.exit) {
@@ -443,6 +520,7 @@ function analyse(model: SpaceModel, furniture: FurnitureItem[], cfg: SafetyConfi
           id: `exit-clear:${d.id}:${it.f.id}`, kind: 'exit-clearance', area: 'fire', severity: 'advice', title: `${label(it.f)} is close to the exit`,
           message: `${label(it.f)} is ${cm(dd)} from ${d.label}. Keep ${cm(cfg.exitClearM)} clear.`,
           itemIds: [it.f.id], at: d.c,
+          measured: { value: dd, unit: 'm', label: 'Clear space beside the exit' }, required: req(cfg, 'exitClearM'),
         });
       }
     }
@@ -553,6 +631,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
         title: `Dead end of ${m1(len)}${sp ? ` in ${sp.name}` : ''}`,
         message: `This aisle${sidesBy.length ? ` along ${sidesBy.slice(0, 3).map(label).join(', ')}${sidesBy.length > 3 ? ' and others' : ''}` : ''} only opens at one end: ${m1(len)} back to a choice of direction (guide: ${cfg.deadEndM} m).`,
         itemIds: [...ids], at: route[0], route,
+        measured: { value: len, unit: 'm', label: 'Dead-end length' }, required: req(cfg, 'deadEndM'),
       });
     }
     if (len > cfg.wheelchairDeadEndM && q.some((i) => okW(i) && Number.isFinite(FW.len[i]))) {
@@ -561,6 +640,7 @@ function fullChecks(ctx: Ctx, findings: SafetyFinding[]) {
         title: `Wheelchair would reverse ${m1(len)}`,
         message: `This aisle has no clear ${cm(cfg.turningM)} turning circle at its end, so a wheelchair user would back out ${m1(len)}. Leave a turning spot at the end or keep it under ${cfg.wheelchairDeadEndM} m.`,
         itemIds: [...ids], at: route[0], route,
+        measured: { value: len, unit: 'm', label: 'Reversing distance' }, required: req(cfg, 'wheelchairDeadEndM'),
       });
     }
   }
@@ -820,6 +900,319 @@ function nearestStand(ctx: Ctx, p: Vec2): number {
   return best;
 }
 
+// ---- Depth: alternative escape, blocked doors, inner rooms, exit capacity ---------------------
+
+const SPEC_MAX_EXITS = 8;
+const bearing = (d: Vec2) => (Math.atan2(d.y, d.x) * 180) / Math.PI;
+const angleBetween = (a: Vec2, b: Vec2) => {
+  if ((a.x === 0 && a.y === 0) || (b.x === 0 && b.y === 0)) return 180;
+  return (Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * 180) / Math.PI;
+};
+
+function firstLegDir(path: Vec2[], look = 1.5): Vec2 {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    acc += dist(path[i - 1], path[i]);
+    if (acc >= look || i === path.length - 1) return norm(sub(path[i], path[0]));
+  }
+  return { x: 0, y: 0 };
+}
+
+/** Breadth-first reach over walkable cells; 4-connected reach equals the 8-connected reach used for walking. */
+function flood(g: SafetyGrid, ok: (i: number) => boolean, sources: number[]): Uint8Array {
+  const N = g.cols * g.rows, seen = new Uint8Array(N), q = new Int32Array(N);
+  let h = 0, t = 0;
+  for (const s of sources) if (ok(s) && !seen[s]) { seen[s] = 1; q[t++] = s; }
+  while (h < t) {
+    const i = q[h++], c = i % g.cols;
+    const nb = [c > 0 ? i - 1 : -1, c < g.cols - 1 ? i + 1 : -1, i - g.cols, i + g.cols];
+    for (const j of nb) if (j >= 0 && j < N && !seen[j] && ok(j)) { seen[j] = 1; q[t++] = j; }
+  }
+  return seen;
+}
+
+const KITCHEN_RE = /kitchen|kök|cook/i;
+
+interface ExtraBudget { n: number }
+
+/** Adds an exit door on an external wall of the room near `near`; measures the room's worst walk before and after. */
+function tryAddExit(ctx: Ctx, overrides: Record<string, boolean>, spaceIdx: number, near: Vec2, beforeLen: number | null, budget: ExtraBudget): TriedFix | undefined {
+  const { model, furniture, cfg, occupancy } = ctx;
+  if (budget.n >= 4) return undefined;
+  const sp = model.spaces[spaceIdx];
+  const w = Math.max(0.9, cfg.doorWidthM);
+  const cands: Array<{ wi: number; off: number; at: Vec2; d: number }> = [];
+  const n = sp.polygon.length;
+  for (let wi = 0; wi < n; wi++) {
+    const p = sp.polygon[wi], q = sp.polygon[(wi + 1) % n];
+    const L = dist(p, q);
+    if (L < w + 0.3) continue;
+    const dir = norm(sub(q, p)), out = mul(wallInwardNormal(sp, wi), -1);
+    const mid = add(add(p, mul(dir, L / 2)), mul(out, 0.2));
+    if (model.spaces.some((o) => o.polygon.length >= 3 && pointInPolygon(mid, o.polygon))) continue;
+    const taken = model.openings.filter((o) => o.spaceId === sp.id && o.wallIndex === wi);
+    for (let off = w / 2 + 0.15; off <= L - w / 2 - 0.15 + 1e-9; off += 0.25) {
+      if (taken.some((o) => Math.abs(o.offsetM - off) < (o.widthM + w) / 2 + 0.1)) continue;
+      const at = add(p, mul(dir, off));
+      cands.push({ wi, off, at, d: dist(at, near) });
+    }
+  }
+  cands.sort((a, b) => a.d - b.d);
+  const picked: typeof cands = [];
+  for (const c of cands) { if (picked.length >= 2) break; if (!picked.some((x) => dist(x.at, c.at) < 0.8)) picked.push(c); }
+  for (const c of picked) {
+    budget.n++;
+    const id = `proposed-exit-${sp.id}-${c.wi}`;
+    const opening: Opening = { id, kind: 'door', spaceId: sp.id, wallIndex: c.wi, offsetM: c.off, widthM: w, heightM: 2.1, sillM: 0, swing: 'out', hinge: 'start', sourceKind: 'manual', status: 'estimated' };
+    const m2: SpaceModel = { ...model, openings: [...model.openings, opening] };
+    const core = analyse(m2, furniture, cfg, { ...overrides, [id]: true }, occupancy, false);
+    if (core.findings.some((f) => (f.kind === 'door-blocked' || f.kind === 'door-swing') && f.id.endsWith(`:${id}`))) continue;
+    const eg = core.egress.find((e) => e.spaceId === sp.id);
+    const after = eg?.lengthM ?? null;
+    return {
+      kind: 'add-exit', label: `Add a ${cm(w)} exit door on the ${DIR_WORD(mul(wallInwardNormal(sp, c.wi), -1))} wall, ${cm(c.off)} along it`,
+      metric: 'walk from the farthest point of the room', unit: 'm', before: beforeLen, after,
+      improved: after != null && (beforeLen == null || after < beforeLen - 0.05), ops: [{ type: 'ADD_OPENING', opening }],
+    };
+  }
+  return undefined;
+}
+
+function buildDepth(ctx: Ctx, egress: RoomEgress[], findings: SafetyFinding[], furniture: FurnitureItem[], overrides: Record<string, boolean>, t0: number): SafetyDepth {
+  const { g, cfg, model, F, stand, tol, occupancy } = ctx;
+  const compromised: string[] = [];
+  const assumptions = [
+    `Two exits are alternatives when the first 1.5 m of walking from the farthest point differ by at least ${cfg.altExitAngleDeg} degrees (planning assumption).`,
+    `One metre of clear exit width serves ${cfg.doorPeoplePerM} people (planning assumption, not a code figure).`,
+    `Occupants come from the planning table by use and area (offices ${DRILL.officeM2PerPerson} m² per person, homes ${DRILL.dwellingM2PerPerson} m²) or from seats, whichever is more.`,
+    'People are spread evenly over the standing floor of each room and use the nearest exit.',
+  ];
+  const depth: SafetyDepth = {
+    blockedDoors: [], innerRooms: [], deadEnds: [],
+    capacity: { basis: 'planning table by use and area', total: 0, rooms: [], doors: [], peoplePerM: cfg.doorPeoplePerM, capacityWithoutLargestExit: null },
+    assumptions, compromised, elapsedMs: 0,
+  };
+  if (!F) { compromised.push('no exit marked: escape analysis skipped'); depth.elapsedMs = Date.now() - t0; return depth; }
+  const N = g.cols * g.rows;
+  const budget: ExtraBudget = { n: 0 };
+  if (ctx.exits.length > SPEC_MAX_EXITS) compromised.push(`only the first ${SPEC_MAX_EXITS} exits were compared for second-exit distances`);
+
+  // Legs to the nearest, second-nearest and alternative exit from each room's worst point.
+  const exitLegs = (s: number): Array<ExitLegInfo & { dir: Vec2 }> => {
+    const fields = ctx.perExit.length ? ctx.perExit : [F];
+    const out: Array<ExitLegInfo & { dir: Vec2 }> = [];
+    fields.forEach((f, j) => {
+      if (!Number.isFinite(f.len[s])) return;
+      const raw = chain(f, s).map((c) => centre(g, c));
+      const pts = smooth(g, raw, cfg.squeezeM / 2 - tol);
+      const door = ctx.perExit.length ? ctx.exits[j] : g.doors[g.door[f.src[s]]];
+      const dir = firstLegDir(pts);
+      out.push({ exitId: door?.id ?? '?', lengthM: pathLength(pts), bearingDeg: bearing(dir), dir });
+    });
+    return out.sort((a, b) => a.lengthM - b.lengthM);
+  };
+  const byRoomIdx = (e: RoomEgress) => model.spaces.findIndex((s) => s.id === e.spaceId);
+  for (const e of egress) {
+    e.worstPoint = e.from;
+    if (!e.from) { e.alternative = 'none'; continue; }
+    const s = cellAt(g, e.from);
+    const legs = s >= 0 ? exitLegs(s) : [];
+    const strip = (l: ExitLegInfo & { dir: Vec2 }): ExitLegInfo => ({ exitId: l.exitId, lengthM: l.lengthM, bearingDeg: l.bearingDeg });
+    e.nearestExit = legs[0] ? strip(legs[0]) : null;
+    e.secondExit = legs[1] ? strip(legs[1]) : null;
+    e.altExit = null; e.bestAngleDeg = null;
+    if (legs.length < 2) { e.alternative = legs.length ? 'single' : 'none'; continue; }
+    let best = 0;
+    for (let a = 0; a < legs.length; a++) for (let b = a + 1; b < legs.length; b++) best = Math.max(best, angleBetween(legs[a].dir, legs[b].dir));
+    e.bestAngleDeg = best;
+    const alt = legs.slice(1).find((l) => angleBetween(legs[0].dir, l.dir) >= cfg.altExitAngleDeg - 1e-9);
+    if (alt) { e.altExit = { ...strip(alt), angleDeg: angleBetween(legs[0].dir, alt.dir) }; e.alternative = 'two-directions'; }
+    else e.alternative = 'same-direction';
+  }
+
+  // Occupants: planning table by use and area (drill.ts), or seats, whichever is more; the user's number wins.
+  const table = defaultOccupants(model, furniture);
+  const people = model.spaces.map((s, k) => {
+    const est = occupancy.rooms[k];
+    if (occupancy.overridden) return { n: est?.people ?? 0, basis: est?.basis ?? 'your number' };
+    const byTable = table[k] ?? 0, areaM2 = area(s.polygon);
+    if (byTable >= (est?.people ?? 0)) {
+      const r = areaM2 / Math.max(1, byTable);
+      const per = Math.abs(r - DRILL.officeM2PerPerson) < Math.abs(r - DRILL.dwellingM2PerPerson) ? DRILL.officeM2PerPerson : DRILL.dwellingM2PerPerson;
+      return { n: byTable, basis: `${Math.round(areaM2)} m² at ${per} m² per person` };
+    }
+    return { n: est.people, basis: est.basis };
+  });
+  depth.capacity.basis = occupancy.overridden ? 'your number' : 'planning table by use and area';
+  depth.capacity.total = people.reduce((a, p) => a + p.n, 0);
+  depth.capacity.rooms = model.spaces.map((s, k) => ({ spaceId: s.id, name: s.name, people: people[k].n, basis: people[k].basis }));
+
+  // Per-room standing cells with a way out today.
+  const exitSrc = ctx.exits.flatMap((d) => exitCells(g, d));
+  const base = flood(g, stand, exitSrc);
+  const roomTot = new Float64Array(model.spaces.length);
+  for (let i = 0; i < N; i++) if (base[i] && g.room[i] >= 0) roomTot[g.room[i]]++;
+
+  // People through each door (sampled walks from every room) against width x people per metre.
+  const doorPeople = new Float64Array(g.doors.length);
+  model.spaces.forEach((s, k) => {
+    const n = people[k].n; if (!n || !roomTot[k]) return;
+    const cells: number[] = [];
+    for (let i = 0; i < N; i++) if (g.room[i] === k && stand(i) && Number.isFinite(F.len[i])) cells.push(i);
+    if (!cells.length) return;
+    const step = Math.max(1, Math.floor(cells.length / 40));
+    const samples = cells.filter((_, j) => j % step === 0), w = n / samples.length;
+    for (const c of samples) {
+      const seen = new Set<number>();
+      for (const cc of chain(F, c)) { const d = g.door[cc]; if (d >= 0 && !seen.has(d)) { seen.add(d); doorPeople[d] += w; } }
+    }
+  });
+  g.doors.forEach((d) => {
+    const clearW = clearWidth(d, cfg.doorLeafM), n = Math.round(doorPeople[d.idx]), capP = Math.floor(clearW * cfg.doorPeoplePerM + 1e-9);
+    if (n > 0 || d.exit) depth.capacity.doors.push({ doorId: d.id, label: d.label, exit: d.exit, widthM: d.widthM, clearWidthM: clearW, people: n, capacityPeople: capP, ok: n <= capP });
+  });
+  const exitCaps = ctx.exits.map((d) => clearWidth(d, cfg.doorLeafM) * cfg.doorPeoplePerM);
+  if (ctx.exits.length > 1) depth.capacity.capacityWithoutLargestExit = Math.floor(exitCaps.reduce((a, b) => a + b, 0) - Math.max(...exitCaps));
+  for (const dc of depth.capacity.doors) {
+    const d = g.doors.find((x) => x.id === dc.doorId)!;
+    if (!d.exit || dc.ok) continue;
+    const needW = Math.round((Math.ceil((dc.people / cfg.doorPeoplePerM + cfg.doorLeafM) / 0.05 - 1e-9) * 0.05) * 100) / 100;
+    const tried: TriedFix[] = [{
+      kind: 'widen-door', label: `Widen ${d.label} to ${cm(needW)}`, metric: 'people the door can serve', unit: 'people', before: dc.capacityPeople, after: Math.floor((needW - cfg.doorLeafM) * cfg.doorPeoplePerM + 1e-9),
+      improved: needW > d.widthM, ops: [{ type: 'UPDATE_OPENING', id: d.id, patch: { widthM: needW } }],
+    }];
+    const room = egress.find((e) => e.exitId === d.id && e.worstPoint);
+    const ax = room && room.worstPoint ? tryAddExit(ctx, overrides, byRoomIdx(room), room.worstPoint, room.lengthM, budget) : undefined;
+    if (ax) tried.push(ax);
+    findings.push({
+      id: `capacity:${d.id}`, kind: 'exit-capacity', area: 'fire', severity: 'important', title: `${d.label} is too narrow for the people using it`,
+      message: `About ${dc.people} people leave through ${d.label} (${cm(dc.clearWidthM)} clear). At ${cfg.doorPeoplePerM} people per metre it serves ${dc.capacityPeople}.`,
+      itemIds: [], at: d.c, measured: { value: dc.people, unit: 'people', label: 'People using the door' },
+      required: { key: 'doorPeoplePerM', value: dc.capacityPeople, unit: 'people', ruleId: 'generic-doorPeoplePerM', label: `People ${cm(dc.clearWidthM)} of door can serve` }, tried,
+    });
+  }
+  const cwo = depth.capacity.capacityWithoutLargestExit;
+  if (cwo != null && depth.capacity.total >= cfg.twoExitsOccupancy && depth.capacity.total > cwo) {
+    const big = ctx.exits[exitCaps.indexOf(Math.max(...exitCaps))];
+    findings.push({
+      id: 'capacity:loss', kind: 'exit-capacity', area: 'fire', severity: 'advice', title: 'If the widest exit is lost the others are too narrow',
+      message: `${depth.capacity.total} people in the plan; without ${big.label} the other exits serve ${cwo} at ${cfg.doorPeoplePerM} people per metre.`,
+      itemIds: [], at: big.c, measured: { value: depth.capacity.total, unit: 'people', label: 'People in the plan' },
+      required: { key: 'doorPeoplePerM', value: cwo, unit: 'people', ruleId: 'generic-doorPeoplePerM', label: 'People the remaining exits serve' },
+    });
+  }
+
+  // Interior doors that open against the way out, used by more people than the pack allows.
+  for (const d of g.doors) {
+    if (d.exit || d.opening.kind !== 'door' || d.opening.swing === 'none') continue;
+    const n = Math.round(doorPeople[d.idx]); if (n <= cfg.inwardSwingMaxOccupants) continue;
+    const ci = cellAt(g, add(d.c, mul(d.inward, 0.5))), co = cellAt(g, add(d.c, mul(d.outward, 0.5)));
+    const li = ci >= 0 ? F.len[ci] : Infinity, lo = co >= 0 ? F.len[co] : Infinity;
+    if (!Number.isFinite(li) && !Number.isFinite(lo)) continue;
+    // swing 'in' opens into the host room: against people walking out of it, with people walking in.
+    const walking = lo < li ? 'out' : 'in';
+    if (walking !== d.opening.swing) continue;
+    findings.push({
+      id: `swing-dir:${d.id}`, kind: 'exit-swing', area: 'fire', severity: 'important', title: `${d.label} opens against the way out`,
+      message: `About ${n} people pass ${d.label} and it opens towards them. Above ${cfg.inwardSwingMaxOccupants} people it should open the way they walk.`,
+      itemIds: [], at: d.c, measured: { value: n, unit: 'people', label: 'People using this door' }, required: req(cfg, 'inwardSwingMaxOccupants'),
+      tried: [{ kind: 'flip-swing', label: `Swing ${d.label} the other way`, metric: 'door opens with the way out (0 = against, 1 = with)', unit: '', before: 0, after: 1, improved: true,
+        ops: [{ type: 'UPDATE_OPENING', id: d.id, patch: { swing: d.opening.swing === 'in' ? 'out' : 'in' } }] }],
+    });
+  }
+
+  // Every door blocked in turn.
+  for (const d of g.doors) {
+    const reach = flood(g, (i) => stand(i) && g.door[i] !== d.idx, exitSrc);
+    const lost = new Float64Array(model.spaces.length);
+    for (let i = 0; i < N; i++) if (base[i] && !reach[i] && g.room[i] >= 0) lost[g.room[i]]++;
+    const rooms: BlockedDoorTest['trappedRooms'] = [];
+    model.spaces.forEach((s, k) => {
+      if (!roomTot[k] || !lost[k]) return;
+      const share = lost[k] / roomTot[k];
+      if (share >= 0.05) rooms.push({ spaceId: s.id, name: s.name, people: Math.round(people[k].n * share), share });
+    });
+    depth.blockedDoors.push({ doorId: d.id, label: d.label, exit: d.exit, at: d.c, trappedPeople: rooms.reduce((a, r) => a + r.people, 0), trappedRooms: rooms });
+    // Two exits that share a door are one exit.
+    for (const r of rooms) {
+      const e = egress.find((x) => x.spaceId === r.spaceId);
+      if (!e || (e.exitsReachable ?? 0) < 2 || r.share < 0.5) continue;
+      findings.push({
+        id: `common-path:${d.id}:${r.spaceId}`, kind: 'common-path', area: 'fire', severity: 'important', title: `${r.name} has two exits that both pass ${d.label}`,
+        message: `If ${d.label} is blocked, ${r.people} people in ${r.name} are cut off from every exit, so the two exits are one way out.`,
+        itemIds: [], at: d.c, measured: { value: 1, unit: 'shared door', label: 'Door every route to an exit passes' }, required: { key: null, value: 2, unit: 'independent exits', ruleId: 'planning-independent-exits', label: 'Independent ways out' },
+        highlight: { points: [d.c], itemIds: [], doorIds: [d.id] },
+      });
+    }
+  }
+
+  // Inner rooms: no exit of their own and only one neighbour to walk through.
+  const adj = model.spaces.map(() => new Set<number>()), hasExit = new Set<number>();
+  for (const d of g.doors) { if (d.exit) hasExit.add(d.spaceIdx); else if (d.neighbour >= 0) { adj[d.spaceIdx].add(d.neighbour); adj[d.neighbour].add(d.spaceIdx); } }
+  model.spaces.forEach((s, k) => {
+    if (hasExit.has(k) || adj[k].size !== 1 || !roomTot[k]) return;
+    const acc = [...adj[k]][0];
+    let hops = 1, prev = k, cur = acc, guard = 0;
+    while (!hasExit.has(cur) && guard++ < 20) { const nx = [...adj[cur]].find((x) => x !== prev && x !== cur); if (nx == null) break; prev = cur; cur = nx; hops++; }
+    const A = model.spaces[acc], kitchen = KITCHEN_RE.test(`${A.name} ${A.purpose ?? ''}`);
+    depth.innerRooms.push({ spaceId: s.id, name: s.name, accessSpaceId: A.id, accessName: A.name, hops });
+    const e = egress.find((x) => x.spaceId === s.id);
+    const door = g.doors.find((d) => !d.exit && ((d.spaceIdx === k && d.neighbour === acc) || (d.spaceIdx === acc && d.neighbour === k)));
+    const ax = e?.worstPoint ? tryAddExit(ctx, overrides, k, e.worstPoint, e.lengthM, budget) : undefined;
+    const at = door?.c ?? centroid(s.polygon);
+    findings.push({
+      id: `inner:${s.id}`, kind: 'inner-room', area: 'fire', severity: kitchen ? 'important' : 'advice', title: `${s.name} is an inner room behind ${A.name}`,
+      message: `The only way out of ${s.name} is through ${A.name}${kitchen ? ', where cooking starts most fires' : ''}${hops > 1 ? ` and ${hops - 1} more room${hops > 2 ? 's' : ''}` : ''}. Fire there cuts ${s.name} off; keep ${A.name} clear and fit a smoke alarm in both.`,
+      itemIds: [], at,
+      measured: { value: hops, unit: 'rooms to cross', label: 'Rooms to walk through to reach an exit' }, required: { key: null, value: 0, unit: 'rooms to cross', ruleId: 'planning-inner-room', label: 'Planning guidance: a room people sleep or work in should have its own way out' },
+      highlight: { points: [at], itemIds: [], doorIds: door ? [door.id] : [] }, tried: ax ? [ax] : undefined,
+    });
+  });
+
+  // Rooms whose exits all lie the same way from the worst point.
+  for (const e of egress) {
+    if (e.alternative !== 'same-direction' || !e.worstPoint) continue;
+    const far = e.nearestExit?.lengthM ?? 0, k = byRoomIdx(e);
+    if (!(far > cfg.singleDirectionM || e.people >= cfg.twoExitsOccupancy)) continue;
+    const ax = tryAddExit(ctx, overrides, k, e.worstPoint, e.lengthM, budget);
+    findings.push({
+      id: `alt:${e.spaceId}`, kind: 'alt-escape', area: 'fire', severity: 'important', title: `Both exits of ${e.name} lie in the same direction`,
+      message: `From the far side of ${e.name} the two nearest exits are only ${Math.round(e.bestAngleDeg ?? 0)} degrees apart, so one fire between you and them blocks both. Alternatives need at least ${cfg.altExitAngleDeg} degrees.`,
+      itemIds: [], at: e.worstPoint, measured: { value: e.bestAngleDeg ?? 0, unit: 'degrees', label: 'Angle between the two exits' }, required: req(cfg, 'altExitAngleDeg'),
+      highlight: { points: [e.worstPoint], itemIds: [], doorIds: [e.nearestExit?.exitId, e.secondExit?.exitId].filter((x): x is string => !!x) }, tried: ax ? [ax] : undefined,
+    });
+  }
+
+  // Dead ends found by the grid checks, as plain data.
+  for (const f of findings) if (f.kind === 'dead-end' && f.measured) depth.deadEnds.push({ spaceId: f.id.split(':')[1] ?? null, lengthM: f.measured.value, at: f.at, route: f.route ?? [], requiredM: cfg.deadEndM });
+
+  // Long walks and second exits get a tried exit door too.
+  for (const f of findings) {
+    if ((f.kind !== 'travel' && f.kind !== 'single-direction' && f.kind !== 'two-exits') || f.tried || budget.n >= 4) continue;
+    const sid = f.id.split(':')[1], k = model.spaces.findIndex((s) => s.id === sid), e = egress.find((x) => x.spaceId === sid);
+    if (k < 0 || !e?.worstPoint) continue;
+    const ax = tryAddExit(ctx, overrides, k, e.worstPoint, e.lengthM, budget);
+    if (ax) f.tried = [ax];
+  }
+  if (budget.n >= 4) compromised.push('exit-door trials limited to 4 per assessment; further findings list no add-exit trial');
+  depth.elapsedMs = Date.now() - t0;
+  return depth;
+}
+
+/** Fills highlight, turns furniture-move fixes into tried changes, and applies pack rule ids. */
+function enrichFindings(findings: SafetyFinding[], doors: DoorInfo[], ruleIds?: Partial<Record<SafetyKey, string>>) {
+  for (const f of findings) {
+    if (!f.highlight) f.highlight = { points: [f.at, ...(f.route && f.route.length ? [f.route[0]] : [])], itemIds: [...f.itemIds], doorIds: doors.filter((d) => f.id.includes(`:${d.id}`)).map((d) => d.id) };
+    if (f.fix) {
+      const before = f.measureM ?? null, after = f.required?.value ?? null;
+      const tf: TriedFix = { kind: 'move-item', label: f.fix.label, metric: f.measured ? f.measured.label.toLowerCase() : 'findings of this kind', unit: f.measured?.unit ?? '', before, after, improved: true, ops: f.fix.ops };
+      f.tried = [tf, ...(f.tried ?? [])];
+    }
+    if (f.required?.key && ruleIds?.[f.required.key]) f.required = { ...f.required, ruleId: ruleIds[f.required.key]! };
+    if (f.measured === undefined && f.measureM != null) f.measured = { value: f.measureM, unit: 'm', label: 'Width' };
+  }
+}
+
 // ---- Public entry -----------------------------------------------------------------------------
 
 export function resolveConfig(patch?: Partial<SafetyConfig>): SafetyConfig {
@@ -829,6 +1222,7 @@ export function resolveConfig(patch?: Partial<SafetyConfig>): SafetyConfig {
 }
 
 export function assessSafety(model: SpaceModel, furniture: FurnitureItem[], opts: SafetyOptions = {}): SafetyReport {
+  const t0 = Date.now();
   const cfg = resolveConfig(opts.config);
   const overrides = opts.exitOverrides ?? {};
   const occupancy = estimateOccupancy(model, furniture, cfg, opts.occupancy);
@@ -836,6 +1230,8 @@ export function assessSafety(model: SpaceModel, furniture: FurnitureItem[], opts
   const { ctx, egress } = core;
   const findings = core.findings;
   if (!opts.skipFixes) addFixes(model, furniture, cfg, overrides, occupancy, findings, ctx.g);
+  const depth = buildDepth(ctx, egress, findings, furniture, overrides, t0);
+  enrichFindings(findings, ctx.g.doors, opts.ruleIds);
   findings.sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity] || (a.area === b.area ? 0 : a.area === 'fire' ? -1 : 1));
 
   // Evacuation: people at seats, the rest spread over free floor in their room.
@@ -869,7 +1265,7 @@ export function assessSafety(model: SpaceModel, furniture: FurnitureItem[], opts
   return {
     exits: ctx.exits.map((d) => ({ id: d.id, label: d.label, spaceId: d.space.id, at: d.c, outward: d.outward, widthM: d.widthM, swing: d.opening.swing, auto: d.autoExit })),
     doors: ctx.g.doors.map((d) => ({ id: d.id, label: d.label, exit: d.exit, auto: d.autoExit, widthM: d.widthM })),
-    egress, findings, score, headline, occupancy, suggestions, evacuation, evacuationSlowS, config: cfg, notAssessed: NOT_ASSESSED,
+    egress, findings, score, headline, occupancy, suggestions, evacuation, evacuationSlowS, config: cfg, notAssessed: NOT_ASSESSED, depth,
   };
 }
 
