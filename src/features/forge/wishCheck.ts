@@ -48,6 +48,7 @@ export function checkWishes(spec: ObjectSpec, w: Wish): WishResult {
     const ok = r === 'main' ? parts.some((p) => p.material === look.material) : parts.length > 0 && parts.some((p) => p.material === look.material);
     say(ok, `${look.material.replace('-', ' ')} ${r === 'main' ? 'object' : r}`);
   }
+  if (w.round) say(spec.parts.some((p) => (p.shape === 'cylinder' || p.shape === 'sphere') && p.size[0] > Math.min(w.size.w, w.size.d) * 0.5), 'round');
   if (w.text_) say(spec.parts.some((p) => p.text?.value?.toUpperCase().includes(w.text_!.toUpperCase())), `printed ${w.text_}`);
   for (const f of w.features) {
     const re: Record<string, RegExp> = { wheels: /wheel|caster/i, slide: /slide/i, ladder: /ladder|rung/i, lamp: /lamp|shade/i, plant: /plant/i, armrests: /arm/i, backrest: /back/i, rope: /rope|sisal/i, handles: /handle|knob|pull/i, sliding: /track|sliding/i, 'monitor-arm': /monitor/i };

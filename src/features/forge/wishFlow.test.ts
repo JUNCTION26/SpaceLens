@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ObjectSpec } from '../../core/types';
+
+vi.mock('../../core/ai', async (orig) => ({ ...(await orig<typeof import('../../core/ai')>()), aiReady: () => false }));
 import { composeObject } from './compose';
 import { editObject, generateObject, holdToWish } from './generate';
 import { checkSpec } from './validate';

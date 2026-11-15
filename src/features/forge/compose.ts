@@ -345,7 +345,7 @@ function frame(P: Parts, w: Wish, L: L, W: number, D: number, H: number) {
   const t = 0.03;
   const cart = w.category === 'cart';
   let y0 = 0;
-  if (w.support === 'wheels' || cart) y0 = wheels(P, L, w.counts.wheels ?? 4, W, D, 0.015, 0.04);
+  if (w.support === 'wheels' || w.features.includes('wheels')) y0 = wheels(P, L, w.counts.wheels ?? 4, W, D, 0.015, 0.04);
   if (cart) {
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) => P.box(`post ${i + 1}`, sx < 0 ? -W / 2 : W / 2 - t, sx < 0 ? -W / 2 + t : W / 2, y0, H - (w.features.includes('handles') ? 0.12 : 0), sz < 0 ? -D / 2 : D / 2 - t, sz < 0 ? -D / 2 + t : D / 2, L.legs.material ? L.legs : L.frame));
     const n = Math.max(1, w.counts.shelves ?? 2), topY = H - (w.features.includes('handles') ? 0.12 : 0);
