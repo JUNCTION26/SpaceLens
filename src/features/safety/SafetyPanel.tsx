@@ -4,8 +4,9 @@ import { centroid } from '../../core/geometry';
 import type { RouteResult } from '../../core/types';
 import { Icon } from '../../ui/icons';
 import { RuleSelector } from '../jurisdiction/RuleSelector';
-import { applyPack, type PackId } from '../jurisdiction/rulepacks';
+import { applyPack, packFor, type PackId } from '../jurisdiction/rulepacks';
 import { assessSafety, SAFETY_DEFAULT_INFO, SAFETY_DEFAULTS, type SafetyConfig, type SafetyFinding, type SafetyKey, type SafetyReport } from './assess';
+import { ReportButton } from './ReportButton';
 import { evacHeat } from './evac';
 import { evacuationPlanSvg } from './plan';
 import './safety.css';
@@ -131,7 +132,7 @@ export function SafetyPanel() {
         {report.exits.length} {report.exits.length === 1 ? 'exit' : 'exits'}
       </p>
 
-      <div className="safety-country"><RuleSelector mode="select" country={country} onChange={onCountry} /></div>
+      <div className="safety-country"><RuleSelector mode="select" country={country} onChange={onCountry} />{report && <ReportButton model={model} assessment={report} pack={packFor(country)} />}</div>
 
       <div className="seg safety-tabs" role="tablist" aria-label="Checks">
         {(['fire', 'access'] as const).map((a) => (
