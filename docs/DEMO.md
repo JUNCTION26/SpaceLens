@@ -4,6 +4,22 @@ Everything here works on the live site without a key. Each step has a deep link,
 
 The built-in tour (`?sample=1&open=demo`, or **Guided demo** at the bottom of the sidebar) walks through load, edit, describe, layouts, walk, door fit, what-if and deliver in eight captioned steps.
 
+## Hands-free tour
+
+`?show=1` starts a scripted tour that needs no clicks: it loads the sample room, designs a home office from a typed brief, orbits the room, generates a cat tree, runs the safety and move-in sections, builds a villa and returns to the home screen. Esc or any click stops it. It can also be started from the command palette or by the `spacelens:show` browser event.
+
+Link forms:
+
+| Link | Result |
+| --- | --- |
+| `?show=1` | hands-free tour |
+| `?sample=1&open=demo` | captioned guided demo, eight steps |
+| `?start=plan`, `?start=villa`, `?start=room` | one-click start that lands on a finished state |
+| `?demo=villa`, `?demo=office`, `?demo=lshape`, add `&furnish=1` | demo building, optionally furnished room by room |
+| `?nav=<section>&sample=1&view=<2d|split|3d>` | any section on the sample room |
+
+## Two-minute script
+
 | Time | Link | Do | Say |
 | --- | --- | --- | --- |
 | 0:00 | [`?nav=drawings&sample=1`](https://junction26.github.io/SpaceLens/?nav=drawings&sample=1) | Open the sample `floor10281` plan from the list. The page appears, then the building is built. | A real floor plan in, a building out: 21 rooms, doors and windows, with no model call. |

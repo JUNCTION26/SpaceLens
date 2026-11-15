@@ -4,6 +4,20 @@ All notable changes, grouped by area. The project is at version 0.1.0 and has no
 
 ## Unreleased
 
+### 2026-11-15
+- Photo to room accepts up to six photos or a short video (five frames taken in the browser).
+- DXF export; IFC import of room footprints; IFC export is y-up with an opening void for each door and window.
+- Product finder: IKEA Sweden and Finland candidates are kept only when their product page shows a price and a full size that fits; Find and Find all buttons on the shopping list.
+- Budget plan with swap, drop and keep moves; essential, locked and owned pieces are never dropped.
+- Instant answers about the room in English, Swedish and Finnish, with no model call.
+- Command palette commands for sections, layers, walk and tour, undo, load, import, export and settings.
+- Hands-free tour (`?show=1`), demo buildings (`?demo=villa|office|lshape&furnish=1`), home screen with a describe field.
+- Printable fire and access report with measured and required values and rule sources.
+- Finland and Sweden rule packs rebuilt on Finnish decrees 241/2017, 848/2017 and 1008/2017 and Boverket BFS 2024:7 and 2024:12 (see `docs/RULE-SOURCES.md`).
+- Server routes `/v1/image` and `/v1/speech` with allowlists, size limits and their own rate and daily limits.
+- Layouts that cannot seat every piece return with the left-out pieces recorded; taste hints reach the planner.
+- WebXR entry checks and AR point-to-measure (not yet tried on a device); installable web app manifest.
+
 ### Rooms, formats and sharing
 - Photo to room: one photo becomes an editable, estimated room with furniture and openings; unknown pieces are generated as custom objects; one measured wall rescales the room.
 - Move-in planner: each piece is tested through every door from the entrance to its room (fits, tilt, assemble inside, won't fit), with an arrival order.

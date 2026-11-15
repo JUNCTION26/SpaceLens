@@ -39,7 +39,7 @@ flowchart TB
   Browser -.->|model calls without a browser key| S[API server]
 ```
 
-The built site is static files. The API server (`server/`, Node built-ins only) exposes `GET /healthz`, `GET /v1/models`, `POST /v1/generate` and `POST /v1/generate/stream`. It validates the request against a strict schema, checks origin and rate limits, adds its own key and forwards to Gemini. It stores no design data. It also keeps layout polls in memory (`POST /v1/votes`, `GET /v1/votes/:id`, `POST /v1/votes/:id/vote`): 2 to 4 layouts, one vote per browser token, at most 300 polls for 48 hours, validated field by field, thumbnails limited to plain SVG. Polls are lost when the process restarts. The app calls Gemini directly when the visitor has set a key, and uses the server for model calls and polls when `VITE_API_BASE` is configured.
+The built site is static files. The API server (`server/`, Node built-ins only) exposes `GET /healthz`, `GET /v1/models`, `POST /v1/generate`, `POST /v1/generate/stream`, `POST /v1/image` and `POST /v1/speech` (the last two with a model allowlist, size limits and their own rate and daily limits; see `server/README.md`). It validates the request against a strict schema, checks origin and rate limits, adds its own key and forwards to Gemini. It stores no design data. It also keeps layout polls in memory (`POST /v1/votes`, `GET /v1/votes/:id`, `POST /v1/votes/:id/vote`): 2 to 4 layouts, one vote per browser token, at most 300 polls for 48 hours, validated field by field, thumbnails limited to plain SVG. Polls are lost when the process restarts. The app calls Gemini directly when the visitor has set a key, and uses the server for model calls and polls when `VITE_API_BASE` is configured.
 
 ## Layers
 
@@ -139,9 +139,9 @@ Vector PDF plans are converted into a multi-room spatial model without a model c
 
 `src/features/photoroom`: `pipeline.ts` shrinks the photo and asks a Gemini vision model for a structured estimate (room type, width, depth, ceiling, confidence, cues, openings, furniture with size and floor position). `strong.ts` tries the stronger vision models first and then falls through to the shared router. `room.ts` validates the estimate and builds a `SpaceModel`: a rectangle with the camera at the front wall, openings on named walls, and each piece mapped to a catalogue item (`KIND_TO_CATALOG`) or to a custom object. All of it is photo-inferred and estimated; `rescaleRoom` takes one typed wall length, marks that wall user-measured and scales the room. Unknown pieces are then generated through the forge pipeline at their estimated size.
 
-## DXF import and IFC4 export
+## DXF and IFC import and export
 
-`formats/dxfRead.ts` parses ASCII DXF into flattened lines, polylines (with bulges), arcs, circles, block inserts and text, converts to metres from the header units (or guesses from the extent and says so in its report), then reuses the PDF plan-to-building code to make rooms, doors and windows. The file is untrusted input, with an entity cap. `formats/ifcWrite.ts` writes IFC4 text: project, site, building and storey, one `IfcSpace` per room, walls as extruded solids, doors, windows and furnishing elements, with GlobalIds derived deterministically from element ids. Walls have no opening voids.
+`formats/dxfRead.ts` parses ASCII DXF into flattened lines, polylines (with bulges), arcs, circles, block inserts and text, converts to metres from the header units (or guesses from the extent and says so in its report), then reuses the PDF plan-to-building code to make rooms, doors and windows. The file is untrusted input, with an entity cap. `formats/ifcWrite.ts` writes IFC4 text: project, site, building and storey, one `IfcSpace` per room, walls as extruded solids, doors, windows and furnishing elements, with GlobalIds derived deterministically from element ids. Each door and window gets an `IfcOpeningElement` void in its wall, and the output is y and z up (plan y is negated). `formats/dxfWrite.ts` writes ASCII DXF in metres with WALLS, DOORS, WINDOWS, FURNITURE, DIMENSIONS, TEXT and ROOMS layers, negating plan y so CAD shows the same picture. `formats/ifcRead.ts` reads `IfcSpace` footprints (extruded polyline or rectangle profiles through the placement chain) into estimated rooms, treating the file as untrusted.
 
 ## AR export
 
@@ -283,7 +283,7 @@ All edits are `Op` values (a union in `core/types.ts`) applied by the pure reduc
 
 ## Testing strategy
 
-- Vitest in a Node environment, hermetic: no network, no API key. At the time of writing there are 56 test files with 405 test cases, 11 of them opt-in and skipped by default (Vitest's own count). The server has its own tests, run with `npm run test:server`.
+- Vitest in a Node environment, hermetic: no network, no API key. At the time of writing there are 77 test files with 549 test cases, 13 of them opt-in and skipped by default (Vitest's own count). The server has its own tests, run with `npm run test:server`.
 - Pure logic is tested directly: geometry, operations and store, solver and design scenarios (room scenarios in `design/scenarios.ts`), rules, referee, critic parsing, kits and object validation, shop parsing, safety, speech sentence splitting, sharing and export, model routing and error categories.
 - The Stoa benchmarks (`drawings/stoa.eval.test.ts`, `drawings/stoa.build.eval.test.ts`) run the real extraction code with no model calls; live-model scripts (`scripts/forge-live.mjs`, `scripts/*-live.test.ts`) are opt-in through environment flags.
 - Browser checks use headless scripts in `scripts/e2e` (screenshots, DOM queries, performance) and are run by hand, not in CI.
