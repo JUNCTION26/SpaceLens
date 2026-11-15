@@ -4,6 +4,8 @@ import type { DesignProgram, FurnitureItem, Requirements, SpaceModel } from '../
 const aiMock = vi.fn();
 let ready = true;
 vi.mock('../../core/ai', () => ({ ai: (c: unknown) => aiMock(c), aiReady: () => ready }));
+let stubProfile: unknown = null;
+vi.mock('../taste/state', () => ({ activeProfile: () => stubProfile }));
 vi.mock('./semantics', () => ({
   semanticsOf: (f: FurnitureItem) => ({ category: f.category, role: f.category === 'bed' ? 'sleeping' : 'surface', wallBacked: true, frontClearanceM: 0.6, sideClearanceM: 0.3, pairsWith: [], faces: 'room', tall: false, description: '' }),
 }));
@@ -31,7 +33,7 @@ const items = [item('desk_abc', 'desk'), item('bed_xyz', 'bed')];
 const refs = sceneRefs(items);
 const ctx = { ids: new Set(items.map((f) => f.id)), wallCount: 4, toLong: refs.toLong };
 
-beforeEach(() => { aiMock.mockReset(); ready = true; });
+beforeEach(() => { aiMock.mockReset(); ready = true; stubProfile = null; });
 
 describe('scene', () => {
   it('names walls by compass and marks openings', () => {
@@ -91,5 +93,19 @@ describe('planConcepts', () => {
     const [b] = await planConcepts(model, items, req, 3);
     expect(b.by).toBe('rules');
     expect(aiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('taste hints in the planner prompt', () => {
+  const promptOf = () => (aiMock.mock.calls[0][0] as { parts: Array<{ text: string }> }).parts[0].text;
+  it('adds hints only when a profile is active', async () => {
+    aiMock.mockResolvedValue({ data: { concepts: [] }, ms: 1, model: 'm' });
+    await planConcepts(model, items, req, 1);
+    expect(promptOf()).not.toMatch(/tends to like/);
+    aiMock.mockClear();
+    const r = { v: 0.5, c: 0 };
+    stubProfile = { traits: { open: { v: 0.9, c: 0.8 }, hug: r, sym: r, density: r, spend: r }, window: { desk: { v: 0.9, c: 0.8 }, bed: r, sofa: r }, palette: [], materials: [{ name: 'walnut', w: 2 }], avoid: [], confidence: 0.8, events: 5 };
+    await planConcepts(model, items, req, 1);
+    expect(promptOf()).toMatch(/tends to like[\s\S]*desk near the window[\s\S]*walnut/);
   });
 });

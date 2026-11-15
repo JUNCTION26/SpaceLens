@@ -3,6 +3,8 @@
 import { ai, aiReady } from '../../core/ai';
 import { bounds, dist, distPointSegment, wallInwardNormal, wallSegment } from '../../core/geometry';
 import type { DesignProgram, DesignZone, FurnitureItem, Relation, RelationKind, Requirements, SpaceModel } from '../../core/types';
+import { tasteHints } from '../taste/apply';
+import { activeProfile } from '../taste/state';
 import { defaultProgram } from './program';
 import { semanticsOf } from './semantics';
 
@@ -265,6 +267,8 @@ export async function planConcepts(model: SpaceModel, items: FurnitureItem[], re
   const n = clamp(Math.round(count), 1, 3);
   const refs = sceneRefs(items);
   const ctx: RefCtx = { ids: new Set(items.map((f) => f.id)), wallCount: model.spaces[0]?.polygon.length ?? 0, toLong: refs.toLong };
+  const profile = activeProfile();
+  const hints = profile ? tasteHints(profile) : [];
   const prompt = [
     opts.brief ? `The person asked: """${opts.brief.slice(0, 600)}"""` : '',
     sceneDescription(model, items, req, refs),
@@ -273,6 +277,7 @@ export async function planConcepts(model: SpaceModel, items: FurnitureItem[], re
     'For each: a 1 to 3 word name, one sentence idea, zones (every item id in exactly one zone), a focal item, and relations.',
     `Relation kinds: ${RELATION_KINDS.join(', ')}. Targets: an item id, "window", "door", "wall:<index>" or "room-centre".`,
     'Give every item at least one relation. weight 0..1 is how much it matters. distanceM is an optional [min, max] in metres.',
+    hints.length ? `What this person tends to like (use as a soft preference):\n${hints.map((h) => `- ${h}`).join('\n')}` : '',
   ].join('\n').trim();
   const t0 = performance.now();
   try {
