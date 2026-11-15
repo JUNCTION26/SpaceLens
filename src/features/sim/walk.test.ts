@@ -6,7 +6,9 @@ import { doorPaths, planTour, poseAt, tourOrder, tourProgress, tourTimeline } fr
 import { solidSegments } from './walls';
 import { wheelchairPinches } from './wheelchair';
 import { bestFormat } from './recorder';
-import { keyAxes, padAxes } from './walkInput';
+import { clampPitch, easeTurn, keyAxes, padAxes, TURN_RATE } from './walkInput';
+
+const TURN_1S_MIN = (Math.PI / 2) * 0.8;
 
 const wall = { thicknessM: 0.1, sourceKind: 'manual' as const, status: 'verified' as const };
 const rect = (id: string, x0: number, y0: number, x1: number, y1: number) => ({ id, name: id, polygon: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], walls: [wall, wall, wall, wall] });
@@ -175,9 +177,40 @@ describe('recording and input', () => {
     expect(bestFormat(() => false)).toBeNull();
   });
   it('keys and thumb pad', () => {
-    expect(keyAxes(new Set(['KeyW', 'KeyD']))).toEqual({ forward: 1, strafe: 1, turn: 0 });
-    expect(keyAxes(new Set(['ArrowUp', 'ArrowLeft'])).turn).toBe(1);
+    expect(keyAxes(new Set(['KeyW', 'KeyD']))).toEqual({ forward: 1, strafe: 1, turn: 0, tilt: 0 });
+    expect(keyAxes(new Set(['ArrowUp', 'ArrowLeft']))).toEqual({ forward: 0, strafe: 0, turn: 1, tilt: 1 });
     expect(padAxes(0, -48).forward).toBeCloseTo(1, 6);
+  });
+  it('arrows never move and WASD never turn or tilt', () => {
+    for (const k of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      const a = keyAxes(new Set([k]));
+      expect(a.forward).toBe(0); expect(a.strafe).toBe(0);
+      expect(Math.abs(a.turn) + Math.abs(a.tilt)).toBe(1);
+    }
+    for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) {
+      const a = keyAxes(new Set([k]));
+      expect(a.turn).toBe(0); expect(a.tilt).toBe(0);
+      expect(Math.abs(a.forward) + Math.abs(a.strafe)).toBe(1);
+    }
+    expect(keyAxes(new Set(['KeyW']))).toMatchObject({ forward: 1, strafe: 0 });
+    expect(keyAxes(new Set(['KeyS']))).toMatchObject({ forward: -1, strafe: 0 });
+    expect(keyAxes(new Set(['KeyA']))).toMatchObject({ forward: 0, strafe: -1 });
+    expect(keyAxes(new Set(['KeyD']))).toMatchObject({ forward: 0, strafe: 1 });
+    expect(keyAxes(new Set(['ArrowLeft'])).turn).toBe(1);
+    expect(keyAxes(new Set(['ArrowRight'])).turn).toBe(-1);
+    expect(keyAxes(new Set(['ArrowUp'])).tilt).toBe(1);
+    expect(keyAxes(new Set(['ArrowDown'])).tilt).toBe(-1);
+  });
+  it('arrow turning eases in and holds about 90 degrees a second, tilt stays within 60 degrees', () => {
+    let v = 0, yaw = 0;
+    for (let i = 0; i < 60; i++) { v = easeTurn(v, 1, 1 / 60); yaw += v * TURN_RATE / 60; }
+    expect(yaw).toBeGreaterThan(TURN_1S_MIN);
+    expect(yaw).toBeLessThan(Math.PI / 2 + 1e-6);
+    expect(easeTurn(0, 1, 1 / 60)).toBeLessThan(0.5);
+    expect(clampPitch(2)).toBeCloseTo(Math.PI / 3, 6);
+    expect(clampPitch(-2)).toBeCloseTo(-Math.PI / 3, 6);
+  });
+  it('thumb pad', () => {
     expect(padAxes(2, -2)).toEqual({ forward: 0, strafe: 0 });
   });
 });
