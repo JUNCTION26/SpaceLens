@@ -16,6 +16,7 @@ import { SPEC_DND, specDrag } from './dnd';
 import { counts, useProblems } from '../problems/store';
 import { ProblemCard } from '../problems/ProblemCard';
 import { SEVERITY_ORDER, type GhostPose, type Problem, type ProblemSeverity } from '../problems/types';
+import { chipBox, pickChips, placeRoomLabels, type ChipIn } from './labelLayout';
 import './plan2d.css';
 
 const prefersReduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -664,7 +665,34 @@ export function PlanView() {
     setEditWall(null);
   };
 
-  const fs = 12 * px; // font size in metres for ~12px text
+  const fs = 12 * px; // font size in metres for ~12px text (constant on screen at any zoom)
+  // Label layout: room names first (biggest room first), then wall chips that are long enough on screen and clear of everything placed.
+  const layout = (() => {
+    const { labels, placer } = placeRoomLabels(spaces.map((sp) => ({ id: sp.id, name: sp.name, polygon: sp.polygon, areaM2: area(sp.polygon) })), fs);
+    const selSpace = selection?.kind === 'space' ? selection.id : selection?.kind === 'wall' ? splitId(selection.id)[0] : null;
+    const multiRoom = spaces.length > 1;
+    const chips: ChipIn[] = [];
+    if (layers.dimensions) spaces.forEach((sp) => sp.polygon.forEach((_, i) => {
+      if (multiRoom && sp.id !== selSpace) return;
+      const [a, b] = wallSegment(sp, i); const L = dist(a, b); if (L < 0.05) return;
+      const t = sp.walls[i]?.thicknessM ?? 0.12;
+      const out = mul(wallInwardNormal(sp, i), -1); const off = t + 22 * px;
+      const M = lerp(add(a, mul(out, off)), add(b, mul(out, off)), 0.5);
+      let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI; if (ang >= 89.5 || ang < -90.5) ang += 180;
+      chips.push({ key: `${sp.id}:${i}`, lengthM: L, box: chipBox(M.x, M.y, fs * 4.8, fs * 1.5, ang), priority: sp.id === selSpace ? 1 : 0 });
+    }));
+    const overall = multiRoom && layers.dimensions ? (() => {
+      const bb = bounds(spaces.flatMap((sp) => sp.polygon));
+      const W = bb.maxX - bb.minX, H = bb.maxY - bb.minY;
+      const items: ChipIn[] = [
+        { key: 'W', lengthM: W, box: chipBox((bb.minX + bb.maxX) / 2, bb.minY - 40 * px, fs * 4.8, fs * 1.5, 0), priority: 2 },
+        { key: 'H', lengthM: H, box: chipBox(bb.minX - 40 * px, (bb.minY + bb.maxY) / 2, fs * 4.8, fs * 1.5, -90), priority: 2 },
+      ];
+      return { bb, W, H, items };
+    })() : null;
+    const shown = pickChips([...(overall?.items ?? []), ...chips], 1 / px, placer);
+    return { labels, shown, overall };
+  })();
   const hlMap = useMemo(() => {
     const m = new Map<string, { color: string; label: string }>();
     for (const h of analysis.highlights ?? []) for (const id of h.ids) m.set(id, { color: h.color, label: h.label });
@@ -807,16 +835,22 @@ export function PlanView() {
               <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} strokeDasharray={status === 'estimated' || status === 'unknown' ? `${5 * px} ${3 * px}` : undefined} />
               <line x1={A.x - tick.x + tick.y} y1={A.y - tick.y - tick.x} x2={A.x + tick.x - tick.y} y2={A.y + tick.y + tick.x} />
               <line x1={B.x - tick.x + tick.y} y1={B.y - tick.y - tick.x} x2={B.x + tick.x - tick.y} y2={B.y + tick.y + tick.x} />
-              <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
+              {layout.shown.has(`${sp.id}:${i}`) && <g transform={`translate(${M.x} ${M.y}) rotate(${ang})`} className="plan2d-dim-label"
                 onPointerDown={(e) => { e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); select({ kind: 'wall', id: wallId(sp.id, i) }); setEditWall({ spaceId: sp.id, i, pos: M, value: String(Math.round(L * 100)) }); }}>
                 <rect x={-fs * 2.4} y={-fs * 0.75} width={fs * 4.8} height={fs * 1.5} rx={fs * 0.25} />
                 <text fontSize={fs * 0.92} textAnchor="middle" dominantBaseline="central">{label}</text>
                 <title>{`${label} (${status}). Click to type the real length.`}</title>
-              </g>
+              </g>}
             </g>
           );
         }))}
+        {layout.overall && (
+          <g className="plan2d-dim plan2d-dim-measured" pointerEvents="none">
+            {layout.shown.has('W') && <text x={(layout.overall.bb.minX + layout.overall.bb.maxX) / 2} y={layout.overall.bb.minY - 40 * px} fontSize={fs} textAnchor="middle" dominantBaseline="central" className="plan2d-halo">{fmtCm(layout.overall.W)}</text>}
+            {layout.shown.has('H') && <text transform={`translate(${layout.overall.bb.minX - 40 * px} ${(layout.overall.bb.minY + layout.overall.bb.maxY) / 2}) rotate(-90)`} fontSize={fs} textAnchor="middle" dominantBaseline="central" className="plan2d-halo">{fmtCm(layout.overall.H)}</text>}
+          </g>
+        )}
 
         {/* Furniture */}
         {/* Problems tied to a spot rather than a piece sit under the furniture, so pieces stay easy to grab */}
@@ -845,12 +879,13 @@ export function PlanView() {
         })}
 
         {/* Room names sit on free floor so furniture never covers them */}
-        {spaces.map((sp) => {
-          const at = labelSpot(sp, furniture, fs, sp.name);
+        {layout.labels.map((l) => {
+          const sp = spaces.find((x) => x.id === l.id); if (!sp) return null;
+          const f = fs * l.scale;
           return (
-            <text key={`rl${sp.id}`} x={at.x} y={at.y} className="plan2d-room-label plan2d-halo" fontSize={fs * 1.2} textAnchor="middle" pointerEvents="none">
-              <tspan x={at.x} dy={0}>{sp.name}</tspan>
-              <tspan x={at.x} dy={fs * 1.4} className="plan2d-room-area">{fmtM2(area(sp.polygon))}</tspan>
+            <text key={`rl${sp.id}`} x={l.x} y={l.y} className="plan2d-room-label plan2d-halo" fontSize={f * 1.2} textAnchor="middle" pointerEvents="none">
+              <tspan x={l.x} dy={0}>{sp.name}</tspan>
+              <tspan x={l.x} dy={f * 1.4} className="plan2d-room-area">{fmtM2(area(sp.polygon))}</tspan>
             </text>
           );
         })}
@@ -1080,23 +1115,6 @@ export function PlanView() {
 const LAYER_LABEL: Record<keyof Layers, string> = {
   dimensions: 'Sizes', clearance: 'Clearance', routes: 'Routes', provenance: 'Sources', heat: 'Heat', sightlines: 'Views',
 };
-
-/** A spot near the room centre where the two-line room label does not cover any furniture. */
-function labelSpot(sp: Space, items: FurnitureItem[], fs: number, name: string): Vec2 {
-  const c = centroid(sp.polygon);
-  const hw = Math.max(name.length * 0.62 * fs * 1.2, 4.2 * fs) / 2;
-  const boxes = items.map((f) => aabb(itemCorners(f)));
-  const free = (p: Vec2) => pointInPolygon(p, sp.polygon) && !boxes.some((b) =>
-    p.x + hw > b.minX && p.x - hw < b.maxX && p.y + 2 * fs > b.minY && p.y - 1.3 * fs < b.maxY);
-  if (free(c)) return c;
-  for (const r of [0.25, 0.5, 0.75, 1, 1.4, 1.8]) {
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2, p = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r };
-      if (free(p)) return p;
-    }
-  }
-  return c;
-}
 
 function usedKinds(m: { spaces: Space[]; openings: Opening[] }) {
   const s = new Set<SourceKind>();
