@@ -169,11 +169,10 @@ export function MoveInPanel() {
         </span>
         <button className="btn btn-sm btn-ghost" onClick={end} disabled={!active} aria-label="Stop"><Icon name="x" size={14} /></button>
       </div>
-      <div className="movein-bar">
-        <span className="movein-chip" aria-label="Delivered">{frame.placed.length + frame.stopped.length}/{plan.items.length}</span>
+      {active && <div className="movein-bar">
         {active && frame.slot?.tilt && frame.p < 0.5 && <span className="movein-chip warn" aria-label="Tilt"><Icon name="rotate" size={12} /></span>}
         {active && frame.slot && !frame.slot.enters && <span className="movein-chip bad pulse" aria-label="Won't fit"><Icon name="x" size={12} /></span>}
-      </div>
+      </div>}
       <ol className="movein-list">
         {plan.items.map((m, i) => (
           <li key={m.id} className={`movein-row v-${m.verdict}${picked === m.id ? ' on' : ''}${active ? (landed(m.id) ? ' landed' : frame.slot?.id === m.id ? ' now' : ' later') : ''}`}>
