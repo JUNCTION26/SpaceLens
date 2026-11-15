@@ -5,7 +5,7 @@ import { Icon } from '../../ui/icons';
 import { compareListings, negotiationNotes, type Comparison } from './advise';
 import { addToRoom, listingToItem, missingDims, MissingDimensionsError } from './convert';
 import { rateToSek, toSek, type Rate } from './fx';
-import { fmtDims, fmtMoney, timeAgo } from './parse';
+import { fmtDims, fmtMoney } from './parse';
 import { blobToDataUrl, loadImageBlob, readListing, readListingImage } from './read';
 import { searchProducts, type ShopListing } from './search';
 import './stores.css';
@@ -46,12 +46,8 @@ export function StorePanel() {
   const [comparing, setComparing] = useState(false);
   const [tips, setTips] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [, tick] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Keep "read 2 min ago" fresh.
-  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
 
   // Look up a rate for every foreign currency shown.
   useEffect(() => {
@@ -298,7 +294,6 @@ export function StorePanel() {
                         <Icon name="plus" size={14} /> Add
                       </button>}
                   {c.url && <a className="icon-btn" href={c.url} target="_blank" rel="noopener noreferrer" aria-label="Open" title="Open"><Icon name="share" size={14} /></a>}
-                  {!c.issues.length && c.price !== null && <span className="find-ok" role="img" aria-label="Fits" title="Fits"><Icon name="check" size={14} /></span>}
                   <details className="shop-more"><summary>More</summary>
                     <label className="shop-pick"><input type="checkbox" checked={picked.includes(c.key)} onChange={() => togglePick(c.key)} /> Compare</label>
                     <button className="btn btn-ghost btn-sm" aria-expanded={tips === c.key} onClick={() => setTips(tips === c.key ? null : c.key)}>Deals</button>

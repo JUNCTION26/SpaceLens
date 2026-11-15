@@ -50,7 +50,6 @@
 .shop-more > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 8px; list-style: none; }
 .shop-more > summary::-webkit-details-marker { display: none; }
 .shop-more[open] { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
-.find-ok { display: inline-flex; color: var(--ok); }
 .shop-edit { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .shop-title, .shop-verdict li, .shop-tips li { overflow-wrap: anywhere; }
 .shop-err { overflow-wrap: anywhere; font-size: 12px; }
