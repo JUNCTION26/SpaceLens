@@ -6,7 +6,6 @@ import { NoKeyPrompt } from '../../core/ai/AiStatus';
 import { gemini, fileToInlineData, hasGemini, usage, type GeminiPart } from '../../core/gemini';
 import type { Requirements } from '../../core/types';
 import { CATALOG, CATEGORIES, makeItem, findByKeyword } from '../../features/furniture/catalog';
-import { TastePanel } from '../taste/TastePanel';
 import { findFreeSpot } from '../../features/objects/placement';
 
 interface CallInfo { model: string; ms: number; tokens: number }
@@ -226,7 +225,6 @@ function VisionTools() {
           {open === t.id && t.body()}
         </div>
       ))}
-    <TastePanel />
     </div>
   );
 }
