@@ -112,9 +112,9 @@ export function BudgetPanel() {
               ))}
             </ul>
           )}
-          {chosen.length > 0 && (
+          {chosen.length > 0 && broken.length > 0 && (
             <p className={`budget-note ${broken.length ? 'bad' : 'muted'}`}>
-              {broken.length ? <span title={broken[0].details}>Fails a check</span> : `${result.scoreBefore} → ${result.scoreAfter}`}
+              <span title={broken[0]?.details}>Fails a check</span>
             </p>
           )}
           {result.plan.length > 0 && (
@@ -138,7 +138,6 @@ export function BudgetPanel() {
                 <b>{p.label}</b><span>{kr(p.total)}</span>
               </div>
               {p.paidByMonth ? <p className="budget-note muted">Month {p.paidByMonth}</p> : null}
-              {p.items.length > 0 && <p className="budget-note budget-items" title={`${p.why} ${p.items.map((f) => f.name).join(', ')}`}>{p.items.length} items</p>}
             </li>
           ))}
         </ol>
