@@ -125,7 +125,8 @@ export function IntentPanel() {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         console.error(e);
-        notify('Layouts failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
+        // Rule-based layouts already on screen stay; a late model phase failing is not worth a warning.
+        if (!useStore.getState().candidates.length) notify('Layouts failed', { tone: 'warn', actions: [{ label: 'Try again', primary: true, run: () => void generate(r) }] });
       }
     } finally {
       if (runRef.current === ctrl) {
