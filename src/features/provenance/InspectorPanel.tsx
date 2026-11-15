@@ -7,7 +7,7 @@ import {
   SOURCE_WORDS, STATUS_CHIP, diffSnaps, evaluateWall, layoutsOf, measurementFor, roomArea, snapshot, uncertainWalls, wallName,
   type Diff, type Snap,
 } from './logic';
-import { ObjectActions } from '../objects/ObjectActions';
+import { findFreeSpot, snapToWall } from '../objects/placement';
 import { Icon } from '../../ui/icons';
 import './provenance.css';
 
@@ -238,7 +238,7 @@ function WhatIf() {
     setDiff(null);
   };
   return (
-    <Section id="whatif" title="What-if">
+    <Section id="whatif" title="What If">
       <div className="provenance-actions">
         <button className="btn btn-sm" onClick={narrower}>Room 30 cm narrower</button>
         <button className="btn btn-sm" onClick={door}>Door 10 cm wider</button>
@@ -326,33 +326,43 @@ function Selected({ tail }: { tail: ReactNode }) {
     const f = model.furniture.find((x) => x.id === sel.id);
     if (f) {
       const up = (patch: Partial<typeof f>) => dispatch({ type: 'UPDATE_OBJECT', id: f.id, patch });
+      const free = () => { const { model: m } = useStore.getState(); up(findFreeSpot(m, f)); };
+      const snap = () => { const { model: m } = useStore.getState(); const p = snapToWall(m, f, 0.6); if (p) up(p); };
       return (<>
-        <div className="provenance-title"><h3>{f.name}</h3>
-          <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}><Icon name="trash" size={14} /></button></div>
-        <div className="row"><ObjectActions itemId={f.id} /><ArButton model={model} item={f} className="btn btn-sm" label="AR" /></div>
+        <h3 title={f.name}>{f.name}</h3>
+        <div className="provenance-dims">
+          <NumField label="W" value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} />
+          <NumField label="D" value={cm(f.d)} onCommit={(v) => up({ d: v / 100 })} />
+          <NumField label="H" value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} />
+        </div>
         <div className="provenance-sheet">
-        <div>
-          <NumField label="Width" value={cm(f.w)} onCommit={(v) => up({ w: v / 100 })} />
-          <NumField label="Depth" value={cm(f.d)} onCommit={(v) => up({ d: v / 100 })} />
-          <NumField label="Height" value={cm(f.h)} onCommit={(v) => up({ h: v / 100 })} />
+          <NumField label="Price" value={Math.round(f.priceSek)} suffix="kr" max={10000000} onCommit={(v) => up({ priceSek: v })} />
+          {f.material && <div className="provenance-material" title={f.material}>{f.material}</div>}
+        </div>
+        <div className="provenance-acts" role="toolbar" aria-label={`Actions for ${f.name}`}>
+          <button className="icon-btn" title="Rotate 90 degrees" aria-label="Rotate 90 degrees" disabled={f.locked} onClick={() => up({ rotation: (f.rotation + Math.PI / 2) % (Math.PI * 2) })}><Icon name="rotate" size={16} /></button>
+          <button className="icon-btn" title="Duplicate" aria-label="Duplicate" onClick={() => { const copy = { ...f, id: uid('f'), locked: false }; dispatch({ type: 'PLACE_OBJECT', item: { ...copy, ...findFreeSpot(useStore.getState().model, copy) } }); }}><Icon name="copy" size={16} /></button>
+          <button className="icon-btn" title="Delete" aria-label="Delete" onClick={() => { dispatch({ type: 'REMOVE_OBJECT', id: f.id }); select(null); }}><Icon name="trash" size={16} /></button>
+        </div>
+        <details className="provenance-more">
+          <summary>More</summary>
+          <div className="provenance-acts">
+            <button className="icon-btn" title="Snap to wall" aria-label="Snap to wall" disabled={f.locked} onClick={snap}><Icon name="maximize" size={16} /></button>
+            <button className="icon-btn" title="Find free spot" aria-label="Find free spot" disabled={f.locked} onClick={free}><Icon name="grid" size={16} /></button>
+            <ArButton model={model} item={f} className="btn btn-sm" label="AR" />
+          </div>
           <NumField label="X" value={cm(f.x)} min={-100000} onCommit={(v) => up({ x: v / 100 })} />
           <NumField label="Y" value={cm(f.y)} min={-100000} onCommit={(v) => up({ y: v / 100 })} />
           <NumField label="Rotation" value={Math.round((f.rotation * 180) / Math.PI)} suffix="°" min={-360} max={360} step={15} onCommit={(v) => up({ rotation: (v * Math.PI) / 180 })} />
           <div className="field provenance-field"><span>Colour</span>
             <input type="color" aria-label="Colour" value={/^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#888888'} onChange={(e) => up({ color: e.target.value })} /></div>
-          <NumField label="Price" value={Math.round(f.priceSek)} suffix="kr" max={10000000} onCommit={(v) => up({ priceSek: v })} />
-        </div>
-        <details className="provenance-more">
-          <summary>More</summary>
           <div className="provenance-checks">
             <label><input type="checkbox" checked={f.locked} onChange={(e) => up({ locked: e.target.checked })} /> Locked</label>
             <label><input type="checkbox" checked={f.owned} onChange={(e) => up({ owned: e.target.checked })} /> Owned</label>
           </div>
-          {f.material && <Field label="Material"><span>{f.material}</span></Field>}
           <Provenance targetId={f.id} sourceKind={f.sourceKind} status={f.sourceKind === 'catalog' ? 'estimated' : 'verified'} valueM={f.w} />
           {tail}
         </details>
-        </div>
       </>);
     }
   }

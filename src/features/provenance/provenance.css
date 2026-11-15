@@ -1,8 +1,6 @@
 .provenance-section { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
 .provenance-section h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .provenance-thumb { width: 100%; max-height: 120px; border-radius: 6px; cursor: zoom-in; background: var(--panel-2); }
-.provenance-modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; z-index: 100; }
-.provenance-modal canvas { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
 .provenance-diff { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; margin-top: 6px; font-size: 12px; }
 .provenance-diff .bad { color: var(--bad); } .provenance-diff .ok { color: var(--ok); }
 .provenance-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
@@ -40,3 +38,13 @@
 .provenance-title { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
 .provenance-sheet { display: flex; flex-direction: column; padding: 4px 0 8px; }
 .provenance-checks { display: flex; gap: 12px; min-height: 28px; align-items: center; }
+
+.provenance-dims { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 0; }
+.provenance-dims .provenance-field { flex-direction: column; align-items: stretch; gap: 2px; min-height: 0; }
+.provenance-dims .provenance-numwrap { width: 100%; box-sizing: border-box; min-height: 32px; }
+.provenance-dims .provenance-num { flex: 1; min-width: 0; width: 0; }
+.provenance-dims .provenance-step { display: none; }
+.provenance-acts { display: flex; align-items: center; gap: 4px; padding: 4px 0; }
+.provenance-material { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 28px; display: flex; align-items: center; }
+.provenance-more > summary { cursor: pointer; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
+.provenance-more > summary:focus-visible, .provenance-numwrap button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
