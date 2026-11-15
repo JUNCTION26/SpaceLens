@@ -42,6 +42,8 @@ interface Gesture {
   shadowDirty: boolean;
   /** Walker is moving or turning this frame. */
   walking: boolean;
+  /** The idle drift is turning the view: the light has not moved, so shadows stay as they are. */
+  drifting?: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -655,6 +657,10 @@ function homeView(room: ReturnType<typeof useRoom>, cam: THREE.Camera, kind: Vie
 
 const angleTo = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+const nowMs = () => globalThis.performance.now();
+interface Shot { t: number; dur: number; fromP: THREE.Vector3; fromT: THREE.Vector3; toP: THREE.Vector3; toT: THREE.Vector3; sweep: number }
+
 type Controls = THREE.EventDispatcher<{ change: object; start: object; end: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean };
 
 function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
@@ -664,7 +670,11 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
   const { camera, invalidate } = useThree();
   const performance = useThree((s) => s.performance);
   const controls = useThree((s) => s.controls) as unknown as Controls | null;
-  const anim = useRef<{ t: number; fromP: THREE.Vector3; fromT: THREE.Vector3; toP: THREE.Vector3; toT: THREE.Vector3 } | null>(null);
+  const anim = useRef<Shot | null>(null);
+  /** Shots waiting to play after the current one (a door reveal is a move in, then a push forward). */
+  const queue = useRef<Shot[]>([]);
+  const lastInput = useRef(nowMs());
+  const drift = useRef<{ t0: number; angle: number } | null>(null);
   const items = useShownFurniture();
   const lastRoom = useRef<string | null | undefined>(undefined);
 
@@ -672,7 +682,7 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
   const framed = useRef<{ key: string; aspect: number; mode: CamMode } | null>(null);
   // Where the last glide ended, for controls that mount after the first framing.
   const lastT = useRef<THREE.Vector3 | null>(null);
-  const flyTo = (toP: THREE.Vector3, toT: THREE.Vector3) => {
+  const flyTo = (toP: THREE.Vector3, toT: THREE.Vector3, seconds?: number, sweep = 0) => {
     if (controls) {
       // spend any leftover inertia now, so the camera does not drift off the new view after the glide
       const c = controls as unknown as { enableDamping: boolean };
@@ -680,7 +690,11 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
     }
     lastT.current = toT.clone();
     const fromT = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
-    anim.current = { t: 0, fromP: camera.position.clone(), fromT, toP: toP.clone(), toT: toT.clone() };
+    // a damped dolly: longer moves take a little longer, and nothing ever cuts unless motion is reduced
+    const dur = REDUCED ? 0.001 : seconds ?? Math.min(1.6, Math.max(0.8, 0.7 + camera.position.distanceTo(toP) * 0.05));
+    anim.current = { t: 0, dur, fromP: camera.position.clone(), fromT, toP: toP.clone(), toT: toT.clone(), sweep };
+    queue.current = [];
+    drift.current = null;
     gesture.current.touched = false;
     invalidate();
   };
@@ -692,7 +706,7 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
   useEffect(() => {
     if (!controls) return;
     if (lastT.current && !anim.current) { controls.target.copy(lastT.current); controls.update(); }
-    const start = () => { anim.current = null; gesture.current.touched = true; };
+    const start = () => { anim.current = null; queue.current = []; gesture.current.touched = true; };
     const change = () => {
       if (anim.current) return;
       const b = boxRef.current;
@@ -748,6 +762,55 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [req?.n]);
 
+  // Camera director: other features ask for a named shot with
+  //   window.dispatchEvent(new CustomEvent('spacelens:camera', { detail: { shot, seconds } }))
+  // shot: 'orbit' (quarter turn around the building), 'dolly-in' (push toward the centre),
+  // 'top-down' (plan view from above), 'eye-level' (standing height at the edge, looking in),
+  // 'door-reveal' (arrive at the entrance, then push into the room). seconds is optional.
+  const shotRef = useRef<(shot: string, seconds?: number) => void>(() => {});
+  shotRef.current = (shot, seconds) => {
+    if (mode === 'walk') return;
+    const tgt = controls ? controls.target.clone() : new THREE.Vector3(room.cx, 0, room.cy);
+    const sec = typeof seconds === 'number' && seconds > 0 ? seconds : undefined;
+    const ceil = room.model.ceilingM || 2.5;
+    if (shot === 'orbit') { flyTo(camera.position.clone(), tgt, sec ?? 8, Math.PI / 2); return; }
+    if (shot === 'dolly-in') {
+      const p = tgt.clone().add(camera.position.clone().sub(tgt).multiplyScalar(0.55));
+      if (p.y < 0.6) p.y = 0.6;
+      flyTo(p, tgt, sec ?? 2.5); return;
+    }
+    if (shot === 'top-down') { const v = homeView(room, camera, 'top'); flyTo(v.p, v.t, sec ?? 2); return; }
+    if (shot === 'eye-level') {
+      const c = new THREE.Vector3(room.cx, 1.2, room.cy);
+      const p = new THREE.Vector3(room.cx + room.w * 0.42, 1.6, room.cy + room.d * 0.42);
+      flyTo(p, c, sec ?? 2.5); return;
+    }
+    if (shot === 'door-reveal') {
+      const sp = room.spawn, dir = new THREE.Vector3(-Math.sin(sp.yaw), 0, -Math.cos(sp.yaw));
+      const at = new THREE.Vector3(sp.pos.x, 1.6, sp.pos.y).addScaledVector(dir, -0.8);
+      const look = at.clone().addScaledVector(dir, 4).setY(1.2);
+      const total = sec ?? 4;
+      flyTo(at, look, total * 0.45);
+      const end = at.clone().addScaledVector(dir, 1.6).setY(Math.min(1.7, ceil - 0.3));
+      queue.current = [{ t: 0, dur: REDUCED ? 0.001 : total * 0.55, fromP: at, fromT: look, toP: end, toT: look.clone().addScaledVector(dir, 1.6), sweep: 0 }];
+    }
+  };
+  useEffect(() => {
+    const h = (e: Event) => { const d = (e as CustomEvent<{ shot?: string; seconds?: number }>).detail; if (d?.shot) shotRef.current(d.shot, d.seconds); };
+    window.addEventListener('spacelens:camera', h);
+    return () => window.removeEventListener('spacelens:camera', h);
+  }, []);
+
+  // Idle drift: after 5 s without input the view turns slowly through a few degrees; any input stops it.
+  useEffect(() => {
+    if (REDUCED || SCRIPTED) return;
+    const touch = () => { lastInput.current = nowMs(); drift.current = null; };
+    const evs = ['pointerdown', 'wheel', 'keydown', 'touchstart'] as const;
+    evs.forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
+    const tick = window.setInterval(() => { if (nowMs() - lastInput.current > 5000) invalidate(); }, 1000);
+    return () => { evs.forEach((ev) => window.removeEventListener(ev, touch, { capture: true })); clearInterval(tick); };
+  }, [invalidate]);
+
   // Inside some room, clear of every wall piece (door and opening gaps are open) and of furniture.
   const solidItems = useMemo(() => items.filter((it) => !isRug(it)).map((it) => itemCorners(it)), [items]);
   const blocked = (p: Vec2) => {
@@ -760,14 +823,18 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
     if (controls) controls.enabled = mode !== 'walk' && !gesture.current.onPiece;
     const a = anim.current;
     if (a) {
-      a.t = Math.min(1, a.t + dt / 0.6);
+      a.t = Math.min(1, a.t + dt / a.dur);
       const e = a.t < 0.5 ? 4 * a.t ** 3 : 1 - (-2 * a.t + 2) ** 3 / 2;
       camera.position.lerpVectors(a.fromP, a.toP, e);
       const tgt = new THREE.Vector3().lerpVectors(a.fromT, a.toT, e);
+      if (a.sweep) camera.position.sub(tgt).applyAxisAngle(UP_AXIS, a.sweep * e).add(tgt);
       camera.lookAt(tgt);
       if (controls) controls.target.copy(tgt);
-      if (a.t >= 1) {
+      if (a.t >= 1 && queue.current.length) {
+        anim.current = queue.current.shift()!;
+      } else if (a.t >= 1) {
         anim.current = null;
+        lastInput.current = nowMs();
         if (mode === 'walk') { const w = walk.current; camera.rotation.set(w.pitch, w.yaw, 0, 'YXZ'); }
         else if (controls) controls.update();
       }
@@ -775,7 +842,23 @@ function CameraRig({ mode, eye, room, walk, req, gesture, onRoom, onTourEnd }: {
       invalidate();
       return;
     }
-    if (mode !== 'walk') { gesture.current.walking = false; return; }
+    if (mode !== 'walk') {
+      gesture.current.walking = false;
+      gesture.current.drifting = false;
+      if (REDUCED || SCRIPTED || !controls || gesture.current.onPiece) return;
+      const now = nowMs();
+      if (now - lastInput.current < 5000) return;
+      // a slow sway of about four degrees each way around the orbit target
+      const d = (drift.current ??= { t0: now, angle: 0 });
+      const ramp = Math.min(1, (now - d.t0) / 4000);
+      const angle = THREE.MathUtils.degToRad(4) * ramp * Math.sin(((now - d.t0) / 1000) * (2 * Math.PI / 24));
+      camera.position.sub(controls.target).applyAxisAngle(UP_AXIS, angle - d.angle).add(controls.target);
+      d.angle = angle;
+      camera.lookAt(controls.target);
+      gesture.current.drifting = true;
+      invalidate();
+      return;
+    }
     const w = walk.current;
     let f = -w.joy.y, s = w.joy.x;
     const k = w.keys;
@@ -848,7 +931,7 @@ function MotionBudget({ gesture, mode, deps }: { gesture: MutableRefObject<Gestu
   useFrame(() => {
     const g = gesture.current;
     const moving = performance.current < 1 || g.walking;
-    if (!moving && (g.shadowDirty || wasMoving.current || mode !== 'walk')) { gl.shadowMap.needsUpdate = true; g.shadowDirty = false; }
+    if (!moving && (g.shadowDirty || wasMoving.current || (mode !== 'walk' && !g.drifting))) { gl.shadowMap.needsUpdate = true; g.shadowDirty = false; }
     else if (moving && g.shadowDirty && mode !== 'walk') { gl.shadowMap.needsUpdate = true; g.shadowDirty = false; }
     // one more frame once the camera rests, at full resolution with fresh shadows
     if (wasMoving.current && !moving) invalidate();
