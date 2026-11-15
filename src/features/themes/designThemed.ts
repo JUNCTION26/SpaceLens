@@ -316,6 +316,7 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
   async function clearChecks() {
     const tClear = now();
     const cleared: string[] = [];
+    let movedEssential = false;
     for (let round = 0; solved.candidates.length && failsOf(solved) > 0 && round < 3 && now() - tClear < 3000; round++) {
       const worst = solved.candidates.map(failing).sort((a, b) => a.length - b.length)[0];
       const blamed = new Map<string, number>();
@@ -324,6 +325,22 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
         + (/plant|lamp|decor|lighting/.test(e.f.category) ? 2 : 0) - (e.o.essential ? 8 : 0);
       const pool = entries.filter((e) => items.some((f) => f.id === e.f.id) && e.f.mount !== 'wall' && e.f.category !== 'rug' && !e.o.essential && !(e.idx === 0 && e.key.endsWith('#0')));
       const drop = pool.filter((e) => blamed.has(e.f.id) || !e.key.endsWith('#0')).sort((a, b) => rank(b) - rank(a))[0];
+      const blamedHard = entries.some((e) => blamed.has(e.f.id) && items.some((f) => f.id === e.f.id) && e.f.mount !== 'wall' && e.f.category !== 'rug');
+      if (!drop || !pool.some((e) => blamed.has(e.f.id))) {
+        // Only an essential piece is in the way: move it (a new arrangement, then without its placement wish) instead of removing it.
+        if (!blamedHard) { if (!drop) break; } else {
+          const base = failsOf(solved);
+          let moved: typeof solved | undefined;
+          for (let attempt = 0; attempt < 4 && !moved; attempt++) {
+            const c = conceptFor(items);
+            if (attempt >= 2) c.relations = c.relations.filter((r) => !(blamed.has(r.subject) && ['in-corner', 'near-window', 'against-wall'].includes(r.kind)));
+            const again = await solveProgram(model, items, c, { variants: 1, seed: model.version * 31 + 101 + round * 7 + attempt, signal: opts.signal, req, timeBudgetMs: 700 });
+            if (again.candidates.length && failsOf(again) < base) moved = again;
+          }
+          if (moved) { solved = moved; cleared.push('moved'); movedEssential = true; continue; }
+          if (!drop) break;
+        }
+      }
       if (!drop) break;
       const next = items.filter((f) => f.id !== drop.f.id);
       const again = await solveProgram(model, next, conceptFor(next), { variants: 1, seed: model.version * 31 + 41 + round, signal: opts.signal, req, timeBudgetMs: 900 });
@@ -331,7 +348,9 @@ async function designThemedCore(model: SpaceModel, text: string, opts: ThemedOpt
       items = next; solved = again; concept = conceptFor(next); cleared.push(drop.f.name);
     }
     if (!cleared.length) return;
-    brief.notes.push(`Left out to keep walkways clear: ${cleared.join(', ')}.`);
+    const gone = cleared.filter((c) => c !== 'moved');
+    if (gone.length) brief.notes.push(`Left out to keep walkways clear: ${gone.join(', ')}.`);
+    if (movedEssential) brief.notes.push('An essential piece was moved to keep the walkway clear.');
     adopt(solved);
     opts.onProgress?.(snapshot(), 'concepts');
   }
@@ -424,26 +443,27 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0,
  * kit's version. Streamed rooms carry `partial: true`; the last emission is the returned result.
  */
 export async function designThemedRoom(model: SpaceModel, text: string, opts: ThemedOpts = {}): Promise<ThemedResult> {
-  if (opts.brief || !model.spaces.length) return legacyThemedRoom(model, text, opts);
+  if (!model.spaces.length) return legacyThemedRoom(model, text, opts);
+  const given = opts.brief;
   const t0 = now();
   const sub = opts.spaceId && model.spaces.length > 1 ? subModelFor(model, opts.spaceId) : null;
   const pm = sub ? sub.model : model;
   const back = <R extends DesignResult>(r: R): R => (sub ? { ...r, candidates: r.candidates.map((c) => ({ ...c, furniture: mergeFurniture(model, sub.spaceId, c.furniture, sub.offset) })) } : r);
-  let plan: Plan = planContract(pm, text, rulesBrief(text));
+  let plan: Plan = planContract(pm, text, given ?? rulesBrief(text), given?.names ?? []);
   const names = plan.brief.names;
   const stamp = (r: DesignResult, partial: boolean, brief: ThemeBrief): DesignResult & { partial: boolean } => {
     const roomName = roomNameOf(brief, names);
     const m = back(r);
     return { ...m, candidates: m.candidates.map((c, i) => ({ ...c, name: i === 0 ? roomName : `${roomName} ${i + 1}` })), partial };
   };
-  const aiP = aiReady() && !opts.signal?.aborted
+  const aiP = !given && aiReady() && !opts.signal?.aborted
     ? themeBrief(text, { signal: opts.signal, room: roomLine(pm) }).then((b) => (b.by === 'gemini' ? b : null), (e) => { if ((e as Error).name === 'AbortError') throw e; return null; })
     : null;
   aiP?.catch(() => undefined);
 
   // (1) The room from kit pieces, checked against the contract; one smaller try when it fails.
   const run = (p: Plan) => designThemedCore(pm, text, {
-    ...opts, spaceId: undefined, brief: p.brief, offline: true, reuse: undefined,
+    ...opts, spaceId: undefined, brief: p.brief, offline: given ? opts.offline : true, reuse: given ? opts.reuse : undefined,
     onProgress: opts.onProgress && ((r, ph) => opts.onProgress!(stamp(r, true, p.brief), ph)),
   });
   const contractOf = (p: Plan, r: DesignResult, pcs: Piece[] | undefined, c: LayoutCandidate | undefined): Contract => {
@@ -466,7 +486,10 @@ export async function designThemedRoom(model: SpaceModel, text: string, opts: Th
       if (v.contract.complete && v.res.candidates.length) break;
     } catch (e) { if ((e as Error).name === 'AbortError' || opts.signal?.aborted) throw e; lastErr = e; }
   }
-  if (!best) throw lastErr ?? new Error('Could not lay out the room');
+  if (!best || (given && !best.res.candidates.length)) {
+    if (given && !opts.signal?.aborted) return legacyThemedRoom(model, text, { ...opts, brief: undefined });
+    throw lastErr ?? new Error('Could not lay out the room');
+  }
   plan = best.plan;
   const brief: ThemeBrief = { ...best.res.brief, title: roomNameOf(best.res.brief, names), notes: [...best.res.brief.notes] };
   let cur: ThemedResult = { ...best.res, brief };
