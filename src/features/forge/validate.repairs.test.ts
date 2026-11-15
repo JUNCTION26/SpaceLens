@@ -3,7 +3,7 @@ import type { ObjectPart, ObjectSpec } from '../../core/types';
 import { partsBounds, MAX_PARTS } from './spec';
 import { checkSpec, validateSpec } from './validate';
 
-const box = (name: string, pos: [number, number, number], size: [number, number, number]): ObjectPart => ({ name, shape: 'box', size, pos, material: 'wood' });
+const box = (name: string, pos: [number, number, number], size: [number, number, number]): ObjectPart => ({ name, shape: 'box', size, pos, material: 'oak' });
 const spec = (parts: ObjectPart[], size = { w: 1, d: 0.6, h: 0.8 }): ObjectSpec => ({ id: 't', name: 't', prompt: 't', size, parts } as unknown as ObjectSpec);
 const table = () => [
   box('top', [0, 0.77, 0], [1, 0.06, 0.6]),
