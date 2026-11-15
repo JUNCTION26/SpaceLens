@@ -102,7 +102,7 @@ function SummaryCard({ s, onDesign, onAgain }: { s: Summary; onDesign: () => voi
     <div className="card capture-summary">
       <Stepper step={4} hint="" />
       <div className="capture-stats">
-        <div><b>{s.areaM2.toFixed(1)} m²</b><span>Floor area</span></div>
+        <div><b>{s.areaM2.toFixed(1)} m²</b><span className="sr-only">Floor area</span></div>
       </div>
       <button className="btn btn-primary capture-big" onClick={onDesign}>Design this room</button>
       <button className="btn btn-ghost" onClick={onAgain}>Capture another</button>

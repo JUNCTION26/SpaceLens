@@ -186,7 +186,8 @@ export function Calibrate({ imageUrl, label, initialRoom, initialRef, aiOpenings
             </div>
           </div>
           {errCm != null
-            ? <p className={`chip ${Math.abs(errCm) < 5 ? 'chip-ok' : 'chip-warn'}`}>Photo said {Math.round(computed * 100)} cm, off by {errCm.toFixed(1)} cm ({((errCm / (tapeM * 100)) * 100).toFixed(1)}%). Walls rescaled to your tape.</p>            : null}
+            ? <p className={`chip ${Math.abs(errCm) < 5 ? 'chip-ok' : 'chip-warn'}`}>Off by {errCm.toFixed(1)} cm</p>
+            : null}
         </div>
       )}
     </div>

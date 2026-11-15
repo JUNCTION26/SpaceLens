@@ -63,12 +63,13 @@ export function SizeRow() {
     <div>
       <div className="capture-size">
         {(['W', 'D', 'H'] as const).map((l, i) => (
-          <label key={l}>{l}
+          <label key={l}><span>{l}</span>
             <input className="field" inputMode="decimal" value={vals[i]} aria-label={`${['Width', 'Depth', 'Height'][i]} in metres`}
               onChange={(e) => setVals((v) => v.map((x, k) => (k === i ? e.target.value : x)))}
               onKeyDown={(e) => step(i, e)} onBlur={(e) => commit(i, e.currentTarget.value)} onFocus={(e) => e.currentTarget.select()} />
           </label>
         ))}
+        <span className="capture-size-unit" aria-hidden="true">m</span>
         <span className="chip" aria-label="Floor area">{m2.toFixed(1)} m²</span>
       </div>
       {warn && <p className="chip chip-warn capture-size-warn" role="status">{warn}</p>}
