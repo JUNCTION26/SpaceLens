@@ -33,6 +33,7 @@ export async function readerFetch(url: string, signal?: AbortSignal, timeoutMs =
     return await res.text();
   } catch (e) {
     if (ctrl.signal.aborted && !signal?.aborted) throw new Error('The page took too long to read.');
+    if (e instanceof TypeError) throw new Error('Could not reach that page.');
     throw e;
   } finally {
     clearTimeout(timer);

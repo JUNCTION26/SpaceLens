@@ -115,7 +115,8 @@ export async function searchProducts(query: string, opts: SearchOptions = {}): P
   }
   if (!grounded) {
     opts.onStatus?.('Searching the web…');
-    results = await webSearch(query, limit, lim, opts.signal);
+    // No connection or a failed reader: an empty result, so the panel shows its plain empty state.
+    try { results = await webSearch(query, limit, lim, opts.signal); } catch (e) { if (opts.signal?.aborted) throw e; results = []; }
   }
   if (!results.length) { opts.onStatus?.('No product pages found. Try other words or paste a link.'); return []; }
 
