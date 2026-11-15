@@ -27,6 +27,12 @@ import { validateSpec } from './validate';
 export interface GenerateOpts {
   onPartial?: (partial: ObjectSpec) => void;
   signal?: AbortSignal;
+  /** Run the automatic detail pass after the draft (default true). */
+  detail?: boolean;
+  /** Called once with the finished draft, before the detail pass starts. */
+  onDraft?: (draft: ForgeSpec) => void;
+  /** Abort this to cancel only the detail pass (the draft is then the result), e.g. when the person edits. */
+  detailSignal?: AbortSignal;
 }
 
 /** How a spec was made: kept on the object for timing and quality checks. */
@@ -36,6 +42,10 @@ export interface GenInfo {
   firstPartsMs: number | null;
   totalMs: number;
   passes: number;
+  /** Draft time and detail pass time in ms (detail is null when it did not run or was not used). */
+  draftMs?: number;
+  detailMs?: number | null;
+  detailModel?: string;
   items: number;
   fixes: string[];
 }
@@ -58,7 +68,7 @@ export function modelTier(model: string | undefined): 'lean' | 'rich' {
   return /gemini-4|hydrogen|carbon|argon|3\.[5-9]-flash|pro/.test(m) ? 'rich' : 'lean';
 }
 
-const BUDGET = { lean: '6 to 16 items', rich: '10 to 28 items' } as const;
+const BUDGET = { lean: '6 to 16 items', rich: '14 to 40 items' } as const;
 
 // ---- prompt ------------------------------------------------------------------------------
 
@@ -376,12 +386,15 @@ async function withRepair(first: { data: unknown; model: string }, parsed: Parse
   return { f, model, data, passes };
 }
 
-/** A detail pass on strong models: more signature details and hardware, same overall object. */
-async function refine(prev: { f: Finished; data: unknown; model: string }, prompt: string, parsed: ParsedRequest, want: Want, opts: GenerateOpts, st: StreamState, system: string) {
-  const text = `Here is your object for "${prompt}" as JSON. Make it more recognisable and finely detailed: keep every item and the overall size, and add up to 10 items of signature detail (trim, hardware, piping, stitching, panels, small accessories that belong to it). Fix anything that does not match the request.\n${requestLines(parsed, want.size)}\n${JSON.stringify(prev.data)}`;
-  const res = await callModel(system, [{ text }], parsed, want, opts, st);
+/** The detail pass: a stronger model refines the same object; the result replaces the draft only when valid. */
+async function refine(prev: { f: Finished; data: unknown; model: string }, prompt: string, parsed: ParsedRequest, want: Want, opts: GenerateOpts, system: string, signal: AbortSignal) {
+  const text = `Here is a fast first draft of "${prompt}" as JSON. Refine THE SAME object into a finished one: keep its overall size and character, improve proportions against real-world dimensions, add parts (up to 40 items in total; real hardware, trim, supports, panels, small accessories that belong to it), choose better materials, and print real words on signs, screens, labels or logos with the text field where the object has any. Every part must touch another part or the floor. Fix anything that does not match the request.
+${requestLines(parsed, want.size)}
+${JSON.stringify(prev.data)}`;
+  const res = await ai<unknown>({ task: 'smart', system, parts: [{ text }], schema: SPEC_JSON_SCHEMA, signal, temperature: 0.35 });
   const g = finish(res.data, parsed, want);
-  return g.ok && g.spec.parts.length >= prev.f.spec.parts.length ? { f: g, data: res.data, model: res.model } : prev;
+  const better = g.ok && g.spec.parts.length >= prev.f.spec.parts.length;
+  return { took: better, f: better ? g : prev.f, data: better ? res.data : prev.data, model: better ? res.model : prev.model, detailModel: res.model };
 }
 
 // ---- public API --------------------------------------------------------------------------
@@ -410,15 +423,30 @@ export async function generateObject(prompt: string, opts: GenerateOpts = {}): P
     const first = await callModel(system, userParts(prompt, parsed, target, pickExamples(prompt, parsed, 2)), parsed, want, opts, st, sil.parts);
     let r = await withRepair(first, parsed, want, opts, st, system);
     let passes = r.passes;
-    // A strong model that answered quickly gets a detail pass.
-    if (modelTier(r.model) === 'rich' && now() - t0 < 6000 && !opts.signal?.aborted) {
-      try { const g = await refine(r, prompt, parsed, want, opts, st, system); passes++; r = { ...r, ...g }; } catch (e) { if (opts.signal?.aborted) throw e; }
+    const draftMs = Math.round(now() - t0);
+    let detailMs: number | null = null, detailModel: string | undefined;
+    if (r.f.spec.parts.length >= 3 && opts.detail !== false && !opts.signal?.aborted && !opts.detailSignal?.aborted) {
+      const draft = stamp({ ...r.f.spec, id: r.f.spec.id || uid('obj'), prompt, model: r.model, latencyMs: draftMs, createdAt: Date.now() },
+        { model: r.model, tier: modelTier(r.model), firstPartsMs: st.firstPartsMs, totalMs: draftMs, draftMs, detailMs: null, passes, items: r.f.items, fixes: r.f.fixes });
+      opts.onDraft?.(draft);
+      opts.onPartial?.(draft);
+      const ctl = new AbortController();
+      const stop = () => ctl.abort();
+      for (const sg of [opts.signal, opts.detailSignal]) sg?.addEventListener('abort', stop, { once: true });
+      const td = now();
+      try {
+        const g = await refine(r, prompt, parsed, want, opts, systemPrompt('rich'), ctl.signal);
+        detailMs = Math.round(now() - td); detailModel = g.detailModel; passes++;
+        if (g.took) r = { ...r, f: g.f, data: g.data, model: g.model };
+        else detailModel = `${g.detailModel} (kept draft)`;
+      } catch (e) { if (opts.signal?.aborted) throw e; /* cancelled or failed: the draft stands */ }
+      finally { for (const sg of [opts.signal, opts.detailSignal]) sg?.removeEventListener('abort', stop); }
     }
     const { f, model } = r;
     if (f.spec.parts.length < 3) throw new Error('empty object');
     const totalMs = Math.round(now() - t0);
     return stamp({ ...f.spec, id: f.spec.id || uid('obj'), prompt, model, latencyMs: totalMs, createdAt: Date.now() },
-      { model, tier: modelTier(model), firstPartsMs: st.firstPartsMs, totalMs, passes, items: f.items, fixes: f.fixes });
+      { model, tier: modelTier(model), firstPartsMs: st.firstPartsMs, totalMs, draftMs, detailMs, detailModel, passes, items: f.items, fixes: f.fixes });
   } catch (e) {
     if (opts.signal?.aborted) throw e;
     await reveal(sil, opts.onPartial, opts.signal);

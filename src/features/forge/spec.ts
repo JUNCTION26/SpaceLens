@@ -17,7 +17,7 @@ export const MATERIAL_IDS: readonly MaterialId[] = [
 ];
 
 export const MIN_PART = 0.004;
-export const MAX_PARTS = 80;
+export const MAX_PARTS = 60;
 const MAX_DIM = 8;
 
 const ROLES: readonly ObjectRole[] = ['seating', 'surface', 'storage', 'sleeping', 'decor', 'lighting', 'appliance', 'divider', 'floor'];

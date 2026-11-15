@@ -97,7 +97,7 @@ function snapFloating(parts: ObjectPart[], issues: string[]): ObjectPart[] {
   return cur;
 }
 
-/** Validate and repair. `fixed` always has 80 parts or fewer, rests on the floor, is connected and fits `size`. */
+/** Validate and repair. `fixed` always has 60 parts or fewer, rests on the floor, is connected and fits `size`. */
 export function validateSpec(spec: ObjectSpec): SpecValidation {
   const issues = checkSpec(spec);
   let parts = spec.parts.filter((p) => PART_SHAPES.includes(p.shape) && p.size.every((v) => Number.isFinite(v) && v > 0) && p.pos.every(Number.isFinite));
