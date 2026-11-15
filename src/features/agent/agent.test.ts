@@ -149,7 +149,7 @@ describe('runTurn', () => {
     // The ghost and label were on the plan before the model changed.
     expect(seen[0]).toBeGreaterThanOrEqual(2);
     const turns = agent.useAgent.getState().turns;
-    expect(turns[turns.length - 1].meta).toMatch(/^Gemini · test-flash · \d+\.\d s$/);
+    expect(turns[turns.length - 1].meta).toBe('Gemini · test-flash');
     expect(turns[turns.length - 1].done?.[0]).toMatch(/Added Desk 120/);
   });
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { StoreListing } from '../../core/types';
+import { emptyMemory, type RefMemory } from '../intent/roomEdit';
 import { emptyConversation, type Conversation } from './conversation';
 
 export interface Turn {
@@ -20,6 +21,8 @@ interface AgentState {
   turns: Turn[];
   /** What the assistant remembers: referred things, last action, stated goals. Plain data. */
   conv: Conversation;
+  /** Which pieces the last edits touched, so "a bit left" after "move the desk" means the desk. */
+  memory: RefMemory;
   /** Live words while the person is talking. */
   interim: string;
   /** The agent's line in progress or its last line. */
@@ -44,6 +47,7 @@ function loadMuted() { try { return localStorage.getItem('spacelens:agentMuted')
 export const useAgent = create<AgentState>((set, get) => ({
   turns: [],
   conv: emptyConversation(),
+  memory: emptyMemory(),
   interim: '',
   caption: '',
   listening: false,

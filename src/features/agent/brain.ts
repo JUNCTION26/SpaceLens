@@ -12,8 +12,13 @@ import { ACTION_TYPES, applyRoomOps, cleanReply, extraSketch, looksLikeEdit, wan
 import { useAgent } from './agentStore';
 import { describeMark, refersToSketch } from './deixis';
 import { loadMod, loadedMod } from './mods';
-import { answerWithHighlight } from './answer';
+import { answerWithHighlight, detectLang } from './answer';
 import { refineRoom, refineRoomOffline } from '../intent/refine';
+import { signedArea } from '../referee/geom';
+import { validateLayout } from '../referee/validate';
+import { totalFor } from '../budget/plan';
+import { budgetVerdict, compareFacts, D, goalsBrief, hasGoals, mergeGoals, parseGoals, parseWhatIf, planTurn, sayParts, stretchPolygon, tidy, type RoomFacts } from './conversation';
+import type { SpaceModel } from '../../core/types';
 import { offlineReply } from './offline';
 import { latestMark, useSketch } from './sketchStore';
 import { speak, stopSpeaking, takeSentences } from './speech';
@@ -157,6 +162,21 @@ function worthSaying(a: Action, reply: AgentReply, ok: boolean): boolean {
   return false;
 }
 
+const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
+/** Open floor and failed checks of a room as it stands (or as a copy would stand). */
+function factsOf(model: SpaceModel): RoomFacts {
+  const floor = model.spaces.reduce((a, sp) => a + Math.abs(signedArea(sp.polygon)), 0);
+  const used = model.furniture.reduce((a, f) => a + f.w * f.d, 0);
+  const fails = validateLayout(model, model.furniture, getState().requirements).filter((v) => v.result === 'fail').length;
+  return { openM2: Math.max(0, floor - used), fails };
+}
+
+/** The room on a copy, one axis longer; the real room is never touched. */
+function whatIfCopy(model: SpaceModel, axis: 'x' | 'y', deltaM: number): SpaceModel {
+  return { ...model, spaces: model.spaces.map((sp, i) => (i === 0 ? { ...sp, polygon: stretchPolygon(sp.polygon, axis, deltaM) } : sp)) };
+}
+
 export interface TurnOptions {
   /** Force the rule path (tests, or no network). */
   offline?: boolean;
@@ -166,7 +186,9 @@ export interface TurnOptions {
 async function tryEdit(words: string, model: ReturnType<typeof getState>['model'], offline: boolean): Promise<{ say: string } | null> {
   try {
     const previous = getState().past.at(-1)?.furniture;
-    const r = offline ? refineRoomOffline(model, words, { previous }) : await refineRoom(model, words, { previous });
+    const memory = useAgent.getState().memory;
+    const r = offline ? refineRoomOffline(model, words, { previous, memory }) : await refineRoom(model, words, { previous, memory });
+    if (r?.memory) useAgent.getState().set({ memory: r.memory });
     if (!r || !r.ok || r.noChange) return null;
     if (r.undo && !r.ops.length) getState().undo();
     else if (r.ops.length) applyRoomOps(r.ops, r.label);
@@ -191,28 +213,49 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
   await loadMod('reports');
 
   const st = getState();
+  const conv0 = useAgent.getState().conv;
+  const lang = detectLang(words, conv0.lang);
+  const parsedGoals = parseGoals(words);
+  const goals = mergeGoals(conv0.goals, parsedGoals);
+  useAgent.getState().set({ conv: { ...conv0, lang, goals } });
   const marks = useSketch.getState().marks;
   const refs = makeRefs(st.model, marks, st.candidates.map((c) => c.id));
-  const ctx: Ctx = { refs, turnId, utterance: words, signal: ac.signal, status: (s) => useAgent.getState().set({ status: s }) };
+  const ctx: Ctx = { refs, turnId, utterance: words, signal: ac.signal, status: (s) => useAgent.getState().set({ status: s }), goals: hasGoals(goals) ? goals : undefined };
   const say = (s: string) => { void speak(s); };
   const caption = (s: string) => useAgent.getState().set({ caption: s });
   const stream = new ReplyStream(ctx, { speak: say, caption, marks: (ms) => useSketch.getState().addMany(ms) });
 
-  const t0 = performance.now();
   let reply: AgentReply;
   let meta: string;
+  let plan: Plan | null = null;
+  const verdicts: string[] = [];
   const recentSketch = marks.some((m) => m.by === 'you' && Date.now() - m.createdAt < 10 * 60_000);
   const inRoom = (cat: string) => st.model.furniture.some((f) => f.category === cat || f.name.toLowerCase().includes(cat));
   const rules = () => {
-    const r = offlineReply(words, recentSketch, inRoom, st);
+    const r = offlineReply(words, recentSketch, inRoom, st, lang);
     return stream.finish(r);
   };
 
-  const instant = answerWithHighlight(words, st);
-  const edit = !instant && st.model.furniture.length > 0 && !wantsNewRoom(words) && looksLikeEdit(words)
+  const whatIf = parseWhatIf(words);
+  const goalsOnly = hasGoals({ avoid: [], ...parsedGoals }) && wordCount(words) <= 12 && !/(?<![\p{L}])(add|put|move|place|remove|delete|rotate|make|show|why|how|what|where|design|furnish|check|find|lägg|flytta|inred|visa|kolla|sisusta|näytä)(?![\p{L}])/u.test(words.toLowerCase());
+  plan = !whatIf ? planTurn(words, conv0.goals) : null;
+  const instant = !whatIf && !plan ? answerWithHighlight(words, st, lang) : null;
+  const edit = !whatIf && !plan && !instant && st.model.furniture.length > 0 && !wantsNewRoom(words) && looksLikeEdit(words)
     ? await tryEdit(words, st.model, !!opts.offline) : null;
   if (ac.signal.aborted) return;
-  if (instant) {
+  if (whatIf && st.model.spaces.length) {
+    const before = factsOf(st.model);
+    const after = factsOf(whatIfCopy(st.model, whatIf.axis, whatIf.deltaM));
+    reply = stream.finish({ say: compareFacts(lang, before, after), sketch: [], actions: [] });
+    meta = 'What if';
+  } else if (plan) {
+    useAgent.getState().set({ memory: { last: [] } });
+    const checks = plan.checks.filter((c) => c !== 'budget');
+    const actions: Action[] = [{ type: 'design_room', brief: plan.brief }, { type: 'apply_layout' }];
+    if (checks.length) actions.push({ type: 'check_safety' });
+    reply = stream.finish({ say: D(lang, 'designing'), sketch: [], actions });
+    meta = 'Plan';
+  } else if (instant) {
     const h = instant.highlight;
     if (h) {
       const ids = [...(h.spaceIds ?? []), ...(h.openingIds ?? [])];
@@ -221,10 +264,13 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
       getState().setAnalysis({ highlights: ids.length ? [{ ids, color: 'var(--accent, #3b82f6)', label: '' }] : [], routes });
     }
     reply = stream.finish({ say: instant.text, sketch: [], actions: [] });
-    meta = `Instant · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
+    meta = 'Instant';
   } else if (edit) {
     reply = stream.finish({ say: edit.say, sketch: [], actions: [] });
-    meta = `Edit · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
+    meta = 'Edit';
+  } else if (goalsOnly) {
+    reply = stream.finish({ say: D(lang, 'goalSaved'), sketch: [], actions: [] });
+    meta = 'Goals';
   } else if (aiReady() && !opts.offline) {
     try {
       const sid = st.activeCandidateId ?? st.candidates[0]?.id;
@@ -232,13 +278,14 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
       const world = buildWorld({ state: st, marks, turns: previous, report }, refs);
       const res = await ai<unknown>({
         task: 'fast', system: SYSTEM, schema: SCHEMA, signal: ac.signal, temperature: 0.5,
-        parts: [{ text: buildPrompt(words, refs, world) }],
+        parts: [{ text: buildPrompt(words, refs, world) + (hasGoals(goals) ? `
+(The person's lasting goals: ${goalsBrief(goals)}. Reply in at most 20 words.)` : '
+(Reply in at most 20 words.)') }],
         onPartial: (raw) => { if (!ac.signal.aborted) stream.feed(raw); },
       });
       if (ac.signal.aborted) return;
       reply = stream.finish(res.data);
-      const first = stream.firstSentenceAt !== null ? stream.firstSentenceAt - t0 : res.ms;
-      meta = `Gemini · ${res.model.replace(/^models\//, '').replace(/^gemini-/, '')} · ${(first / 1000).toFixed(1)} s`;
+      meta = `Gemini · ${res.model.replace(/^models\//, '').replace(/^gemini-/, '')}`;
     } catch (e) {
       if (ac.signal.aborted) return;
       reply = rules();
@@ -247,13 +294,15 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
     }
   } else {
     reply = rules();
-    meta = `Offline rules · ${Math.max(1, Math.round(performance.now() - t0))} ms`;
+    meta = 'Offline rules';
   }
   if (ac.signal.aborted) return;
+  reply = { ...reply, say: tidy(reply.say) };
+  if (hasGoals({ avoid: [], ...parsedGoals }) && !reply.say && !reply.actions.length) reply = { ...reply, say: D(lang, 'goalSaved') };
 
   const agentTurnId = uid('t');
   useAgent.getState().push({ id: agentTurnId, who: 'agent', text: reply.say, at: Date.now(), meta });
-  useAgent.getState().set({ timing: meta, caption: reply.say, thinking: reply.actions.length > 0 });
+  useAgent.getState().set({ caption: reply.say, thinking: reply.actions.length > 0 });
 
   const extra = extraSketch(reply.actions, ctx);
   if (extra.length) useSketch.getState().addMany(extra);
@@ -267,13 +316,22 @@ export async function runTurn(text: string, opts: TurnOptions = {}): Promise<voi
     if (ac.signal.aborted) break;
     if (r.line) done.push(r.line);
     if (r.products) products = r.products;
-    if (r.speak && worthSaying(a, reply, r.ok)) {
-      say(r.speak);
-      spokenExtra = `${spokenExtra} ${r.speak}`.trim();
+    const room = 20 - wordCount(`${reply.say} ${spokenExtra}`) - (plan?.checks.includes('budget') ? 8 : 0);
+    if (r.speak && (plan ? a.type === 'check_safety' || !r.ok : worthSaying(a, reply, r.ok)) && room >= 3) {
+      const piece = tidy(r.speak, room);
+      say(piece);
+      spokenExtra = `${spokenExtra} ${piece}`.trim();
       useAgent.getState().set({ caption: `${reply.say} ${spokenExtra}`.trim() });
     }
   }
   if (ac.signal.aborted) return;
+  if (plan?.checks.includes('budget')) {
+    const furniture = getState().model.furniture;
+    verdicts.push(budgetVerdict(lang, totalFor(furniture), goals.budgetSek));
+    const line = sayParts([reply.say, spokenExtra, ...verdicts]);
+    const added = line.slice(`${reply.say} ${spokenExtra}`.trim().length).trim();
+    if (added) { say(added); spokenExtra = `${spokenExtra} ${added}`.trim(); useAgent.getState().set({ caption: line }); }
+  }
   useAgent.getState().patchTurn(agentTurnId, { text: `${reply.say} ${spokenExtra}`.trim(), done: done.length ? done : undefined, products });
   useAgent.getState().set({ thinking: false, status: '' });
   if (current === ac) current = null;
