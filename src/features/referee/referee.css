@@ -17,11 +17,9 @@
 .referee-title { margin: 0; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; line-height: 1.45; }
 button.referee-title { cursor: pointer; }
 button.referee-title:hover { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
-.referee-sentences { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.referee-rule { color: var(--text); }
 .referee-passes { padding-top: 8px; }
 .referee-passes summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 0; }
 .referee-passes summary:hover { color: var(--text); }
-.referee-passes .referee-sentences, .referee-passes .referee-list { padding-top: 6px; }
+.referee-passes .referee-list { padding-top: 6px; }
 
 .referee-title, .pb-card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
