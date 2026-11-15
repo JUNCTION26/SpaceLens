@@ -35,3 +35,24 @@
 .forge-fail { color: var(--bad); font-size: 12.5px; }
 .forge-dims { white-space: nowrap; }
 .forge-title strong { min-width: 0; }
+
+.forge .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.forge-fail { display: flex; align-items: center; gap: 6px; }
+.forge-fail svg { width: 16px; height: 16px; }
+.forge-dimsrow { display: flex; align-items: center; gap: 6px; }
+.forge-dim { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.forge-dim input { width: 100%; min-width: 0; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+.forge-unit { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.forge-swatches { display: flex; gap: 8px; align-items: center; }
+.forge-mat { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); padding: 0; cursor: pointer; }
+.forge-mat.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+.forge-strip { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.forge-chip { display: flex; align-items: center; gap: 6px; max-width: 110px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 12px; }
+.forge-chip.on { border-color: var(--accent); }
+.forge-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forge-chip .forge-swatch { grid-row: auto; flex: none; }
+.forge-more summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
+.forge-more ul { list-style: none; margin: 0; padding: 0; }
+.forge-more li { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); min-height: 44px; }
+.forge-more li.on .forge-tile-name { color: var(--accent); }
+.forge-more li:hover .forge-tile-actions, .forge-more .forge-tile-actions:focus-within { opacity: 1; }
