@@ -19,18 +19,18 @@
     "eval:stoa": "node scripts/stoa-eval.mjs"
   },
   "dependencies": {
-    "@react-three/drei": "9.114.0",
-    "@react-three/fiber": "8.17.10",
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.2",
     "pdfjs-dist": "4.7.76",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "three": "0.169.0",
+    "three": "0.187.0",
     "zustand": "4.5.5"
   },
   "devDependencies": {
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
-    "@types/three": "0.169.0",
+    "@types/three": "0.187.0",
     "@vitejs/plugin-react": "4.3.3",
     "typescript": "5.6.3",
     "vite": "5.4.10",
